@@ -43,17 +43,11 @@
     "target": [
       {
         "target": "nsis",
-        "arch": [
-          "x64",
-          "ia32"
-        ]
+        "arch": ["x64", "ia32"]
       },
       {
         "target": "msi",
-        "arch": [
-          "x64",
-          "ia32"
-        ]
+        "arch": ["x64", "ia32"]
       }
     ],
     "icon": "public/icon.ico",
@@ -74,36 +68,22 @@
   "msi": {
     "artifactName": "cat-termix_windows_${arch}_msi.${ext}",
     "oneClick": false,
-    "additionalLightArgs": [
-      "-sice:ICE57"
-    ]
+    "additionalLightArgs": ["-sice:ICE57"]
   },
   "linux": {
     "artifactName": "cat-termix_linux_${arch}_portable.${ext}",
     "target": [
       {
         "target": "AppImage",
-        "arch": [
-          "x64",
-          "arm64",
-          "armv7l"
-        ]
+        "arch": ["x64", "arm64", "armv7l"]
       },
       {
         "target": "deb",
-        "arch": [
-          "x64",
-          "arm64",
-          "armv7l"
-        ]
+        "arch": ["x64", "arm64", "armv7l"]
       },
       {
         "target": "tar.gz",
-        "arch": [
-          "x64",
-          "arm64",
-          "armv7l"
-        ]
+        "arch": ["x64", "arm64", "armv7l"]
       }
     ],
     "icon": "public/icons",
@@ -133,11 +113,7 @@
       },
       {
         "target": "dmg",
-        "arch": [
-          "universal",
-          "x64",
-          "arm64"
-        ]
+        "arch": ["universal", "x64", "arm64"]
       }
     ],
     "icon": "public/icon.icns",

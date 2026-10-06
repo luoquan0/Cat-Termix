@@ -3,6 +3,7 @@
 Cat-Termix is a modified distribution based on the Termix project.
 
 Upstream project:
+
 - Termix
 - https://github.com/Termix-SSH/Termix
 - Baseline used for this repository: Termix 2.9.1 (`release-2.9.1-tag`)

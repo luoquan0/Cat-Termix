@@ -17,6 +17,8 @@ import {
   index,
   uniqueIndex,
   foreignKey,
+  check,
+  primaryKey,
   type AnyMySqlColumn,
 } from "drizzle-orm/mysql-core";
 import { sql } from "drizzle-orm";
@@ -1252,3 +1254,762 @@ export const rbacAppliedDefaults = mysqlTable(
 );
 
 // --- rbac plugin permissions end ---
+
+// --- 云 SSH 控制面开始 ---
+export const teams = mysqlTable(
+  "teams",
+  {
+    id: varchar("id", { length: 255 }).primaryKey(),
+    name: text("name").notNull(),
+    slug: varchar("slug", { length: 255 }).notNull(),
+    ownerUserId: varchar("owner_user_id", { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: text("created_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+    updatedAt: text("updated_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (table) => [
+    uniqueIndex("uq_teams_slug").on(table.slug),
+    index("idx_teams_owner").on(table.ownerUserId),
+  ],
+);
+
+export const teamMembers = mysqlTable(
+  "team_members",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    teamId: varchar("team_id", { length: 255 })
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    userId: varchar("user_id", { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    addedBy: varchar("added_by", { length: 255 }).references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: text("created_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (table) => [
+    uniqueIndex("uq_team_members_team_user").on(table.teamId, table.userId),
+    index("idx_team_members_user").on(table.userId),
+    check(
+      "ck_team_members_role",
+      sql`${table.role} IN ('team_admin', 'project_admin', 'operator', 'viewer')`,
+    ),
+  ],
+);
+
+export const projects = mysqlTable(
+  "projects",
+  {
+    id: varchar("id", { length: 255 }).primaryKey(),
+    teamId: varchar("team_id", { length: 255 }).references(() => teams.id, {
+      onDelete: "cascade",
+    }),
+    ownerUserId: varchar("owner_user_id", { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    kind: text("kind").notNull(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    description: text("description"),
+    createdAt: text("created_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+    updatedAt: text("updated_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (table) => [
+    index("idx_projects_personal_slug").on(table.ownerUserId, table.slug),
+    uniqueIndex("uq_projects_team_slug")
+      .on(table.teamId, table.slug),
+    index("idx_projects_team").on(table.teamId),
+    index("idx_projects_owner").on(table.ownerUserId),
+    check("ck_projects_kind", sql`${table.kind} IN ('personal', 'team')`),
+    check(
+      "ck_projects_scope",
+      sql`(${table.kind} = 'personal' AND ${table.teamId} IS NULL) OR (${table.kind} = 'team' AND ${table.teamId} IS NOT NULL)`,
+    ),
+  ],
+);
+
+export const projectMembers = mysqlTable(
+  "project_members",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    projectId: varchar("project_id", { length: 255 })
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: varchar("user_id", { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    addedBy: varchar("added_by", { length: 255 }).references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: text("created_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (table) => [
+    uniqueIndex("uq_project_members_project_user").on(
+      table.projectId,
+      table.userId,
+    ),
+    index("idx_project_members_user").on(table.userId),
+    check(
+      "ck_project_members_role",
+      sql`${table.role} IN ('project_admin', 'operator', 'viewer')`,
+    ),
+  ],
+);
+
+export const projectRoleGrants = mysqlTable(
+  "project_role_grants",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    projectId: varchar("project_id", { length: 255 })
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    roleId: int("role_id")
+      .notNull()
+      .references(() => roles.id, { onDelete: "cascade" }),
+    projectRole: text("project_role").notNull(),
+    addedBy: varchar("added_by", { length: 255 }).references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: text("created_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+    updatedAt: text("updated_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (table) => [
+    uniqueIndex("uq_project_role_grants_project_role").on(
+      table.projectId,
+      table.roleId,
+    ),
+    index("idx_project_role_grants_role").on(table.roleId),
+    index("idx_project_role_grants_project").on(table.projectId),
+    check(
+      "ck_project_role_grants_project_role",
+      sql`${table.projectRole} IN ('project_admin', 'operator', 'viewer')`,
+    ),
+  ],
+);
+
+export const projectCredentials = mysqlTable(
+  "project_credentials",
+  {
+    id: varchar("id", { length: 255 }).primaryKey(),
+    projectId: varchar("project_id", { length: 255 })
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 255 }).notNull(),
+    username: text("username").notNull(),
+    authType: text("auth_type").notNull(),
+    encryptedSecret: text("encrypted_secret").notNull(),
+    keyType: text("key_type"),
+    createdBy: varchar("created_by", { length: 255 }).references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: text("created_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+    updatedAt: text("updated_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (table) => [
+    uniqueIndex("uq_project_credentials_project_name").on(
+      table.projectId,
+      table.name,
+    ),
+    index("idx_project_credentials_project").on(table.projectId),
+    check(
+      "ck_project_credentials_auth_type",
+      sql`${table.authType} IN ('password', 'key', 'none')`,
+    ),
+  ],
+);
+
+export const projectHosts = mysqlTable(
+  "project_hosts",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    projectId: varchar("project_id", { length: 255 })
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    hostId: int("host_id")
+      .notNull()
+      .references(() => hosts.id, { onDelete: "cascade" }),
+    credentialId: varchar("credential_id", { length: 255 }).references(
+      () => projectCredentials.id,
+      { onDelete: "set null" },
+    ),
+    alias: text("alias"),
+    folder: text("folder"),
+    tags: text("tags"),
+    addedBy: varchar("added_by", { length: 255 }).references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: text("created_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (table) => [
+    uniqueIndex("uq_project_hosts_project_host").on(
+      table.projectId,
+      table.hostId,
+    ),
+    uniqueIndex("uq_project_hosts_project_id").on(table.projectId, table.id),
+    index("idx_project_hosts_host").on(table.hostId),
+  ],
+);
+
+export const projectFolders = mysqlTable(
+  "project_folders",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    projectId: varchar("project_id", { length: 255 })
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    path: varchar("path", { length: 255 }).notNull(),
+    color: text("color"),
+    icon: text("icon"),
+    createdAt: text("created_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+    updatedAt: text("updated_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (table) => [
+    uniqueIndex("uq_project_folders_project_path").on(
+      table.projectId,
+      table.path,
+    ),
+    index("idx_project_folders_project").on(table.projectId),
+  ],
+);
+
+export const serviceAccounts = mysqlTable(
+  "service_accounts",
+  {
+    id: varchar("id", { length: 255 }).primaryKey(),
+    projectId: varchar("project_id", { length: 255 })
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 255 }).notNull(),
+    description: text("description"),
+    createdBy: varchar("created_by", { length: 255 }).references(() => users.id, {
+      onDelete: "set null",
+    }),
+    isActive: boolean("is_active")
+      .notNull()
+      .default(true),
+    createdAt: text("created_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+    updatedAt: text("updated_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (table) => [
+    uniqueIndex("uq_service_accounts_project_name").on(
+      table.projectId,
+      table.name,
+    ),
+    uniqueIndex("uq_service_accounts_project_id").on(table.projectId, table.id),
+    index("idx_service_accounts_project_active").on(
+      table.projectId,
+      table.isActive,
+    ),
+  ],
+);
+
+export const agentAccessTokens = mysqlTable(
+  "agent_access_tokens",
+  {
+    id: varchar("id", { length: 255 }).primaryKey(),
+    projectId: varchar("project_id", { length: 255 })
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    serviceAccountId: varchar("service_account_id", { length: 255 })
+      .notNull()
+      .references(() => serviceAccounts.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    tokenPrefix: varchar("token_prefix", { length: 255 }).notNull(),
+    tokenHash: varchar("token_hash", { length: 255 }).notNull(),
+    tokenSalt: text("token_salt").notNull(),
+    scopes: text("scopes").notNull().default("[]"),
+    maxConcurrentSessions: int("max_concurrent_sessions")
+      .notNull()
+      .default(1),
+    accessMode: mysqlEnum("access_mode", ["all", "selected"])
+      .notNull()
+      .default("selected"),
+    createdByUserId: varchar("created_by_user_id", { length: 255 }).references(() => users.id, {
+      onDelete: "set null",
+    }),
+    isActive: boolean("is_active")
+      .notNull()
+      .default(true),
+    expiresAt: text("expires_at"),
+    lastUsedAt: text("last_used_at"),
+    createdAt: text("created_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+    revokedAt: text("revoked_at"),
+  },
+  (table) => [
+    uniqueIndex("uq_agent_access_tokens_hash").on(table.tokenHash),
+    uniqueIndex("uq_agent_access_tokens_project_id").on(
+      table.projectId,
+      table.id,
+    ),
+    index("idx_agent_access_tokens_prefix").on(table.tokenPrefix),
+    index("idx_agent_access_tokens_account_active").on(
+      table.serviceAccountId,
+      table.isActive,
+    ),
+    check(
+      "ck_agent_access_tokens_concurrency",
+      sql`${table.maxConcurrentSessions} BETWEEN 1 AND 100`,
+    ),
+    foreignKey({
+      columns: [table.projectId, table.serviceAccountId],
+      foreignColumns: [serviceAccounts.projectId, serviceAccounts.id],
+      name: "fk_agent_access_tokens_project_account",
+    }).onDelete("cascade"),
+  ],
+);
+
+export const agentTokenProjects = mysqlTable(
+  "agent_token_projects",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    tokenId: varchar("token_id", { length: 255 })
+      .notNull()
+      .references(() => agentAccessTokens.id, { onDelete: "cascade" }),
+    projectId: varchar("project_id", { length: 255 })
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    serviceAccountId: varchar("service_account_id", { length: 255 }).references(
+      () => serviceAccounts.id,
+      { onDelete: "cascade" },
+    ),
+    grantedBy: varchar("granted_by", { length: 255 }).references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: text("created_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (table) => [
+    uniqueIndex("uq_agent_token_projects").on(table.tokenId, table.projectId),
+    index("idx_agent_token_projects_project").on(
+      table.projectId,
+      table.tokenId,
+    ),
+  ],
+);
+
+export const agentDevices = mysqlTable(
+  "agent_devices",
+  {
+    id: varchar("id", { length: 255 }).primaryKey(),
+    name: text("name").notNull(),
+    publicKey: text("public_key").notNull(),
+    fingerprint: varchar("fingerprint", { length: 255 }).notNull(),
+    status: mysqlEnum("status", ["active", "revoked"])
+      .notNull()
+      .default("active"),
+    accessMode: mysqlEnum("access_mode", ["all", "selected"])
+      .notNull()
+      .default("selected"),
+    scopes: text("scopes").notNull().default("[]"),
+    maxConcurrentSessions: int("max_concurrent_sessions")
+      .notNull()
+      .default(1),
+    approvedByUserId: varchar("approved_by_user_id", { length: 255 }).references(() => users.id, {
+      onDelete: "set null",
+    }),
+    ownerUserId: varchar("owner_user_id", { length: 255 }).references(() => users.id, {
+      onDelete: "set null",
+    }),
+    expiresAt: varchar("expires_at", { length: 255 }),
+    lastUsedAt: text("last_used_at"),
+    createdAt: text("created_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+    approvedAt: text("approved_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+    revokedAt: text("revoked_at"),
+  },
+  (table) => [
+    uniqueIndex("uq_agent_devices_fingerprint").on(table.fingerprint),
+    index("idx_agent_devices_status").on(table.status, table.expiresAt),
+  ],
+);
+
+export const agentDeviceProjects = mysqlTable(
+  "agent_device_projects",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    deviceId: varchar("device_id", { length: 255 })
+      .notNull()
+      .references(() => agentDevices.id, { onDelete: "cascade" }),
+    projectId: varchar("project_id", { length: 255 })
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    serviceAccountId: varchar("service_account_id", { length: 255 })
+      .notNull()
+      .references(() => serviceAccounts.id, { onDelete: "cascade" }),
+    grantedBy: varchar("granted_by", { length: 255 }).references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: text("created_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (table) => [
+    uniqueIndex("uq_agent_device_projects").on(
+      table.deviceId,
+      table.projectId,
+    ),
+    index("idx_agent_device_projects_project").on(
+      table.projectId,
+      table.deviceId,
+    ),
+  ],
+);
+
+export const agentDeviceCodes = mysqlTable(
+  "agent_device_codes",
+  {
+    requestId: varchar("request_id", { length: 255 }).primaryKey(),
+    codeHash: varchar("code_hash", { length: 255 }).notNull(),
+    deviceName: text("device_name").notNull(),
+    publicKey: text("public_key").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    status: mysqlEnum("status", ["pending", "approved", "denied"])
+      .notNull()
+      .default("pending"),
+    deviceId: varchar("device_id", { length: 255 }).references(() => agentDevices.id, {
+      onDelete: "set null",
+    }),
+    createdAt: text("created_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+    expiresAt: varchar("expires_at", { length: 255 }).notNull(),
+    resolvedAt: text("resolved_at"),
+  },
+  (table) => [
+    uniqueIndex("uq_agent_device_codes_hash").on(table.codeHash),
+    index("idx_agent_device_codes_status_expiry").on(
+      table.status,
+      table.expiresAt,
+    ),
+  ],
+);
+
+export const agentRequestNonces = mysqlTable(
+  "agent_request_nonces",
+  {
+    deviceId: varchar("device_id", { length: 255 })
+      .notNull()
+      .references(() => agentDevices.id, { onDelete: "cascade" }),
+    nonce: text("nonce").notNull(),
+    expiresAt: varchar("expires_at", { length: 255 }).notNull(),
+    createdAt: text("created_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (table) => [
+    primaryKey({ columns: [table.deviceId, table.nonce] }),
+    index("idx_agent_request_nonces_expiry").on(table.expiresAt),
+  ],
+);
+
+export const agentProvisioningIdempotency = mysqlTable(
+  "agent_provisioning_idempotency",
+  {
+    principalId: text("principal_id").notNull(),
+    operation: text("operation").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    requestHash: text("request_hash").notNull(),
+    resourceSyncId: varchar("resource_sync_id", { length: 255 }).notNull(),
+    responseJson: text("response_json").notNull(),
+    createdAt: varchar("created_at", { length: 255 })
+      .notNull()
+      .default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.principalId, table.operation, table.idempotencyKey],
+      name: "pk_agent_provisioning_idempotency",
+    }),
+    index("idx_agent_provisioning_idempotency_expiry").on(table.createdAt),
+    index("idx_agent_provisioning_idempotency_resource").on(
+      table.resourceSyncId,
+    ),
+    check(
+      "ck_agent_provisioning_operation",
+      sql`${table.operation} IN ('server', 'quick-connection')`,
+    ),
+  ],
+);
+
+export const agentQuickConnections = mysqlTable(
+  "agent_quick_connections",
+  {
+    id: varchar("id", { length: 255 }).primaryKey(),
+    deviceId: varchar("device_id", { length: 255 })
+      .notNull()
+      .references(() => agentDevices.id, { onDelete: "cascade" }),
+    projectId: varchar("project_id", { length: 255 })
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    projectHostId: int("project_host_id")
+      .notNull()
+      .unique()
+      .references(() => projectHosts.id, { onDelete: "cascade" }),
+    hostId: int("host_id")
+      .notNull()
+      .unique()
+      .references(() => hosts.id, { onDelete: "cascade" }),
+    expiresAt: varchar("expires_at", { length: 255 }).notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (table) => [
+    index("idx_agent_quick_connections_expiry").on(table.expiresAt),
+    index("idx_agent_quick_connections_device").on(
+      table.deviceId,
+      table.projectId,
+    ),
+    foreignKey({
+      columns: [table.projectId, table.projectHostId],
+      foreignColumns: [projectHosts.projectId, projectHosts.id],
+      name: "fk_agent_quick_connections_project_host",
+    }).onDelete("cascade"),
+  ],
+);
+
+export const agentTokenProjectHosts = mysqlTable(
+  "agent_token_project_hosts",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    projectId: varchar("project_id", { length: 255 })
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    tokenId: varchar("token_id", { length: 255 })
+      .notNull()
+      .references(() => agentAccessTokens.id, { onDelete: "cascade" }),
+    projectHostId: int("project_host_id")
+      .notNull()
+      .references(() => projectHosts.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    uniqueIndex("uq_agent_token_project_hosts").on(
+      table.tokenId,
+      table.projectHostId,
+    ),
+    index("idx_agent_token_project_hosts_host").on(table.projectHostId),
+    foreignKey({
+      columns: [table.projectId, table.tokenId],
+      foreignColumns: [agentAccessTokens.projectId, agentAccessTokens.id],
+      name: "fk_agent_token_project_hosts_token",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.projectId, table.projectHostId],
+      foreignColumns: [projectHosts.projectId, projectHosts.id],
+      name: "fk_agent_token_project_hosts_host",
+    }).onDelete("cascade"),
+  ],
+);
+
+export const persistentSessions = mysqlTable(
+  "persistent_sessions",
+  {
+    id: varchar("id", { length: 255 }).primaryKey(),
+    projectId: varchar("project_id", { length: 255 })
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    projectHostId: int("project_host_id")
+      .notNull()
+      .references(() => projectHosts.id, { onDelete: "restrict" }),
+    ownerUserId: varchar("owner_user_id", { length: 255 }).references(() => users.id, {
+      onDelete: "set null",
+    }),
+    serviceAccountId: varchar("service_account_id", { length: 255 }).references(
+      () => serviceAccounts.id,
+      { onDelete: "set null" },
+    ),
+    state: varchar("state", { length: 255 }).notNull().default("CREATING"),
+    title: text("title"),
+    runtimeId: text("runtime_id"),
+    runtimeMode: text("runtime_mode").notNull().default("tmux"),
+    tmuxName: varchar("tmux_name", { length: 255 }).notNull(),
+    columns: int("columns").notNull().default(80),
+    rows: int("rows").notNull().default(24),
+    pinned: boolean("pinned").notNull().default(false),
+    streamGeneration: int("stream_generation").notNull().default(1),
+    lastSequence: int("last_sequence").notNull().default(0),
+    idempotencyKey: text("idempotency_key"),
+    lastAttachedAt: text("last_attached_at"),
+    retainUntil: varchar("retain_until", { length: 255 }),
+    failureReason: text("failure_reason"),
+    createdAt: text("created_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+    updatedAt: text("updated_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+    closedAt: text("closed_at"),
+  },
+  (table) => [
+    uniqueIndex("uq_persistent_sessions_tmux_name").on(table.tmuxName),
+    uniqueIndex("uq_persistent_sessions_project_id").on(
+      table.projectId,
+      table.id,
+    ),
+    uniqueIndex("uq_persistent_sessions_idempotency")
+      .on(table.projectId, table.idempotencyKey),
+    index("idx_persistent_sessions_project_state").on(
+      table.projectId,
+      table.state,
+    ),
+    index("idx_persistent_sessions_host_state").on(
+      table.projectHostId,
+      table.state,
+    ),
+    index("idx_persistent_sessions_retention").on(
+      table.pinned,
+      table.retainUntil,
+    ),
+    check(
+      "ck_persistent_sessions_state",
+      sql`${table.state} IN ('CREATING', 'RUNNING', 'RECOVERING', 'CLOSING', 'CLOSED', 'FAILED')`,
+    ),
+    check(
+      "ck_persistent_sessions_runtime_mode",
+      sql`${table.runtimeMode} IN ('platform', 'tmux')`,
+    ),
+    check(
+      "ck_persistent_sessions_owner",
+      sql`(${table.ownerUserId} IS NOT NULL AND ${table.serviceAccountId} IS NULL) OR (${table.ownerUserId} IS NULL AND ${table.serviceAccountId} IS NOT NULL)`,
+    ),
+    check(
+      "ck_persistent_sessions_size",
+      sql`${table.columns} BETWEEN 1 AND 1000 AND ${table.rows} BETWEEN 1 AND 1000`,
+    ),
+    check(
+      "ck_persistent_sessions_cursor",
+      sql`${table.streamGeneration} >= 1 AND ${table.lastSequence} >= 0`,
+    ),
+    foreignKey({
+      columns: [table.projectId, table.projectHostId],
+      foreignColumns: [projectHosts.projectId, projectHosts.id],
+      name: "fk_persistent_sessions_project_host",
+    }).onDelete("restrict"),
+    foreignKey({
+      columns: [table.projectId, table.serviceAccountId],
+      foreignColumns: [serviceAccounts.projectId, serviceAccounts.id],
+      name: "fk_persistent_sessions_project_account",
+    }),
+  ],
+);
+
+export const sessionWriteLeases = mysqlTable(
+  "session_write_leases",
+  {
+    sessionId: varchar("session_id", { length: 255 })
+      .primaryKey()
+      .references(() => persistentSessions.id, { onDelete: "cascade" }),
+    holderType: text("holder_type").notNull(),
+    holderUserId: varchar("holder_user_id", { length: 255 }).references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    holderServiceAccountId: varchar("holder_service_account_id", { length: 255 }).references(
+      () => serviceAccounts.id,
+      { onDelete: "cascade" },
+    ),
+    leaseId: varchar("lease_id", { length: 255 }).notNull(),
+    leaseTokenHash: text("lease_token_hash").notNull(),
+    version: int("version").notNull().default(1),
+    acquiredAt: text("acquired_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+    expiresAt: varchar("expires_at", { length: 255 }).notNull(),
+    updatedAt: text("updated_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (table) => [
+    uniqueIndex("uq_session_write_leases_lease_id").on(table.leaseId),
+    index("idx_session_write_leases_expiry").on(table.expiresAt),
+    check(
+      "ck_session_write_leases_holder_type",
+      sql`${table.holderType} IN ('user', 'service_account')`,
+    ),
+    check(
+      "ck_session_write_leases_holder",
+      sql`(${table.holderType} = 'user' AND ${table.holderUserId} IS NOT NULL AND ${table.holderServiceAccountId} IS NULL) OR (${table.holderType} = 'service_account' AND ${table.holderUserId} IS NULL AND ${table.holderServiceAccountId} IS NOT NULL)`,
+    ),
+    check("ck_session_write_leases_version", sql`${table.version} >= 1`),
+  ],
+);
+
+export const projectSessionRecordings = mysqlTable(
+  "project_session_recordings",
+  {
+    id: varchar("id", { length: 255 }).primaryKey(),
+    sessionId: varchar("session_id", { length: 255 })
+      .notNull()
+      .references(() => persistentSessions.id, { onDelete: "cascade" }),
+    projectId: varchar("project_id", { length: 255 })
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    mode: text("mode").notNull().default("metadata"),
+    storageKey: text("storage_key"),
+    sizeBytes: int("size_bytes").notNull().default(0),
+    checksum: text("checksum"),
+    startedAt: text("started_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+    endedAt: text("ended_at"),
+    retainUntil: varchar("retain_until", { length: 255 }),
+  },
+  (table) => [
+    uniqueIndex("uq_project_session_recordings_session").on(table.sessionId),
+    index("idx_project_session_recordings_retention").on(
+      table.projectId,
+      table.retainUntil,
+    ),
+    check(
+      "ck_project_session_recordings_mode",
+      sql`${table.mode} IN ('metadata', 'full')`,
+    ),
+    check(
+      "ck_project_session_recordings_storage",
+      sql`(${table.mode} = 'metadata' AND ${table.storageKey} IS NULL) OR ${table.mode} = 'full'`,
+    ),
+    check(
+      "ck_project_session_recordings_size",
+      sql`${table.sizeBytes} >= 0`,
+    ),
+  ],
+);
+
+export const agentAuditEvents = mysqlTable(
+  "agent_audit_events",
+  {
+    id: varchar("id", { length: 255 }).primaryKey(),
+    projectId: varchar("project_id", { length: 255 })
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    serviceAccountId: varchar("service_account_id", { length: 255 })
+      .notNull()
+      .references(() => serviceAccounts.id, { onDelete: "cascade" }),
+    tokenId: varchar("token_id", { length: 255 }).references(() => agentAccessTokens.id, {
+      onDelete: "set null",
+    }),
+    deviceId: varchar("device_id", { length: 255 }).references(() => agentDevices.id, {
+      onDelete: "set null",
+    }),
+    sessionId: varchar("session_id", { length: 255 }).references(() => persistentSessions.id, {
+      onDelete: "set null",
+    }),
+    projectHostId: int("project_host_id").references(
+      () => projectHosts.id,
+      { onDelete: "set null" },
+    ),
+    requestId: text("request_id"),
+    action: text("action").notNull(),
+    success: boolean("success").notNull(),
+    errorCode: text("error_code"),
+    metadata: text("metadata"),
+    ipAddress: text("ip_address"),
+    occurredAt: varchar("occurred_at", { length: 255 }).notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (table) => [
+    index("idx_agent_audit_project_time").on(
+      table.projectId,
+      table.occurredAt,
+    ),
+    index("idx_agent_audit_account_time").on(
+      table.serviceAccountId,
+      table.occurredAt,
+    ),
+    index("idx_agent_audit_session_time").on(
+      table.sessionId,
+      table.occurredAt,
+    ),
+    index("idx_agent_audit_device_time").on(
+      table.deviceId,
+      table.occurredAt,
+    ),
+    uniqueIndex("uq_agent_audit_request")
+      .on(table.tokenId, table.requestId, table.action),
+  ],
+);
+// --- 云 SSH 控制面结束 ---

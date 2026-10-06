@@ -24,10 +24,28 @@ export interface LiveSessionInfo {
   rows: number;
 }
 
+export interface LiveSessionLifecycleScope {
+  hostIds?: readonly number[];
+  userIds?: readonly string[];
+}
+
 export interface LiveSessionsV1 {
   getSession: (sessionId: string) => LiveSessionInfo | null;
   /** The caller's own sessions. A plugin caller only ever gets its actor's. */
   listForUser: (userId: string) => LiveSessionInfo[];
+  /** Core-only administrative view used by Cat-Termix access revocation. */
+  listAll: () => LiveSessionInfo[];
+  /**
+   * Blocks new matching sessions while a destructive access/host mutation is
+   * in progress. Core consumes the implementation directly; plugin callers do
+   * not receive this administrative capability through actor-scoped routes.
+   */
+  runDestructiveOperation: <T>(
+    scope: LiveSessionLifecycleScope,
+    operation: () => T | Promise<T>,
+  ) => Promise<T>;
+  /** Ends any matching sessions left after a destructive mutation. */
+  retire: (scope: LiveSessionLifecycleScope) => void;
   /** Tells every guest the owner ended it, then closes the session. */
   ownerEndSession: (sessionId: string, reason: string) => void;
   /** Removes the participants that joined through one share. */

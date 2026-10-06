@@ -55,6 +55,52 @@ export SSL_CERT_PATH=${SSL_CERT_PATH:-/app/data/ssl/termix.crt}
 export SSL_KEY_PATH=${SSL_KEY_PATH:-/app/data/ssl/termix.key}
 export TERMIX_SSL_TERMINATED_BY_NGINX=true
 
+normalize_cloudssh_proxy_cidrs() {
+    node - "$1" <<'NODE'
+const { isIP } = require("node:net");
+
+const values = String(process.argv[2] || "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+if (values.length > 64) process.exit(1);
+
+const normalized = [];
+for (const value of values) {
+  const slash = value.lastIndexOf("/");
+  const address = slash >= 0 ? value.slice(0, slash) : value;
+  const version = isIP(address);
+  if (!version) process.exit(1);
+  let prefix = version === 4 ? 32 : 128;
+  if (slash >= 0) {
+    const raw = value.slice(slash + 1);
+    if (!/^\d+$/.test(raw)) process.exit(1);
+    prefix = Number(raw);
+    if (prefix < 0 || prefix > (version === 4 ? 32 : 128)) process.exit(1);
+  }
+  const cidr = `${address}/${prefix}`;
+  if (!normalized.includes(cidr)) normalized.push(cidr);
+}
+process.stdout.write(normalized.join("\n"));
+NODE
+}
+
+NORMALIZED_CLOUDSSH_TRUSTED_PROXY_CIDRS=""
+if [ -n "${CLOUDSSH_TRUSTED_PROXY_CIDR:-}" ]; then
+    if ! NORMALIZED_CLOUDSSH_TRUSTED_PROXY_CIDRS=$(normalize_cloudssh_proxy_cidrs "$CLOUDSSH_TRUSTED_PROXY_CIDR"); then
+        echo "ERROR: CLOUDSSH_TRUSTED_PROXY_CIDR must contain valid comma-separated IP addresses or CIDRs" >&2
+        exit 1
+    fi
+fi
+
+CLOUDSSH_TRUSTED_PROXY_SET_REAL_IP=$(
+    if [ -n "$NORMALIZED_CLOUDSSH_TRUSTED_PROXY_CIDRS" ]; then
+        printf '%s\n' "$NORMALIZED_CLOUDSSH_TRUSTED_PROXY_CIDRS" |
+            sed 's/^/    set_real_ip_from /; s/$/;/'
+    fi
+)
+export CLOUDSSH_TRUSTED_PROXY_SET_REAL_IP
+
 echo "Configuring web UI to run on port: $PORT"
 
 if [ "$ENABLE_SSL" = "true" ]; then
@@ -66,7 +112,7 @@ else
 fi
 
 mkdir -p /tmp/nginx
-envsubst '${PORT} ${SSL_PORT} ${SSL_CERT_PATH} ${SSL_KEY_PATH}' < $NGINX_CONF_SOURCE > /tmp/nginx/nginx.conf
+envsubst '${PORT} ${SSL_PORT} ${SSL_CERT_PATH} ${SSL_KEY_PATH} ${CLOUDSSH_TRUSTED_PROXY_SET_REAL_IP}' < "$NGINX_CONF_SOURCE" > /tmp/nginx/nginx.conf
 
 if [ "$ENABLE_SSL" = "true" ] && [ "$PORT" = "$SSL_PORT" ]; then
     echo "HTTP and HTTPS use port $SSL_PORT; disabling the HTTP redirect listener"

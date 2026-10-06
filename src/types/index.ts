@@ -318,6 +318,9 @@ export interface AuthenticatedRequest extends Request {
   userId: string;
   sessionId?: string;
   apiKeyId?: string;
+  pendingTOTP?: boolean;
+  /** Unix timestamp (seconds) of the most recent explicit MFA verification. */
+  mfaVerifiedAt?: number;
   actingAdminUserId?: string;
   user?: {
     id: string;

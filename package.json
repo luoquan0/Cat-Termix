@@ -22,6 +22,7 @@
     "lint:fix": "eslint --fix .",
     "type-check": "npm run build:sdk && tsc -b --force",
     "test": "vitest run",
+    "test:skill": "node --test scripts/cloudssh-skill.test.mjs",
     "verify:dialect": "tsx scripts/verify-dialects.mjs",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
