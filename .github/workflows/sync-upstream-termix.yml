@@ -23,7 +23,7 @@ jobs:
           cd mirror
           git remote add upstream https://github.com/Termix-SSH/Termix.git
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git fetch --depth=1 upstream refs/tags/release-2.9.2-tag:refs/tags/release-2.9.2-tag
+          git fetch upstream refs/tags/release-2.9.2-tag:refs/tags/release-2.9.2-tag
           git checkout --detach refs/tags/release-2.9.2-tag
           test "$(git rev-parse HEAD)" = "2b309e9582b83297bca3931a10af747dafd4a8e3"
           git push --force origin HEAD:refs/heads/main
