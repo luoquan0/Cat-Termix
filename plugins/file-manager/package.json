@@ -21,7 +21,7 @@
     "@uiw/react-codemirror": "^4.25.11",
     "busboy": "^1.6.0",
     "jszip": "^3.10.2",
-    "lucide-react": "^1.33.0",
+    "lucide-react": "^1.51.0",
     "motion": "^13.1.1",
     "pdfjs-dist": "5.4.296",
     "react-h5-audio-player": "^3.10.2",

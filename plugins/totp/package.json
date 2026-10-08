@@ -10,7 +10,7 @@
     "validate": "termix-plugin validate"
   },
   "dependencies": {
-    "lucide-react": "^1.33.0",
+    "lucide-react": "^1.51.0",
     "qrcode": "^1.5.4",
     "speakeasy": "^2.0.0"
   },

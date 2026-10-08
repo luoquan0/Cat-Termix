@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "jose": "^6.2.12",
-    "lucide-react": "^1.33.0",
+    "lucide-react": "^1.51.0",
     "undici": "^8.10.2"
   },
   "devDependencies": {
