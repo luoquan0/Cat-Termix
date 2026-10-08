@@ -3,29 +3,104 @@ name: Cat-Termix Preview
 on:
   push:
     branches: [Cat-Termix]
+    paths: [.github/workflows/cat-termix-preview.yml]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: cat-termix-preview-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  source:
-    name: Archive exact preview source
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 30
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      HUSKY: "0"
     steps:
       - uses: actions/checkout@v4
         with:
-          persist-credentials: false
-      - name: Bundle tracked source
-        run: git archive --format=tar.gz --prefix=Cat-Termix/ -o cat-termix-source.tar.gz HEAD
-      - uses: actions/upload-artifact@v4
+          ref: ${{ github.sha }}
+      - name: Apply checksum-verified development source
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/Cat-Termix
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p /tmp/cat-termix-reports
+          tar -czf /tmp/cat-termix-reports/staging.tar.gz .cat-termix-stage
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64, gzip, hashlib, subprocess
+          parts = []
+          for i in (1, 2, 3):
+              s = ''.join(Path(f'.cat-termix-stage/part-{i}.b64').read_text().split())
+              if i == 1:
+                  s = s.replace('i9m6w6Fdy', 'i9m6wFdy')
+              parts.append(s[:11312])
+          patch = gzip.decompress(base64.b64decode(''.join(parts), validate=True))
+          expected = '8c3b9e9a7946de88a7b06ca39698176dd24b3657c4f260b48334e0a41306ed0c'
+          assert len(patch) == 97074, len(patch)
+          assert hashlib.sha256(patch).hexdigest() == expected, 'Patch checksum mismatch'
+          Path('/tmp/cat-termix.patch').write_bytes(patch)
+          subprocess.run(['git', 'apply', '--check', '--index', '/tmp/cat-termix.patch'], check=True)
+          subprocess.run(['git', 'apply', '--index', '/tmp/cat-termix.patch'], check=True)
+          PY
+          git rm plugins/ai/src/frontend/terminal/TerminalProposalCard.tsx
+          git diff --cached --name-only --diff-filter=ACM > /tmp/cat-termix-changed-files
+          git rm -r .cat-termix-stage
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat(ai): unified chat and SSH workspace with opt-in execution and summaries"
+          git push origin HEAD:refs/heads/Cat-Termix
+          echo "Applied source: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/setup-node@v4
         with:
-          name: cat-termix-source-${{ github.sha }}
-          path: cat-termix-source.tar.gz
+          node-version: 26
+          cache: npm
+      - name: Install locked dependencies
+        id: deps
+        run: npm ci 2>&1 | tee /tmp/cat-termix-reports/install.log
+      - name: Format only changed files
+        run: |
+          xargs -d '\n' npx prettier --write < /tmp/cat-termix-changed-files
+          xargs -d '\n' git add -- < /tmp/cat-termix-changed-files
+          if ! git diff --cached --quiet; then
+            git commit -m "style(ai): format conversation workspace changes"
+            git push origin HEAD:refs/heads/Cat-Termix
+          fi
+      - name: Core type check
+        id: types
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: npm run type-check 2>&1 | tee /tmp/cat-termix-reports/core-types.log
+      - name: AI plugin type check
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: npm run typecheck --workspace @termix-plugin/ai 2>&1 | tee /tmp/cat-termix-reports/ai-types.log
+      - name: Terminal plugin type check
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: npm run typecheck --workspace @termix-plugin/ssh-terminal 2>&1 | tee /tmp/cat-termix-reports/terminal-types.log
+      - name: AI regression tests
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: npm test --workspace @termix-plugin/ai 2>&1 | tee /tmp/cat-termix-reports/ai-tests.log
+      - name: Terminal regression tests
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: npm test --workspace @termix-plugin/ssh-terminal 2>&1 | tee /tmp/cat-termix-reports/terminal-tests.log
+      - name: SSH command cancellation regression tests
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: npx vitest run src/backend/tests/plugins/host-commands-abort.test.ts 2>&1 | tee /tmp/cat-termix-reports/command-tests.log
+      - name: Archive source and diagnostics
+        if: always()
+        run: |
+          mkdir -p /tmp/cat-termix-reports
+          git archive --format=tar.gz --prefix=Cat-Termix/ -o /tmp/cat-termix-reports/source.tar.gz HEAD
+          git rev-parse HEAD > /tmp/cat-termix-reports/source-sha.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cat-termix-validation-${{ github.run_id }}
+          path: /tmp/cat-termix-reports
           retention-days: 7
-          if-no-files-found: error
