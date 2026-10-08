@@ -726,12 +726,10 @@ export function registerAiRoutes(
           approvalMode === "auto" &&
           !(await ctx.rbac.has("apply_proposals"))
         ) {
-          return res
-            .status(403)
-            .json({
-              error:
-                "Automatic execution requires permission to apply AI proposals",
-            });
+          return res.status(403).json({
+            error:
+              "Automatic execution requires permission to apply AI proposals",
+          });
         }
         if (
           hostId !== undefined &&
