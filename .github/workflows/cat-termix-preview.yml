@@ -36,12 +36,17 @@ jobs:
           node-version: 26
           cache: npm
       - name: Install locked dependencies
+        id: deps
         run: npm ci
       - name: Core and affected plugin type checks
         run: |
           npm run type-check
           npm run typecheck --workspace @termix-plugin/ai
           npm run typecheck --workspace @termix-plugin/ssh-terminal
+      - name: Build application and bundled plugins
+        run: |
+          mkdir -p /tmp/cat-termix-reports
+          npm run build 2>&1 | tee /tmp/cat-termix-reports/build.log
       - name: AI regression tests
         run: |
           mkdir -p /tmp/cat-termix-reports
@@ -50,10 +55,18 @@ jobs:
         run: npm test --workspace @termix-plugin/ssh-terminal 2>&1 | tee /tmp/cat-termix-reports/terminal-tests.log
       - name: Core regression tests
         run: npm test 2>&1 | tee /tmp/cat-termix-reports/core-tests.log
-      - name: Lint and format changed source only
+      - name: Lint changed source
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
         run: |
-          git diff --diff-filter=ACM --name-only -z 3ff60c1446a0ef4c5eea621e54ca41b4c18dba25 HEAD -- '*.ts' '*.tsx' | xargs -0 -r npx eslint
-          git diff --diff-filter=ACM --name-only -z 3ff60c1446a0ef4c5eea621e54ca41b4c18dba25 HEAD -- '*.ts' '*.tsx' '*.json' | xargs -0 -r npx prettier --check
+          mkdir -p /tmp/cat-termix-reports
+          git diff --diff-filter=ACM --name-only -z 3ff60c1446a0ef4c5eea621e54ca41b4c18dba25 HEAD -- '*.ts' '*.tsx' | xargs -0 -r npx eslint 2>&1 | tee /tmp/cat-termix-reports/lint.log
+      - name: Verify formatting and retain repair diff
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: |
+          mkdir -p /tmp/cat-termix-reports
+          git diff --diff-filter=ACM --name-only -z 3ff60c1446a0ef4c5eea621e54ca41b4c18dba25 HEAD -- '*.ts' '*.tsx' '*.json' | xargs -0 -r npx prettier --write
+          git diff --binary > /tmp/cat-termix-reports/format.patch
+          git diff --exit-code
       - name: Archive exact source and reports
         if: always()
         run: |
