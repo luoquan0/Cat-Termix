@@ -5,7 +5,9 @@ import { useAiStream } from "../../src/frontend/use-ai-stream";
 const api = vi.hoisted(() => ({ fetch: vi.fn() }));
 vi.mock("../../src/frontend/app-ref", () => ({ aiApp: () => api }));
 afterEach(cleanup);
-beforeEach(() => api.fetch.mockReset());
+beforeEach(() => {
+  api.fetch.mockReset();
+});
 function sse(events: unknown[]) {
   return new Response(
     events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
@@ -62,14 +64,33 @@ describe("chat stream lifecycle", () => {
     );
   });
   it("aborts a request when its panel unmounts", async () => {
-    api.fetch.mockReturnValue(new Promise(() => {}));
+    api.fetch.mockImplementation(
+      (_path: string, init: { signal: AbortSignal }) =>
+        new Promise<Response>((_resolve, reject) => {
+          init.signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+    const onComplete = vi.fn();
     const { result, unmount } = renderHook(useAiStream);
+    let pending: Promise<void>;
     act(() => {
-      void result.current.send({ message: "hi", providerId: 1 });
+      pending = result.current.send({
+        message: "hi",
+        providerId: 1,
+        onComplete,
+      });
     });
     const signal = api.fetch.mock.calls[0][1].signal as AbortSignal;
     unmount();
+    await act(async () => {
+      await pending!;
+    });
     expect(signal.aborted).toBe(true);
+    expect(onComplete).not.toHaveBeenCalled();
   });
   it("does not let an old response restore a reset conversation", async () => {
     let finish: (response: Response) => void = () => {};
