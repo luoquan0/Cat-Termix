@@ -1,0 +1,31 @@
+name: Cat-Termix Preview
+
+on:
+  push:
+    branches: [Cat-Termix]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cat-termix-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source:
+    name: Archive exact preview source
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Bundle tracked source
+        run: git archive --format=tar.gz --prefix=Cat-Termix/ -o cat-termix-source.tar.gz HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cat-termix-source-${{ github.sha }}
+          path: cat-termix-source.tar.gz
+          retention-days: 7
+          if-no-files-found: error
