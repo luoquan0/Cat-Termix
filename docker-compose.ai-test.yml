@@ -1,0 +1,17 @@
+name: cat-termix-ai-test
+
+services:
+  cat-termix:
+    image: ${CAT_TERMIX_IMAGE:-ghcr.io/luoquan0/cat-termix:ai-dev}
+    restart: unless-stopped
+    ports:
+      - "${CAT_TERMIX_BIND:-127.0.0.1}:${CAT_TERMIX_PORT:-9080}:8080"
+    environment:
+      PORT: "8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - cat-termix-ai-data:/app/data
+
+volumes:
+  cat-termix-ai-data:
