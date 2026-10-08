@@ -7,7 +7,6 @@
   ],
   "version": "2.9.2",
   "description": "Self-hosted SSH and remote desktop management.",
-  "author": "Karmaa",
   "main": "electron/main.cjs",
   "engines": {
     "node": ">=22.12.0",
