@@ -52,7 +52,10 @@ export async function* runAgent(
   const adapter = getAdapter(options.config.providerType);
   const tools = toolDefinitions(options.tools).map((tool) =>
     options.executeProposal && tool.name.startsWith("propose_")
-      ? { ...tool, description: `${tool.description} In this conversation automatic execution is enabled: this tool executes the action and returns the actual result without waiting for approval.` }
+      ? {
+          ...tool,
+          description: `${tool.description} In this conversation automatic execution is enabled: this tool executes the action and returns the actual result without waiting for approval.`,
+        }
       : tool,
   );
   const byName = new Map(options.tools.map((tool) => [tool.name, tool]));
@@ -78,7 +81,8 @@ export async function* runAgent(
         signal: options.signal,
       })) {
         if (chunk.type === "text") {
-          if (!text && turn > 0 && chunk.text) yield { type: "token", text: "\n\n" };
+          if (!text && turn > 0 && chunk.text)
+            yield { type: "token", text: "\n\n" };
           text += chunk.text;
           yield { type: "token", text: chunk.text };
         } else if (chunk.type === "tool_call") {
@@ -101,7 +105,11 @@ export async function* runAgent(
 
     if (failed || options.signal?.aborted) return;
     if (finalTurn && calls.length) {
-      yield { type: "error", message: "The assistant reached its step limit. No further commands were executed; ask it to summarize or continue." };
+      yield {
+        type: "error",
+        message:
+          "The assistant reached its step limit. No further commands were executed; ask it to summarize or continue.",
+      };
       return;
     }
 
@@ -110,7 +118,11 @@ export async function* runAgent(
         summaryOnly = true;
         continue;
       }
-      yield { type: "error", message: "The provider returned no explanation. Any completed tool results are shown above." };
+      yield {
+        type: "error",
+        message:
+          "The provider returned no explanation. Any completed tool results are shown above.",
+      };
       return;
     }
 
@@ -140,7 +152,10 @@ export async function* runAgent(
           result = await options.executeProposal(result);
         } catch (error) {
           if (options.signal?.aborted) return;
-          result = { status: "failed", error: getErrorMessage(error, "The action failed") };
+          result = {
+            status: "failed",
+            error: getErrorMessage(error, "The action failed"),
+          };
         }
       }
       if (options.signal?.aborted) return;
@@ -202,8 +217,15 @@ async function runTool(
     return { error: `Unknown tool: ${call.name}` };
   }
 
-  if (context.hostId !== undefined && tool.category === "propose" && call.name !== "propose_run_command") {
-    return { error: "Use a standalone chat for changes to the Termix inventory. This terminal workspace only runs commands on its bound host." };
+  if (
+    context.hostId !== undefined &&
+    tool.category === "propose" &&
+    call.name !== "propose_run_command"
+  ) {
+    return {
+      error:
+        "Use a standalone chat for changes to the Termix inventory. This terminal workspace only runs commands on its bound host.",
+    };
   }
 
   if (
@@ -211,7 +233,9 @@ async function runTool(
     call.arguments?.hostId !== undefined &&
     Number(call.arguments.hostId) !== context.hostId
   ) {
-    return { error: `This terminal conversation is bound to host ${context.hostId}. Open a standalone chat to work on another host.` };
+    return {
+      error: `This terminal conversation is bound to host ${context.hostId}. Open a standalone chat to work on another host.`,
+    };
   }
 
   try {

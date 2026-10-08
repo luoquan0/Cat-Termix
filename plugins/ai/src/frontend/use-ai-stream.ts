@@ -39,10 +39,13 @@ export function useAiStream() {
   const [state, setState] = useState<StreamState>(INITIAL);
   const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => () => {
-    abortRef.current?.abort();
-    abortRef.current = null;
-  }, []);
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+    },
+    [],
+  );
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
@@ -84,8 +87,11 @@ export function useAiStream() {
         streaming: true,
         assistantText: "",
         tools: [],
-        proposals: input.conversationId && input.conversationId === previous.conversationId
-          ? previous.proposals : [],
+        proposals:
+          input.conversationId &&
+          input.conversationId === previous.conversationId
+            ? previous.proposals
+            : [],
         error: null,
         conversationId: input.conversationId ?? null,
       }));
@@ -125,7 +131,10 @@ export function useAiStream() {
           }),
         });
 
-        if (abortRef.current !== controller) { await response.body?.cancel(); return; }
+        if (abortRef.current !== controller) {
+          await response.body?.cancel();
+          return;
+        }
         if (!response.ok) {
           let message = "The assistant could not be reached";
           try {
@@ -133,7 +142,8 @@ export function useAiStream() {
           } catch {
             // Keep the generic message.
           }
-          if (abortRef.current === controller) setState((prev) => ({ ...prev, streaming: false, error: message }));
+          if (abortRef.current === controller)
+            setState((prev) => ({ ...prev, streaming: false, error: message }));
           return;
         }
 

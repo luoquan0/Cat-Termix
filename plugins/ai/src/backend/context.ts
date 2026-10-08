@@ -66,7 +66,9 @@ export function buildSystemPrompt(options: {
   }
 
   if (options.hostId !== undefined) {
-    lines.push(`- This terminal conversation is bound to host id ${options.hostId}. Use this exact hostId for host tools. Do not act on another host; use a standalone chat for that.`);
+    lines.push(
+      `- This terminal conversation is bound to host id ${options.hostId}. Use this exact hostId for host tools. Do not act on another host; use a standalone chat for that.`,
+    );
   }
 
   return lines.join("\n");

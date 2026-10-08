@@ -28,7 +28,11 @@ export function execCommand(
   return new Promise((resolve, reject) => {
     const { signal } = options;
     if (signal?.aborted) {
-      reject(new Error("Command interrupted; completed changes were not rolled back"));
+      reject(
+        new Error(
+          "Command interrupted; completed changes were not rolled back",
+        ),
+      );
       return;
     }
     let settled = false;
@@ -46,7 +50,11 @@ export function execCommand(
       if (settled) return;
       settled = true;
       cleanup();
-      reject(new Error("Command interrupted; completed changes were not rolled back"));
+      reject(
+        new Error(
+          "Command interrupted; completed changes were not rolled back",
+        ),
+      );
     };
 
     const cleanup = () => {
@@ -66,7 +74,10 @@ export function execCommand(
     };
 
     signal?.addEventListener("abort", onAbort, { once: true });
-    if (signal?.aborted) { onAbort(); return; }
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
 
     client.exec(command, { pty: false }, (err, _stream) => {
       if (err) {
@@ -80,7 +91,10 @@ export function execCommand(
 
       stream = _stream;
       // Abort/timeout may have won while SSH was opening the exec channel.
-      if (settled) { cleanup(); return; }
+      if (settled) {
+        cleanup();
+        return;
+      }
       let capturedBytes = 0;
       let truncated = false;
       const capture = (data: Buffer): string => {
@@ -88,7 +102,8 @@ export function execCommand(
         const remaining = Math.max(0, options.maxOutputBytes - capturedBytes);
         const kept = data.subarray(0, remaining);
         capturedBytes += kept.length;
-        const marker = data.length > remaining && !truncated ? "\n[output truncated]\n" : "";
+        const marker =
+          data.length > remaining && !truncated ? "\n[output truncated]\n" : "";
         if (data.length > remaining) truncated = true;
         return kept.toString("utf8") + marker;
       };

@@ -395,12 +395,20 @@ export async function createAiRepository(
       resultSummary?: string | null,
       expectedStatus = "pending",
     ): Promise<boolean> {
-      const update = (await client()).update(proposals).set({
-        status,
-        appliedAt: status === "applied" ? now() : null,
-        resultSummary: resultSummary ?? null,
-      }).where(and(eq(proposals.id, id), eq(proposals.userId, userId),
-        eq(proposals.status, expectedStatus)));
+      const update = (await client())
+        .update(proposals)
+        .set({
+          status,
+          appliedAt: status === "applied" ? now() : null,
+          resultSummary: resultSummary ?? null,
+        })
+        .where(
+          and(
+            eq(proposals.id, id),
+            eq(proposals.userId, userId),
+            eq(proposals.status, expectedStatus),
+          ),
+        );
       let changed: boolean;
       if (db.dialect === "mysql") {
         const result = await update;

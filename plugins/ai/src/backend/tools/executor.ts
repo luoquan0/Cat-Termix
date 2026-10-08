@@ -262,7 +262,10 @@ export async function runCommandOnHost(
       Awaited<ReturnType<typeof execCommand>>,
       Client
     >(hostId, { pool: "ai", purpose: "fleet" }, (client) =>
-      execCommand(client, command, COMMAND_TIMEOUT_MS, { signal, maxOutputBytes: 64 * 1024 }),
+      execCommand(client, command, COMMAND_TIMEOUT_MS, {
+        signal,
+        maxOutputBytes: 64 * 1024,
+      }),
     );
 
     const output = [result.stdout, result.stderr].filter(Boolean).join("\n");

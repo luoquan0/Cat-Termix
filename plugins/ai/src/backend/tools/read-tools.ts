@@ -61,7 +61,12 @@ export const readTools: AiTool[] = [
       const access = await context.deps.hosts.checkAccess(hostId, "connect");
       if (!access.hasAccess) return { error: "Host not found" };
 
-      const result = await runCommandOnHost(context.deps, hostId, command, context.signal);
+      const result = await runCommandOnHost(
+        context.deps,
+        hostId,
+        command,
+        context.signal,
+      );
       await context.deps.audit
         .record({
           action: "ai_readonly_command",

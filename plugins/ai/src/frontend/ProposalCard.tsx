@@ -88,7 +88,11 @@ export function ProposalCard({ proposal, onResolved }: ProposalCardProps) {
       const result = await applyAiProposal(proposal.id);
       // The result goes into the card, not a toast: command output can be
       // hundreds of lines, which covered the screen.
-      onResolved(proposal.id, result.success ? "applied" : "failed", result.summary);
+      onResolved(
+        proposal.id,
+        result.success ? "applied" : "failed",
+        result.summary,
+      );
     } catch (error) {
       toast.error(getErrorMessage(error, t("ai.proposalApplyFailed")));
     } finally {
@@ -121,10 +125,13 @@ export function ProposalCard({ proposal, onResolved }: ProposalCardProps) {
           <span className="shrink-0 border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
             {proposal.status === "applied"
               ? t("ai.statusApplied")
-              : proposal.status === "failed" ? t("ai.statusFailed")
-              : proposal.status === "running" ? t("ai.statusRunning")
-              : proposal.status === "expired" ? t("ai.statusExpired")
-              : t("ai.statusRejected")}
+              : proposal.status === "failed"
+                ? t("ai.statusFailed")
+                : proposal.status === "running"
+                  ? t("ai.statusRunning")
+                  : proposal.status === "expired"
+                    ? t("ai.statusExpired")
+                    : t("ai.statusRejected")}
           </span>
         )}
       </div>

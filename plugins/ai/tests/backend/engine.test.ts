@@ -277,55 +277,85 @@ describe("runAgent", () => {
   });
 });
 
-
 describe("Cat-Termix execution and summary boundaries", () => {
-  beforeEach(() => { streamChat.mockReset(); handler.mockReset(); });
+  beforeEach(() => {
+    streamChat.mockReset();
+    handler.mockReset();
+  });
   async function events(options: Partial<Parameters<typeof runAgent>[0]> = {}) {
     const result = [];
-    for await (const event of runAgent({ ...BASE, history: [], ...options })) result.push(event);
+    for await (const event of runAgent({ ...BASE, history: [], ...options }))
+      result.push(event);
     return result;
   }
-  const draft = { __proposal: true, kind: "propose_run_command", summary: "Check host", payload: { hostId: 1, command: "uptime" } };
-  const toolChunk: ChatChunk = { type: "tool_call", call: { id: "c1", name: "list_hosts", arguments: {} } };
+  const draft = {
+    __proposal: true,
+    kind: "propose_run_command",
+    summary: "Check host",
+    payload: { hostId: 1, command: "uptime" },
+  };
+  const toolChunk: ChatChunk = {
+    type: "tool_call",
+    call: { id: "c1", name: "list_hosts", arguments: {} },
+  };
 
   it("feeds automatic action results to the model instead of emitting an approval card", async () => {
     handler.mockResolvedValue(draft);
-    const executeProposal = vi.fn().mockResolvedValue({ status: "applied", summary: "up 3 days" });
-    streamChat.mockReturnValueOnce(chunks(toolChunk)).mockReturnValueOnce(chunks({type: "text", text: "The host is up."}));
-    const result = await events({executeProposal});
+    const executeProposal = vi
+      .fn()
+      .mockResolvedValue({ status: "applied", summary: "up 3 days" });
+    streamChat
+      .mockReturnValueOnce(chunks(toolChunk))
+      .mockReturnValueOnce(chunks({ type: "text", text: "The host is up." }));
+    const result = await events({ executeProposal });
     expect(executeProposal).toHaveBeenCalledWith(draft);
     expect(result.some((event) => event.type === "proposal")).toBe(false);
-    expect(JSON.stringify(streamChat.mock.calls[1][1].messages)).toContain("up 3 days");
+    expect(JSON.stringify(streamChat.mock.calls[1][1].messages)).toContain(
+      "up 3 days",
+    );
     expect(result.at(-1)?.type).toBe("done");
   });
 
   it("does not execute another action once the user stops", async () => {
     const controller = new AbortController();
     handler.mockResolvedValue(draft);
-    const executeProposal = vi.fn(async () => { controller.abort(); return {status: "applied"}; });
+    const executeProposal = vi.fn(async () => {
+      controller.abort();
+      return { status: "applied" };
+    });
     streamChat.mockReturnValueOnce(chunks(toolChunk, toolChunk));
-    await events({executeProposal, signal: controller.signal});
+    await events({ executeProposal, signal: controller.signal });
     expect(executeProposal).toHaveBeenCalledOnce();
     expect(streamChat).toHaveBeenCalledOnce();
   });
 
   it("refuses a tool targeting another host in terminal chat", async () => {
-    streamChat.mockReturnValueOnce(chunks({type: "tool_call", call: {id: "c", name: "list_hosts", arguments: {hostId: 2}}}))
-      .mockReturnValueOnce(chunks({type: "text", text: "Wrong host"}));
-    const result = await events({context: {...BASE.context, hostId: 1}});
+    streamChat
+      .mockReturnValueOnce(
+        chunks({
+          type: "tool_call",
+          call: { id: "c", name: "list_hosts", arguments: { hostId: 2 } },
+        }),
+      )
+      .mockReturnValueOnce(chunks({ type: "text", text: "Wrong host" }));
+    const result = await events({ context: { ...BASE.context, hostId: 1 } });
     expect(handler).not.toHaveBeenCalled();
     expect(JSON.stringify(result)).toContain("bound to host 1");
   });
 
   it("retries an empty final response with a tool-free summary request", async () => {
-    streamChat.mockReturnValueOnce(chunks()).mockReturnValueOnce(chunks({type: "text", text: "Here is the explanation."}));
+    streamChat
+      .mockReturnValueOnce(chunks())
+      .mockReturnValueOnce(
+        chunks({ type: "text", text: "Here is the explanation." }),
+      );
     const result = await events();
     expect(streamChat.mock.calls[1][1].tools).toEqual([]);
     expect(result.at(-1)?.type).toBe("done");
   });
 
   it("reserves the last turn for a summary without executing hallucinated tools", async () => {
-    handler.mockResolvedValue({ok:true});
+    handler.mockResolvedValue({ ok: true });
     streamChat.mockImplementation(() => chunks(toolChunk));
     const result = await events();
     expect(streamChat.mock.calls.at(-1)?.[1].tools).toEqual([]);
