@@ -138,15 +138,6 @@ export async function activate(ctx: PluginContext) {
       if (actor && actor !== userId) return [];
       return sessionManager.getUserSessions(userId).map(toInfo);
     },
-    listAll: () => {
-      // Core gets the raw service implementation through the service registry.
-      // Actor-scoped plugin proxies should continue using listForUser.
-      if (ctx.currentActor()) return [];
-      return sessionManager.getAllSessions().map(toInfo);
-    },
-    runDestructiveOperation: (scope, operation) =>
-      sessionManager.runDestructiveOperation(scope, operation),
-    retire: (scope) => sessionManager.retireSessions(scope),
     ownerEndSession: (sessionId, reason) =>
       sessionManager.ownerEndSession(sessionId, reason),
     disconnectParticipants: (sessionId, shareId, options) =>

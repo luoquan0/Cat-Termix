@@ -24,18 +24,13 @@ vi.mock("../../utils/logger.js", () => ({
 }));
 
 const BUNDLED_DIR = getBundledPluginsDir();
-const REPO_ROOT = path.resolve(__dirname, "../../../..");
 
 function bundledIds(): string[] {
-  const config = JSON.parse(
-    fs.readFileSync(
-      path.join(REPO_ROOT, "docker", "bundled-plugins.json"),
-      "utf8",
-    ),
-  ) as { plugins?: Array<{ id?: unknown }> };
-  return (config.plugins ?? [])
-    .map((entry) => entry.id)
-    .filter((id): id is string => typeof id === "string");
+  return fs
+    .readdirSync(BUNDLED_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((id) => fs.existsSync(path.join(BUNDLED_DIR, id, "manifest.json")));
 }
 
 function readManifest(pluginId: string): Record<string, unknown> {

@@ -104,10 +104,6 @@ export class TerminalSessionManager {
   private sessions = new Map<string, TerminalSession>();
   private healthCheckTimer: NodeJS.Timeout | null = null;
   private readonly log: TerminalLogger;
-  private pendingHostIds = new Map<number, number>();
-  private pendingUserIds = new Map<string, number>();
-  private retiredHostIds = new Set<number>();
-  private lifecycleTail: Promise<void> = Promise.resolve();
 
   constructor(private readonly deps: SessionManagerDeps) {
     this.log = deps.log;
@@ -126,15 +122,6 @@ export class TerminalSessionManager {
     tabInstanceId?: string,
     sessionLoggingEnabled = true,
   ): string {
-    if (
-      this.retiredHostIds.has(hostId) ||
-      this.pendingHostIds.has(hostId) ||
-      this.pendingUserIds.has(userId)
-    ) {
-      throw new Error(
-        "Terminal session creation is temporarily blocked by an administrative lifecycle operation",
-      );
-    }
     const userSessions = this.getUserSessions(userId);
     if (userSessions.length >= MAX_SESSIONS_PER_USER) {
       const detached = userSessions
@@ -830,76 +817,6 @@ export class TerminalSessionManager {
       }
     }
     return result;
-  }
-
-  getAllSessions(): TerminalSession[] {
-    return [...this.sessions.values()];
-  }
-
-  async runDestructiveOperation<T>(
-    scope: { hostIds?: readonly number[]; userIds?: readonly string[] },
-    operation: () => T | Promise<T>,
-  ): Promise<T> {
-    const hostIds = [...new Set(scope.hostIds ?? [])];
-    const userIds = [...new Set(scope.userIds ?? [])];
-    for (const hostId of hostIds) {
-      this.pendingHostIds.set(
-        hostId,
-        (this.pendingHostIds.get(hostId) ?? 0) + 1,
-      );
-    }
-    for (const userId of userIds) {
-      this.pendingUserIds.set(
-        userId,
-        (this.pendingUserIds.get(userId) ?? 0) + 1,
-      );
-    }
-
-    const previous = this.lifecycleTail;
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    this.lifecycleTail = previous.then(
-      () => gate,
-      () => gate,
-    );
-
-    await previous.catch(() => {});
-    try {
-      if (hostIds.some((hostId) => this.retiredHostIds.has(hostId))) {
-        throw new Error("Terminal host has been retired");
-      }
-      return await operation();
-    } finally {
-      for (const hostId of hostIds) {
-        const remaining = (this.pendingHostIds.get(hostId) ?? 1) - 1;
-        if (remaining <= 0) this.pendingHostIds.delete(hostId);
-        else this.pendingHostIds.set(hostId, remaining);
-      }
-      for (const userId of userIds) {
-        const remaining = (this.pendingUserIds.get(userId) ?? 1) - 1;
-        if (remaining <= 0) this.pendingUserIds.delete(userId);
-        else this.pendingUserIds.set(userId, remaining);
-      }
-      release();
-    }
-  }
-
-  retireSessions(
-    scope: { hostIds?: readonly number[]; userIds?: readonly string[] },
-    reason = "Access or host lifecycle changed",
-  ): void {
-    const hostIds = new Set(scope.hostIds ?? []);
-    const userIds = new Set(scope.userIds ?? []);
-    for (const hostId of hostIds) this.retiredHostIds.add(hostId);
-    for (const session of this.sessions.values()) {
-      const hostMatches = hostIds.size === 0 || hostIds.has(session.hostId);
-      const userMatches = userIds.size === 0 || userIds.has(session.userId);
-      if (hostMatches && userMatches) {
-        this.ownerEndSession(session.id, reason);
-      }
-    }
   }
 
   bufferOutput(sessionId: string, data: string): void {

@@ -5,6 +5,10 @@
       "source": "workspace"
     },
     {
+      "id": "ai",
+      "source": "workspace"
+    },
+    {
       "id": "alerts",
       "source": "workspace"
     },
@@ -132,6 +136,5 @@
       "id": "workspaces",
       "source": "workspace"
     }
-  ],
-  "excludedWorkspacePlugins": ["ai"]
+  ]
 }

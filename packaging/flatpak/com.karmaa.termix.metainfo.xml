@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-    <id>com.luoquan0.cattermix</id>
+    <id>com.karmaa.termix</id>
     <name>Termix</name>
     <summary>Self-hosted SSH and remote desktop management.</summary>
 
@@ -19,7 +19,7 @@
         </p>
     </description>
 
-    <launchable type="desktop-id">com.luoquan0.cattermix.desktop</launchable>
+    <launchable type="desktop-id">com.karmaa.termix.desktop</launchable>
 
     <screenshots>
         <screenshot type="default">
@@ -28,10 +28,10 @@
         </screenshot>
     </screenshots>
 
-    <url type="homepage">https://github.com/luoquan0/Cat-Termix</url>
+    <url type="homepage">https://github.com/Termix-SSH/Termix</url>
     <url type="bugtracker">https://github.com/Termix-SSH/Support/issues</url>
     <url type="help">https://docs.termix.site</url>
-    <url type="vcs-browser">https://github.com/luoquan0/Cat-Termix</url>
+    <url type="vcs-browser">https://github.com/Termix-SSH/Termix</url>
 
     <content_rating type="oars-1.1">
         <content_attribute id="social-info">moderate</content_attribute>
@@ -42,7 +42,7 @@
             <description>
                 <p>Latest release of Termix</p>
             </description>
-            <url>https://github.com/luoquan0/Cat-Termix/releases</url>
+            <url>https://github.com/Termix-SSH/Termix/releases</url>
         </release>
     </releases>
 

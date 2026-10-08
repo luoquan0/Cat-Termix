@@ -320,10 +320,6 @@ export async function runLogin(
     rememberMe: context.rememberMe,
     rateLimitUsername: context.rateLimitUsername ?? identity.rateLimitUsername,
     longLivedForApps: identity.kind === "external",
-    mfaVerifiedAt:
-      identity.mfaSatisfied === true
-        ? Math.floor(Date.now() / 1000)
-        : undefined,
     ...ssoClaims,
   });
   return { kind: "session", ...session };
@@ -506,7 +502,6 @@ export async function verifySecondFactorAndRespond(
     ssoProviderId: pending?.ssoProviderId ?? null,
     oidcSub: pending?.oidcSub ?? null,
     oidcSid: pending?.oidcSid ?? null,
-    mfaVerifiedAt: Math.floor(Date.now() / 1000),
   });
 
   consumePendingLogin(lookup.token);

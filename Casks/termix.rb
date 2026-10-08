@@ -1,11 +1,11 @@
 cask "termix" do
-  version "2.9.0"
-  sha256 "db37ee3eaf76b6a30d04dec064a516c3e02ffc5a14d7c1627178c0de230374e9"
+  version "2.9.1"
+  sha256 "6d8847e18508314db8ed4380c63bf0dd31437102a288b8e861879c92ba25a254"
 
-  url "https://github.com/luoquan0/Cat-Termix/releases/download/release-#{version}-tag/termix_macos_universal_dmg.dmg"
+  url "https://github.com/Termix-SSH/Termix/releases/download/release-#{version}-tag/termix_macos_universal_dmg.dmg"
   name "Termix"
   desc "Web-based server management platform with SSH terminal, tunneling, and file editing"
-  homepage "https://github.com/luoquan0/Cat-Termix"
+  homepage "https://github.com/Termix-SSH/Termix"
 
   livecheck do
     url :url
@@ -16,9 +16,9 @@ cask "termix" do
 
   zap trash: [
     "~/Library/Application Support/termix",
-    "~/Library/Caches/com.luoquan0.cattermix",
-    "~/Library/Caches/com.luoquan0.cattermix.ShipIt",
-    "~/Library/Preferences/com.luoquan0.cattermix.plist",
-    "~/Library/Saved Application State/com.luoquan0.cattermix.savedState",
+    "~/Library/Caches/com.karmaa.termix",
+    "~/Library/Caches/com.karmaa.termix.ShipIt",
+    "~/Library/Preferences/com.karmaa.termix.plist",
+    "~/Library/Saved Application State/com.karmaa.termix.savedState",
   ]
 end

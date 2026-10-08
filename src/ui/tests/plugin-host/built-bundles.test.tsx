@@ -20,15 +20,15 @@ const REPO_ROOT = path.resolve(__dirname, "../../../..");
 const BUILT = path.join(REPO_ROOT, "dist", "plugins");
 
 function pluginIds(): string[] {
-  const config = JSON.parse(
-    fs.readFileSync(
-      path.join(REPO_ROOT, "docker", "bundled-plugins.json"),
-      "utf8",
-    ),
-  ) as { plugins?: Array<{ id?: unknown }> };
-  return (config.plugins ?? [])
-    .map((entry) => entry.id)
-    .filter((id): id is string => typeof id === "string")
+  const root = path.join(REPO_ROOT, "plugins");
+  return fs
+    .readdirSync(root, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isDirectory() &&
+        fs.existsSync(path.join(root, entry.name, "manifest.json")),
+    )
+    .map((entry) => entry.name)
     .sort();
 }
 

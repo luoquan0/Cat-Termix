@@ -1,6 +1,6 @@
 {
-  "appId": "com.luoquan0.cattermix",
-  "productName": "Cat-Termix",
+  "appId": "com.karmaa.termix",
+  "productName": "Termix",
   "publish": null,
   "directories": {
     "output": "release"
@@ -51,27 +51,27 @@
       }
     ],
     "icon": "public/icon.ico",
-    "executableName": "Cat-Termix"
+    "executableName": "Termix"
   },
   "nsis": {
     "oneClick": false,
     "allowToChangeInstallationDirectory": true,
-    "artifactName": "cat-termix_windows_${arch}_nsis.${ext}",
+    "artifactName": "termix_windows_${arch}_nsis.${ext}",
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
     "installerIcon": "public/icon.ico",
     "uninstallerIcon": "public/icon.ico",
-    "shortcutName": "Cat-Termix",
-    "uninstallDisplayName": "Cat-Termix",
+    "shortcutName": "Termix",
+    "uninstallDisplayName": "Termix",
     "include": "electron/installer.nsh"
   },
   "msi": {
-    "artifactName": "cat-termix_windows_${arch}_msi.${ext}",
+    "artifactName": "termix_windows_${arch}_msi.${ext}",
     "oneClick": false,
     "additionalLightArgs": ["-sice:ICE57"]
   },
   "linux": {
-    "artifactName": "cat-termix_linux_${arch}_portable.${ext}",
+    "artifactName": "termix_linux_${arch}_portable.${ext}",
     "target": [
       {
         "target": "AppImage",
@@ -88,22 +88,22 @@
     ],
     "icon": "public/icons",
     "category": "Development",
-    "executableName": "cat-termix",
-    "maintainer": "Cat-Termix",
+    "executableName": "termix",
+    "maintainer": "Termix <mail@termix.site>",
     "desktop": {
       "entry": {
-        "Name": "Cat-Termix",
-        "Comment": "Self-hosted SSH and remote desktop management with CloudSSH Agent integration.",
+        "Name": "Termix",
+        "Comment": "Self-hosted SSH and remote desktop management. ",
         "Keywords": "docker;ssh;terminal;telnet;self-hosted;rdp;file-management;vnc;ssh-tunnel;server-stats;termix",
-        "StartupWMClass": "cat-termix"
+        "StartupWMClass": "termix"
       }
     }
   },
   "appImage": {
-    "artifactName": "cat-termix_linux_${arch}_appimage.${ext}"
+    "artifactName": "termix_linux_${arch}_appimage.${ext}"
   },
   "deb": {
-    "artifactName": "cat-termix_linux_${arch}_deb.${ext}"
+    "artifactName": "termix_linux_${arch}_deb.${ext}"
   },
   "mac": {
     "target": [
@@ -129,7 +129,7 @@
     "x64ArchFiles": "**/{*.{node,bare,dylib},node-pty/prebuilds/*/spawn-helper}"
   },
   "dmg": {
-    "artifactName": "cat-termix_macos_${arch}_dmg.${ext}",
+    "artifactName": "termix_macos_${arch}_dmg.${ext}",
     "sign": true
   },
   "afterPack": "packaging/build/after-pack.cjs",
@@ -142,10 +142,10 @@
     "gatekeeperAssess": false,
     "type": "distribution",
     "category": "public.app-category.developer-tools",
-    "artifactName": "cat-termix_macos_${arch}_mas.${ext}",
+    "artifactName": "termix_macos_${arch}_mas.${ext}",
     "extendInfo": {
       "ITSAppUsesNonExemptEncryption": false,
-      "NSAppleEventsUsageDescription": "Cat-Termix needs access to control other applications for terminal operations."
+      "NSAppleEventsUsageDescription": "Termix needs access to control other applications for terminal operations."
     }
   },
   "generateUpdatesFilesForAllChannels": true,

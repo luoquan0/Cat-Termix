@@ -19,17 +19,17 @@ const SCHEMA_28 = path.join(__dirname, "../fixtures/sqlite-2.8-schema.sql");
 /** The committed 2.8 install: db.sqlite, the fixture.env it was keyed with and its files. */
 export const UPGRADE_FIXTURE_DIR = path.join(__dirname, "../fixtures/upgrade");
 
-/** Every plugin Cat-Termix intentionally ships in dist/plugins. */
+/** Every plugin in the repo, by folder. */
 export function sourcePluginIds(): string[] {
-  const config = JSON.parse(
-    fs.readFileSync(
-      path.join(REPO_ROOT, "docker", "bundled-plugins.json"),
-      "utf8",
-    ),
-  ) as { plugins?: Array<{ id?: unknown }> };
-  return (config.plugins ?? [])
-    .map((entry) => entry.id)
-    .filter((id): id is string => typeof id === "string")
+  const root = path.join(REPO_ROOT, "plugins");
+  return fs
+    .readdirSync(root, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isDirectory() &&
+        fs.existsSync(path.join(root, entry.name, "manifest.json")),
+    )
+    .map((entry) => entry.name)
     .sort();
 }
 

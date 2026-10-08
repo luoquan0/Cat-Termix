@@ -1,4 +1,4 @@
-app-id: com.luoquan0.cattermix
+app-id: com.karmaa.termix
 runtime: org.freedesktop.Platform
 runtime-version: "24.08"
 sdk: org.freedesktop.Sdk
@@ -49,37 +49,37 @@ modules:
       - chmod +x run.sh
       - install -Dm755 run.sh /app/bin/run.sh
 
-      - install -Dm644 com.luoquan0.cattermix.desktop /app/share/applications/com.luoquan0.cattermix.desktop
+      - install -Dm644 com.karmaa.termix.desktop /app/share/applications/com.karmaa.termix.desktop
 
-      - install -Dm644 com.luoquan0.cattermix.metainfo.xml /app/share/metainfo/com.luoquan0.cattermix.metainfo.xml
+      - install -Dm644 com.karmaa.termix.metainfo.xml /app/share/metainfo/com.karmaa.termix.metainfo.xml
 
-      - install -Dm644 com.luoquan0.cattermix.svg /app/share/icons/hicolor/scalable/apps/com.luoquan0.cattermix.svg
-      - install -Dm644 icon-256.png /app/share/icons/hicolor/256x256/apps/com.luoquan0.cattermix.png || true
-      - install -Dm644 icon-128.png /app/share/icons/hicolor/128x128/apps/com.luoquan0.cattermix.png || true
+      - install -Dm644 com.karmaa.termix.svg /app/share/icons/hicolor/scalable/apps/com.karmaa.termix.svg
+      - install -Dm644 icon-256.png /app/share/icons/hicolor/256x256/apps/com.karmaa.termix.png || true
+      - install -Dm644 icon-128.png /app/share/icons/hicolor/128x128/apps/com.karmaa.termix.png || true
 
     sources:
       - type: file
-        url: https://github.com/luoquan0/Cat-Termix/releases/download/release-VERSION_PLACEHOLDER-tag/termix_linux_x64_appimage.AppImage
+        url: https://github.com/Termix-SSH/Termix/releases/download/release-VERSION_PLACEHOLDER-tag/termix_linux_x64_appimage.AppImage
         sha256: CHECKSUM_X64_PLACEHOLDER
         dest-filename: termix.AppImage
         only-arches:
           - x86_64
 
       - type: file
-        url: https://github.com/luoquan0/Cat-Termix/releases/download/release-VERSION_PLACEHOLDER-tag/termix_linux_arm64_appimage.AppImage
+        url: https://github.com/Termix-SSH/Termix/releases/download/release-VERSION_PLACEHOLDER-tag/termix_linux_arm64_appimage.AppImage
         sha256: CHECKSUM_ARM64_PLACEHOLDER
         dest-filename: termix.AppImage
         only-arches:
           - aarch64
 
       - type: file
-        path: com.luoquan0.cattermix.desktop
+        path: com.karmaa.termix.desktop
 
       - type: file
-        path: com.luoquan0.cattermix.metainfo.xml
+        path: com.karmaa.termix.metainfo.xml
 
       - type: file
-        path: com.luoquan0.cattermix.svg
+        path: com.karmaa.termix.svg
 
       - type: file
         path: icon-256.png

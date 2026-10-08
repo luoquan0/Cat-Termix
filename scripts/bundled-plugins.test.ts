@@ -74,21 +74,8 @@ describe("parseBundledPlugins", () => {
       ["one", "stray"],
     );
     expect(problems).toEqual([
-      "plugins/stray is not listed in docker/bundled-plugins.json or excludedWorkspacePlugins",
+      "plugins/stray is not listed in docker/bundled-plugins.json",
     ]);
-  });
-
-  it("allows a workspace plugin to stay in source but be excluded from shipping", () => {
-    const { plugins, problems, excludedWorkspacePlugins } = parseBundledPlugins(
-      {
-        excludedWorkspacePlugins: ["ai"],
-        plugins: [{ id: "one", source: "workspace" }],
-      },
-      ["ai", "one"],
-    );
-    expect(problems).toEqual([]);
-    expect(plugins.map((p: { id: string }) => p.id)).toEqual(["one"]);
-    expect(excludedWorkspacePlugins).toEqual(["ai"]);
   });
 
   it("reports bad entries", () => {

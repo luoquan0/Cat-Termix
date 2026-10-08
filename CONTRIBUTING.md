@@ -10,7 +10,7 @@
 
 1. Clone the repository:
    ```sh
-   git clone https://github.com/luoquan0/Cat-Termix
+   git clone https://github.com/Termix-SSH/Termix
    ```
 2. Install the dependencies:
    ```sh
@@ -31,7 +31,7 @@ This will start the backend and the frontend Vite server. You can access Termix 
 ## Contributing
 
 1. **Fork the repository**: Click the "Fork" button at the top right of
-   the [repository page](https://github.com/luoquan0/Cat-Termix).
+   the [repository page](https://github.com/Termix-SSH/Termix).
 2. **Create a new branch**:
    ```sh
    git checkout -b feature/my-new-feature

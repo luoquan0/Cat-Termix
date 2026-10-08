@@ -1,12 +1,13 @@
 {
-  "name": "cat-termix",
+  "name": "termix",
   "private": true,
   "workspaces": [
     "packages/*",
     "plugins/*"
   ],
-  "version": "2.9.1-cat.1",
-  "description": "Cat-Termix: a self-hosted SSH and remote desktop workspace based on Termix 2.9.1, with CloudSSH Agent integration.",
+  "version": "2.9.2",
+  "description": "Self-hosted SSH and remote desktop management.",
+  "author": "Karmaa",
   "main": "electron/main.cjs",
   "engines": {
     "node": ">=22.12.0",
@@ -22,7 +23,6 @@
     "lint:fix": "eslint --fix .",
     "type-check": "npm run build:sdk && tsc -b --force",
     "test": "vitest run",
-    "test:skill": "node --test scripts/cloudssh-skill.test.mjs",
     "verify:dialect": "tsx scripts/verify-dialects.mjs",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
@@ -202,9 +202,5 @@
     "@xmldom/xmldom": "^0.8.15",
     "browserslist": "^4.28.7",
     "qs": "^6.16.0"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/luoquan0/Cat-Termix.git"
   }
 }

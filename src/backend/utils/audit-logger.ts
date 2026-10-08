@@ -35,32 +35,27 @@ export interface AuditLogParams {
   errorMessage?: string;
 }
 
-export async function logAuditOrThrow(params: AuditLogParams): Promise<void> {
-  // Agent security-sensitive mutations use this fail-closed variant. Persist
-  // locally first; forwarding is only a best-effort copy and never decides
-  // whether the audited operation is allowed to complete.
-  await createCurrentAuditLogRepository().create({
-    userId: params.userId,
-    username: params.username,
-    action: params.action,
-    resourceType: params.resourceType,
-    resourceId: params.resourceId ?? null,
-    resourceName: params.resourceName ?? null,
-    details: params.details ?? null,
-    ipAddress: params.ipAddress ?? null,
-    userAgent: params.userAgent ?? null,
-    success: params.success,
-    errorMessage: params.errorMessage ?? null,
-  });
-  void forwardAuditEntry(params).catch(() => {});
-}
-
 export async function logAudit(params: AuditLogParams): Promise<void> {
+  // Local storage is the source of truth and runs first; forwarding is a copy
+  // and must never delay or fail the audited operation.
+  void forwardAuditEntry(params).catch(() => {});
+
   try {
-    await logAuditOrThrow(params);
+    await createCurrentAuditLogRepository().create({
+      userId: params.userId,
+      username: params.username,
+      action: params.action,
+      resourceType: params.resourceType,
+      resourceId: params.resourceId ?? null,
+      resourceName: params.resourceName ?? null,
+      details: params.details ?? null,
+      ipAddress: params.ipAddress ?? null,
+      userAgent: params.userAgent ?? null,
+      success: params.success,
+      errorMessage: params.errorMessage ?? null,
+    });
   } catch {
-    // General application audit logging remains best effort. Agent routes that
-    // require fail-closed audit semantics call logAuditOrThrow directly.
+    // audit logging must never throw and break the caller
   }
 }
 

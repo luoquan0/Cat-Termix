@@ -689,7 +689,7 @@ const externalEditorSessions = new Map();
 
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 const appRoot = isDev ? process.cwd() : path.join(__dirname, "..");
-const windowsAppUserModelId = "com.luoquan0.cattermix";
+const windowsAppUserModelId = "com.karmaa.termix";
 const electronCacheBuildPath = path.join(
   app.getPath("userData"),
   "client-cache-build.json",

@@ -69,8 +69,6 @@ export interface IssueSessionOptions {
   oidcSid?: string | null;
   /** SSO logins keep desktop and mobile apps signed in for 30 days. */
   longLivedForApps?: boolean;
-  /** Recent explicit MFA verification to carry into the authenticated JWT. */
-  mfaVerifiedAt?: number;
 }
 
 export interface IssuedSession {
@@ -98,7 +96,6 @@ export async function issueSession(
     oidcSub: options.oidcSub ?? null,
     oidcSid: options.oidcSid ?? null,
     ssoProviderId: options.ssoProviderId ?? null,
-    mfaVerifiedAt: options.mfaVerifiedAt,
   });
 
   if (options.rateLimitUsername) {

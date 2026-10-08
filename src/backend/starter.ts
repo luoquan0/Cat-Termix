@@ -274,20 +274,6 @@ async function provisionLocalDesktopUserIfNeeded(): Promise<void> {
       });
     }
 
-    // CloudSSH Agent currently keeps a small synchronous SQLite control-plane
-    // compatibility layer. Keep that limitation isolated: Termix's core and
-    // plugins remain fully available on PostgreSQL/MySQL, while Agent starts
-    // only when the configured backend is SQLite.
-    if (databaseDialect === "sqlite") {
-      const { agentServerReady } = await import("./agent/index.js");
-      await agentServerReady;
-    } else {
-      systemLogger.warn("CloudSSH Agent is disabled for non-SQLite databases", {
-        operation: "agent_api_disabled_database",
-        dialect: databaseDialect,
-      });
-    }
-
     // After plugins, so their sync entities are registered before a pass.
     if (process.env.ELECTRON_EMBEDDED === "true") {
       try {
@@ -320,25 +306,6 @@ async function provisionLocalDesktopUserIfNeeded(): Promise<void> {
       systemLogger.info(`Received ${signal}, initiating graceful shutdown...`, {
         operation: "shutdown",
       });
-
-      // Agent sessions/jobs must stop before plugin workers and the database:
-      // the Agent may still be consuming SSH-terminal services or flushing
-      // audit/session state.
-      try {
-        const { shutdownCleanupRegistry } =
-          await import("./utils/shutdown-coordinator.js");
-        const failures = await shutdownCleanupRegistry.runAll();
-        for (const failure of failures) {
-          systemLogger.error("Shutdown cleanup failed", failure.error, {
-            operation: "shutdown_cleanup_failed",
-            cleanup: failure.name,
-          });
-        }
-      } catch (error) {
-        systemLogger.error("Shutdown cleanup registry failed", error, {
-          operation: "shutdown_cleanup_registry_failed",
-        });
-      }
 
       // Terminate plugin workers before the database goes away, so a plugin
       // mid-write cannot outlive it.

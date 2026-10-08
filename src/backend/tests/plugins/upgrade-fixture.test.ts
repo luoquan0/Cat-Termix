@@ -22,7 +22,6 @@ import {
   bootCore,
   BUILT_PLUGINS_DIR,
   UPGRADE_FIXTURE_DIR,
-  sourcePluginIds,
   type BootedCore,
 } from "./built-harness.js";
 import { remoteTestDialect } from "./remote-seed.js";
@@ -42,7 +41,6 @@ import {
 } from "../fixtures/upgrade/rows.js";
 
 const BOOT_TIMEOUT = 240_000;
-const BUNDLED_PLUGIN_IDS = new Set(sourcePluginIds());
 
 type UserKey = keyof typeof USERS;
 
@@ -57,7 +55,6 @@ interface Booted {
 function adoptedNames(): Map<string, string> {
   const names = new Map<string, string>();
   for (const id of new Set(Object.values(LEGACY_TABLE_OWNERS))) {
-    if (!BUNDLED_PLUGIN_IDS.has(id)) continue;
     const dir = path.join(BUILT_PLUGINS_DIR, id, "migrations", "sqlite");
     for (const file of fs.readdirSync(dir)) {
       const text = fs.readFileSync(path.join(dir, file), "utf8");
@@ -223,7 +220,6 @@ function upgradeChecks(current: () => Booted, bootIndex: number) {
   it("keeps every row of every adopted table, readable by its plugin", async () => {
     const names = adoptedNames();
     for (const [legacy, pluginId] of Object.entries(LEGACY_TABLE_OWNERS)) {
-      if (!BUNDLED_PLUGIN_IDS.has(pluginId)) continue;
       const seeded = ROWS[legacy] ?? [];
       expect(seeded.length, `the fixture fills ${legacy}`).toBeGreaterThan(0);
       const table = names.get(legacy);
@@ -264,6 +260,8 @@ function upgradeChecks(current: () => Booted, bootIndex: number) {
         "d4-history-command",
       ],
       ["/plugin-api/tunnels/presets", "d4-preset"],
+      ["/plugin-api/ai/providers", "d4-provider"],
+      ["/plugin-api/ai/conversations/1", "d4-message"],
       ["/plugin-api/secret-sources", "d4-source"],
       ["/plugin-api/session-sharing/rooms", "d4-room"],
       ["/plugin-api/webauthn/credentials", "d4-passkey", "passkey"],
@@ -327,6 +325,7 @@ function upgradeChecks(current: () => Booted, bootIndex: number) {
       enableDocker: true,
       containerRuntime: "podman",
     });
+    expect(await host("ai")).toMatchObject({ enableAiAssistant: true });
     expect(await host("snippets")).toMatchObject({
       startupSnippetId: 1,
       quickActions: [{ name: "d4-uptime", snippetId: 1 }],
@@ -532,9 +531,15 @@ function upgradeChecks(current: () => Booted, bootIndex: number) {
       historyRetentionDays: 14,
       enabledForNewHosts: false,
     });
+    expect(await settings(booted, "ai", "admin")).toMatchObject({
+      globallyEnabled: true,
+    });
     expect(await settings(booted, "session-recording", "admin")).toMatchObject({
       retentionDays: 3650,
     });
+    expect(
+      JSON.stringify((await settings(booted, "ai", "admin")).privateEndpoints),
+    ).toContain("10.4.0.0/24");
     expect(await settings(booted, "session-sharing", "admin")).toMatchObject({
       globallyEnabled: false,
     });
@@ -549,6 +554,10 @@ function upgradeChecks(current: () => Booted, bootIndex: number) {
     expect(await settings(booted, "tailscale", "admin")).toMatchObject({
       apiBaseUrl: "https://headscale.d4.example",
     });
+    expect(await settings(booted, "ai", "user")).toMatchObject({
+      enabled: true,
+      allowReadOnlyCommands: true,
+    });
     expect(await settings(booted, "remote-desktop", "user")).toMatchObject({
       colorDepth: "16",
       resizeMethod: "reconnect",
@@ -562,6 +571,10 @@ function upgradeChecks(current: () => Booted, bootIndex: number) {
     const acme = await pluginCtx("acme-ssl");
     expect(JSON.stringify(await acme.settings.getAll("admin"))).toContain(
       "d4-cloudflare-token",
+    );
+    const ai = await pluginCtx("ai");
+    expect(await asUser(USERS.admin, () => ai.secrets.get("provider:1"))).toBe(
+      "sk-d4-provider-key",
     );
     const sources = await pluginCtx("secret-sources");
     expect(

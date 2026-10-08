@@ -219,21 +219,6 @@ function transform(source, dialect) {
 
   out = out.replace(/\bsqliteTable\(/g, isPg ? "pgTable(" : "mysqlTable(");
 
-  if (!isPg) {
-    // MySQL has no partial indexes. Most of the CloudSSH partial unique
-    // indexes can safely become normal unique indexes because MySQL permits
-    // multiple NULL key values. The personal-project index is the exception:
-    // owner_user_id is non-null for both personal and team projects, so making
-    // it globally unique would incorrectly constrain team projects. Keep a
-    // non-unique lookup index there and enforce the personal slug invariant in
-    // the repository layer.
-    out = out.replace(
-      /uniqueIndex\("uq_projects_personal_slug"\)\s*\.on\(table\.ownerUserId, table\.slug\)\s*\.where\(sql`\$\{table\.kind\} = 'personal'`\)/g,
-      'index("idx_projects_personal_slug").on(table.ownerUserId, table.slug)',
-    );
-    out = out.replace(/\s*\.where\(sql`[^`]*`\)/g, "");
-  }
-
   // Self-referencing FK callbacks are typed against the source dialect's
   // "any column" helper so TS can resolve the circular table reference.
   out = out.replace(
@@ -254,8 +239,6 @@ function transform(source, dialect) {
         "index",
         "uniqueIndex",
         "foreignKey",
-        "check",
-        "primaryKey",
       ]
     : [
         "mysqlTable",
@@ -268,8 +251,6 @@ function transform(source, dialect) {
         "index",
         "uniqueIndex",
         "foreignKey",
-        "check",
-        "primaryKey",
       ];
   const body = out.replace(
     /import\s*\{[^}]*\}\s*from\s*"drizzle-orm\/sqlite-core";/,

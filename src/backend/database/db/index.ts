@@ -673,15 +673,6 @@ async function initializeCompleteDatabase(): Promise<void> {
   }
 
   migrateSchema();
-
-  // Cat-Termix's CloudSSH Agent/control-plane is intentionally SQLite-only in
-  // this migration phase. Create its project, device, session and audit tables
-  // as part of the normal SQLite bootstrap so a fresh database matches the
-  // Drizzle schema before the Agent server starts.
-  const { ensureControlPlaneSchema } =
-    await import("../../control-plane/schema-migration.js");
-  ensureControlPlaneSchema(sqlite);
-
   vacuumIfFreelistBloated();
 
   try {

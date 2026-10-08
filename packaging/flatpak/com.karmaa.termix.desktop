@@ -2,7 +2,7 @@
 Name=Termix
 Comment=Self-hosted SSH and remote desktop management.
 Exec=run.sh %U
-Icon=com.luoquan0.cattermix
+Icon=com.karmaa.termix
 Terminal=false
 Type=Application
 Categories=Development;Network;System;

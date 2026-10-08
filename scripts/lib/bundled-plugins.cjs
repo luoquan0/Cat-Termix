@@ -27,29 +27,6 @@ function parseBundledPlugins(raw, workspaceIds) {
     };
   }
 
-  const excludedList =
-    raw?.excludedWorkspacePlugins === undefined
-      ? []
-      : Array.isArray(raw.excludedWorkspacePlugins)
-        ? raw.excludedWorkspacePlugins
-        : null;
-  if (excludedList === null) {
-    problems.push("excludedWorkspacePlugins must be an array when provided");
-  }
-
-  const excluded = new Set();
-  for (const [index, id] of (excludedList ?? []).entries()) {
-    if (typeof id !== "string" || !ID.test(id)) {
-      problems.push(`excludedWorkspacePlugins[${index}] needs a valid id`);
-      continue;
-    }
-    if (excluded.has(id)) {
-      problems.push(`${id} is excluded twice`);
-      continue;
-    }
-    excluded.add(id);
-  }
-
   const seen = new Set();
   const plugins = [];
   for (const [index, entry] of list.entries()) {
@@ -104,30 +81,15 @@ function parseBundledPlugins(raw, workspaceIds) {
     }
   }
 
-  for (const id of excluded) {
-    if (!workspaceIds.includes(id)) {
-      problems.push(
-        `${id} is excluded but plugins/${id} does not exist in the workspace`,
-      );
-    }
-    if (seen.has(id)) {
-      problems.push(`${id} cannot be both bundled and excluded`);
-    }
-  }
-
   for (const id of workspaceIds) {
-    if (!seen.has(id) && !excluded.has(id)) {
+    if (!seen.has(id)) {
       problems.push(
-        `plugins/${id} is not listed in docker/bundled-plugins.json or excludedWorkspacePlugins`,
+        `plugins/${id} is not listed in docker/bundled-plugins.json`,
       );
     }
   }
 
-  return {
-    plugins,
-    problems,
-    excludedWorkspacePlugins: [...excluded].sort(),
-  };
+  return { plugins, problems };
 }
 
 function loadBundledPlugins(root) {

@@ -41,7 +41,6 @@ interface JWTPayload {
   userId: string;
   sessionId?: string;
   pendingTOTP?: boolean;
-  mfaVerifiedAt?: number;
   dataKeyWrap?: WrappedDataKey;
   iat?: number;
   exp?: number;
@@ -59,7 +58,6 @@ interface AuthenticatedRequest extends Request {
   sessionId?: string;
   apiKeyId?: string;
   pendingTOTP?: boolean;
-  mfaVerifiedAt?: number;
   dataKey?: Buffer;
   actingAdminUserId?: string;
 }
@@ -282,7 +280,6 @@ class AuthManager {
     options: {
       expiresIn?: string;
       pendingTOTP?: boolean;
-      mfaVerifiedAt?: number;
       rememberMe?: boolean;
       deviceType?: DeviceType;
       deviceInfo?: string;
@@ -312,9 +309,6 @@ class AuthManager {
     const payload: JWTPayload = { userId };
     if (options.pendingTOTP) {
       payload.pendingTOTP = true;
-    }
-    if (Number.isSafeInteger(options.mfaVerifiedAt)) {
-      payload.mfaVerifiedAt = options.mfaVerifiedAt;
     }
 
     if (!options.pendingTOTP && options.deviceType && options.deviceInfo) {
@@ -809,7 +803,6 @@ class AuthManager {
       authReq.userId = payload.userId;
       authReq.sessionId = payload.sessionId;
       authReq.pendingTOTP = payload.pendingTOTP;
-      authReq.mfaVerifiedAt = payload.mfaVerifiedAt;
 
       if (authReq.headers[ADMIN_TARGET_USER_HEADER]) {
         const handled = await this.applyAdminImpersonation(
@@ -979,7 +972,6 @@ class AuthManager {
         authReq.userId = payload.userId;
         authReq.sessionId = payload.sessionId;
         authReq.pendingTOTP = payload.pendingTOTP;
-        authReq.mfaVerifiedAt = payload.mfaVerifiedAt;
         next();
       } catch (error) {
         databaseLogger.error("Failed to verify admin privileges", error, {
