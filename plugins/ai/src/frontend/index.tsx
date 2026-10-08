@@ -40,7 +40,7 @@ function TerminalSidePanel({
   hostLabel,
   panelProps,
   onClose,
-  onRunInTerminal,
+  getTerminalContext,
 }: TerminalSidePanelProps) {
   if (!hostId) return null;
   return (
@@ -52,7 +52,7 @@ function TerminalSidePanel({
         typeof panelProps.context === "string" ? panelProps.context : ""
       }
       onClose={onClose}
-      onRunInTerminal={onRunInTerminal}
+      getTerminalContext={getTerminalContext}
     />
   );
 }

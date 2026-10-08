@@ -27,5 +27,6 @@ export interface TerminalSidePanelProps {
   hostLabel: string;
   panelProps: Record<string, unknown>;
   onClose: () => void;
+  getTerminalContext?: () => string;
   onRunInTerminal: (command: string) => void;
 }

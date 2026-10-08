@@ -15,6 +15,9 @@ export interface ToolContext {
   /** Per-user opt-in for running allowlisted read-only commands. */
   allowReadOnlyCommands: boolean;
   deps: ToolDeps;
+  /** A terminal chat stays on this host; a standalone chat can use @ mentions. */
+  hostId?: number;
+  signal?: AbortSignal;
 }
 
 export interface AiTool {

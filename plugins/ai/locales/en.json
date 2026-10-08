@@ -87,7 +87,7 @@
     "modelDetectFailed": "Could not reach the provider, so this is a general list. You can type any model name.",
     "modelCustom": "Enter a model name",
     "modelRefresh": "Refresh list",
-    "modelPlaceholder": "Choose or type a model",
+    "modelPlaceholder": "Select or enter a model ID",
     "attachHint": "Type @ to reference a host, snippet or automation. Changes are proposed for you to approve.",
     "runCommandTitle": "Run command",
     "assistant": "AI Assistant",
@@ -99,7 +99,25 @@
     "terminalContextPrefill": "Here is my terminal output:\n\n{{output}}\n\n",
     "secrets": {
       "shareApiKey": "Let other features use your AI provider API key for their own requests. The key is never copied, and you can revoke this at any time."
-    }
+    },
+    "modelPicker": "Chat model",
+    "modelDiscoveryFallback": "Model discovery is unavailable. You can still enter a supported model ID.",
+    "autoMode": "No approval (this conversation)",
+    "reviewMode": "Approve each action",
+    "sessionModeHint": "Model and execution mode apply to this conversation.",
+    "autoModeWarning": "AI may run commands and make changes without asking again. Mistakes can delete data or interrupt services. Existing access permissions still apply. Enable only on a trusted test host.",
+    "enableAutoMode": "Enable for this conversation",
+    "autoModeActive": "Automatic execution is ON. New conversations return to approval mode.",
+    "setupFailed": "Could not load AI settings.",
+    "summarizeResult": "Explain the recorded action result. Do not execute it again.",
+    "newConversation": "New conversation",
+    "collaborativeTerminal": "Bound to {{host}}. AI runs through an independent SSH channel while you keep using your terminal. Shell state is not shared.",
+    "chatWelcome": "Chat directly, use @ to mention a host or snippet, and choose a model above. Tool results are followed by an explanation.",
+    "attachTerminalOutput": "Attach terminal output",
+    "terminalWorkspace": "SSH AI chat workspace",
+    "statusFailed": "Failed",
+    "statusRunning": "Running",
+    "statusExpired": "Expired"
   },
   "nav": {
     "ai": "AI"

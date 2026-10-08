@@ -67,7 +67,9 @@ export async function applyProposal(
   kind: string,
   payload: Record<string, unknown>,
   deps: ToolDeps,
+  signal?: AbortSignal,
 ): Promise<ApplyResult> {
+  if (signal?.aborted) throw new Error("The user stopped this run");
   // A payload whose tool no longer exists is refused rather than guessed at.
   if (!getTool(kind)) {
     throw new Error(`Unknown proposal kind: ${kind}`);
@@ -229,13 +231,13 @@ export async function applyProposal(
       // ctx.ssh resolves the host for the approving user, with the same
       // connect-level access check, owner-key decryption and jump chain a
       // terminal gets.
-      const result = await runCommandOnHost(deps, hostId, command);
+      const result = await runCommandOnHost(deps, hostId, command, signal);
       if (result.error) {
         throw new Error(result.error);
       }
       return {
         ok: true,
-        summary: result.output?.slice(0, 2000) ?? "(no output)",
+        summary: result.output?.slice(0, 8000) ?? "(no output)",
       };
     }
 
@@ -252,13 +254,15 @@ export async function runCommandOnHost(
   deps: ToolDeps,
   hostId: number,
   command: string,
+  signal?: AbortSignal,
 ): Promise<{ output?: string; error?: string }> {
   try {
+    if (signal?.aborted) throw new Error("The user stopped this run");
     const result = await deps.ssh.withConnection<
       Awaited<ReturnType<typeof execCommand>>,
       Client
     >(hostId, { pool: "ai", purpose: "fleet" }, (client) =>
-      execCommand(client, command, COMMAND_TIMEOUT_MS),
+      execCommand(client, command, COMMAND_TIMEOUT_MS, { signal, maxOutputBytes: 64 * 1024 }),
     );
 
     const output = [result.stdout, result.stderr].filter(Boolean).join("\n");

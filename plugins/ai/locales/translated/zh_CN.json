@@ -87,7 +87,7 @@
     "modelDetectFailed": "无法联系到提供商，所以这里提供的是通用列表。您可以输入任何模型名称。",
     "modelCustom": "请输入模型名称",
     "modelRefresh": "刷新列表",
-    "modelPlaceholder": "选择或输入模型",
+    "modelPlaceholder": "选择或输入模型 ID",
     "attachHint": "输入 @ 符号可引用主机、代码片段或自动化流程。系统会提出更改建议，供您批准。",
     "runCommandTitle": "运行命令",
     "assistant": "人工智能助手",
@@ -99,7 +99,25 @@
     "terminalContextPrefill": "以下是我的终端输出：\n\n{{output}}\n\n",
     "secrets": {
       "shareApiKey": "允许其他功能使用您的 AI 提供商 API 密钥发出各自的请求。该密钥绝不会被复制，您可以随时撤销此授权。"
-    }
+    },
+    "modelPicker": "对话模型",
+    "modelDiscoveryFallback": "无法获取模型列表，仍可手动输入可用的模型 ID。",
+    "autoMode": "免审批（当前会话）",
+    "reviewMode": "逐次审批",
+    "sessionModeHint": "模型和执行模式仅用于当前会话。",
+    "autoModeWarning": "开启后 AI 可不再询问就执行命令和修改。错误操作可能删除数据或中断服务。原有访问权限仍然生效，请仅在可信测试主机上开启。",
+    "enableAutoMode": "为当前会话开启",
+    "autoModeActive": "免审批已开启。新建会话将恢复逐次审批。",
+    "setupFailed": "无法加载 AI 设置。",
+    "summarizeResult": "请解释已记录的执行结果，不要重复执行。",
+    "newConversation": "新建会话",
+    "collaborativeTerminal": "当前主机：{{host}}。AI 使用独立 SSH 通道，你可继续操作终端；命令不共享 shell 状态。",
+    "chatWelcome": "可直接对话，输入 @ 选择主机或代码片段，在上方选择模型。工具执行后会继续解释结果。",
+    "attachTerminalOutput": "附加终端输出",
+    "terminalWorkspace": "SSH AI 对话窗口",
+    "statusFailed": "执行失败",
+    "statusRunning": "正在执行",
+    "statusExpired": "已过期"
   },
   "nav": {
     "ai": "AI"

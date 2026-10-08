@@ -23,8 +23,14 @@ export function execCommand(
   client: Client,
   command: string,
   timeoutMs = 30000,
+  options: { signal?: AbortSignal; maxOutputBytes?: number } = {},
 ): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
+    const { signal } = options;
+    if (signal?.aborted) {
+      reject(new Error("Command interrupted; completed changes were not rolled back"));
+      return;
+    }
     let settled = false;
     let stream: ClientChannel | null = null;
 
@@ -36,8 +42,16 @@ export function execCommand(
       }
     }, timeoutMs);
 
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error("Command interrupted; completed changes were not rolled back"));
+    };
+
     const cleanup = () => {
       clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
       if (stream) {
         try {
           stream.removeAllListeners();
@@ -51,6 +65,9 @@ export function execCommand(
       }
     };
 
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) { onAbort(); return; }
+
     client.exec(command, { pty: false }, (err, _stream) => {
       if (err) {
         if (!settled) {
@@ -62,6 +79,19 @@ export function execCommand(
       }
 
       stream = _stream;
+      // Abort/timeout may have won while SSH was opening the exec channel.
+      if (settled) { cleanup(); return; }
+      let capturedBytes = 0;
+      let truncated = false;
+      const capture = (data: Buffer): string => {
+        if (options.maxOutputBytes === undefined) return data.toString("utf8");
+        const remaining = Math.max(0, options.maxOutputBytes - capturedBytes);
+        const kept = data.subarray(0, remaining);
+        capturedBytes += kept.length;
+        const marker = data.length > remaining && !truncated ? "\n[output truncated]\n" : "";
+        if (data.length > remaining) truncated = true;
+        return kept.toString("utf8") + marker;
+      };
       let stdout = "";
       let stderr = "";
       let exitCode: number | null = null;
@@ -76,7 +106,7 @@ export function execCommand(
           }
         })
         .on("data", (data: Buffer) => {
-          stdout += data.toString("utf8");
+          stdout += capture(data);
         })
         .on("error", (streamErr: Error) => {
           if (!settled) {
@@ -89,7 +119,7 @@ export function execCommand(
       if (stream.stderr) {
         stream.stderr
           .on("data", (data: Buffer) => {
-            stderr += data.toString("utf8");
+            stderr += capture(data);
           })
           .on("error", (stderrErr: Error) => {
             if (!settled) {

@@ -70,7 +70,7 @@ export interface AiProposal {
   kind: string;
   summary: string | null;
   payload: string;
-  status: "pending" | "applied" | "rejected" | "expired";
+  status: "pending" | "running" | "applied" | "rejected" | "expired" | "failed";
   resultSummary: string | null;
   createdAt: string;
 }

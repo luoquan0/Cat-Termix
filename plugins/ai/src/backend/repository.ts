@@ -387,33 +387,31 @@ export async function createAiRepository(
       return created;
     },
 
-    /** Only moves a pending proposal. False when it was not pending. */
+    /** Compare-and-set: only one browser/run may claim an action. */
     async setProposalStatus(
       id: number,
       userId: string,
-      status: "applied" | "rejected" | "expired",
+      status: "running" | "applied" | "rejected" | "expired" | "failed",
       resultSummary?: string | null,
+      expectedStatus = "pending",
     ): Promise<boolean> {
-      const existing = await repo.findProposal(id, userId);
-      if (!existing || existing.status !== "pending") return false;
-      await (
-        await client()
-      )
-        .update(proposals)
-        .set({
-          status,
-          appliedAt: status === "applied" ? now() : null,
-          resultSummary: resultSummary ?? null,
-        })
-        .where(
-          and(
-            eq(proposals.id, id),
-            eq(proposals.userId, userId),
-            eq(proposals.status, "pending"),
-          ),
-        );
+      const update = (await client()).update(proposals).set({
+        status,
+        appliedAt: status === "applied" ? now() : null,
+        resultSummary: resultSummary ?? null,
+      }).where(and(eq(proposals.id, id), eq(proposals.userId, userId),
+        eq(proposals.status, expectedStatus)));
+      let changed: boolean;
+      if (db.dialect === "mysql") {
+        const result = await update;
+        const header = Array.isArray(result) ? result[0] : result;
+        changed = Number(header?.affectedRows) === 1;
+      } else {
+        const rows = await update.returning({ id: proposals.id });
+        changed = rows.length === 1;
+      }
       await db.persist();
-      return true;
+      return changed;
     },
   };
 

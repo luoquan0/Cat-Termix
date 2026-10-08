@@ -3668,35 +3668,21 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           }}
         />
 
-        {isConnected &&
-          host &&
-          !showToolbar &&
-          dockContributions.map((contribution, index) => {
-            const Icon = contribution.icon;
-            return (
-              <Button
-                key={contribution.actionId}
-                type="button"
-                size="icon"
-                variant="secondary"
-                onClick={() =>
-                  setDock((open) =>
-                    open?.id === contribution.actionId
-                      ? null
-                      : { id: contribution.actionId, props: {} },
-                  )
-                }
-                title={
-                  t(contribution.titleKey) +
-                  (index === 0 ? " (Ctrl+Shift+A)" : "")
-                }
-                className="absolute top-2 z-[110] size-8 bg-black/60 text-white/75 hover:bg-black/80 hover:text-white"
-                style={{ right: 8 + index * 40 }}
-              >
+        {isConnected && host && !showToolbar && (
+          <div className="absolute right-2 top-2 z-[110] flex max-w-[calc(100%-1rem)] flex-wrap justify-end gap-2">
+            {dockContributions.map((contribution, index) => {
+              const Icon = contribution.icon;
+              return <Button key={contribution.actionId} type="button" size="sm" variant="secondary"
+                onClick={() => setDock((open) => open?.id === contribution.actionId ? null : { id: contribution.actionId, props: {} })}
+                aria-expanded={dock?.id === contribution.actionId}
+                title={t(contribution.titleKey) + (index === 0 ? " (Ctrl+Shift+A)" : "")}
+                className="h-8 gap-2 bg-background/90 text-foreground shadow-md backdrop-blur-sm">
                 {Icon && <Icon className="size-4" />}
-              </Button>
-            );
-          })}
+                <span className="max-w-40 truncate text-xs">{t(contribution.titleKey)}</span>
+              </Button>;
+            })}
+          </div>
+        )}
 
         {host && showToolbar && (
           <TerminalToolbar
@@ -3733,6 +3719,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
                 hostLabel={`${hostConfig.username}@${hostConfig.name || hostConfig.ip}`}
                 panelProps={dock.props}
                 onClose={closeDock}
+                getTerminalContext={() => getTerminalBufferText(terminal)}
                 onRunInTerminal={handleRunCommandInTerminal}
               />
             );

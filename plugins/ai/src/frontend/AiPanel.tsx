@@ -1,13 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "@termix/plugin-sdk/frontend";
-import { Loader2, Send, Settings2, Sparkles, Square } from "lucide-react";
+import { Clipboard, Loader2, Plus, Send, Settings2, Sparkles, Square } from "lucide-react";
 import {
   Button,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Textarea,
 } from "@termix/plugin-sdk/ui";
 import {
@@ -34,19 +29,32 @@ import {
   type MentionItem,
 } from "./useMentions";
 import { mentionLabel } from "./labels";
+import { AiSessionControls, type ApprovalMode } from "./AiSessionControls";
 
-export function AiPanel({ activeTab }: { activeTab?: string | null }) {
+interface AiPanelProps {
+  activeTab?: string | null;
+  hostId?: number;
+  hostLabel?: string;
+  initialContext?: string;
+  getTerminalContext?: () => string;
+}
+
+export function AiPanel({ activeTab, hostId, hostLabel, initialContext, getTerminalContext }: AiPanelProps) {
   const { t } = useTranslation();
-  const { state, send, stop } = useAiStream();
+  const { state, send, stop, reset } = useAiStream();
 
   const [providers, setProviders] = useState<AiProvider[]>([]);
   const [providerId, setProviderId] = useState<number | null>(null);
+  const [model, setModel] = useState("");
+  const [approvalMode, setApprovalMode] = useState<ApprovalMode>("review");
+  const [pendingResolutions, setPendingResolutions] = useState<number[]>([]);
+  const [setupError, setSetupError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [input, setInput] = useState("");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [resolvedProposals, setResolvedProposals] = useState<
-    Record<number, { status: "applied" | "rejected"; resultSummary?: string }>
+    Record<number, { status: "applied" | "rejected" | "failed"; resultSummary?: string }>
   >({});
   const runCountRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -60,6 +68,21 @@ export function AiPanel({ activeTab }: { activeTab?: string | null }) {
   const { search: searchMentions } = useMentions(Boolean(providerId));
 
   const mentionMatches = mention ? searchMentions(mention.query) : [];
+
+  useEffect(() => {
+    if (initialContext) setInput((current) => current || t("ai.terminalContextPrefill", { output: initialContext }));
+  }, [initialContext, t]);
+
+  function newConversation() {
+    reset();
+    setHistory([]);
+    setResolvedProposals({});
+    setPendingResolutions([]);
+    setApprovalMode("review");
+    setInput("");
+    setMention(null);
+    runCountRef.current = 0;
+  }
 
   const updateMentionQuery = (value: string, caret: number) => {
     const next = activeMentionQuery(value, caret);
@@ -91,8 +114,9 @@ export function AiPanel({ activeTab }: { activeTab?: string | null }) {
 
   const loadProviders = useCallback(async (selectId?: number) => {
     try {
-      const list = await getAiProviders();
-      setProviders(list);
+      const all = await getAiProviders();
+      setProviders(all);
+      const list = all.filter((item) => item.enabled);
       setProviderId((current) => {
         // A provider that was just added becomes the active one, so there is
         // no second step between creating it and being able to use it.
@@ -131,6 +155,8 @@ export function AiPanel({ activeTab }: { activeTab?: string | null }) {
         // With nothing configured there is nothing to chat with, so go
         // straight to the form instead of showing a card that just vanishes.
         if (!cancelled && list.length === 0) setShowSettings(true);
+      } catch (error) {
+        if (!cancelled) setSetupError(error instanceof Error ? error.message : t("ai.setupFailed"));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -138,7 +164,7 @@ export function AiPanel({ activeTab }: { activeTab?: string | null }) {
     return () => {
       cancelled = true;
     };
-  }, [loadProviders]);
+  }, [loadProviders, t]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -162,7 +188,7 @@ export function AiPanel({ activeTab }: { activeTab?: string | null }) {
 
   async function handleSend() {
     const message = input.trim();
-    if (!message || !providerId || state.streaming) return;
+    if (!message || !providerId || !model.trim() || state.streaming) return;
 
     setInput("");
     setHistory((prev) => [...prev, userEntry(message)]);
@@ -170,6 +196,9 @@ export function AiPanel({ activeTab }: { activeTab?: string | null }) {
     await send({
       message,
       providerId,
+      model: model.trim(),
+      approvalMode,
+      hostId,
       conversationId: state.conversationId,
       activeTab,
       onComplete: keepRun,
@@ -185,7 +214,7 @@ export function AiPanel({ activeTab }: { activeTab?: string | null }) {
    */
   function handleProposalResolved(
     id: number,
-    status: "applied" | "rejected",
+    status: "applied" | "rejected" | "failed",
     resultSummary?: string,
   ) {
     setResolvedProposals((prev) => ({
@@ -193,28 +222,24 @@ export function AiPanel({ activeTab }: { activeTab?: string | null }) {
       [id]: { status, resultSummary },
     }));
 
-    if (!providerId || state.streaming) return;
-
-    const proposal = state.proposals.find((entry) => entry.id === id);
-    const label = proposal?.summary ?? proposal?.kind ?? `proposal ${id}`;
-
-    const followUp =
-      status === "applied"
-        ? resultSummary
-          ? `I approved "${label}". Result:\n\n${resultSummary}`
-          : `I approved "${label}". It completed.`
-        : `I rejected "${label}". Do not retry it unless I ask.`;
-
-    setHistory((prev) => [...prev, userEntry(followUp)]);
-
-    void send({
-      message: followUp,
-      providerId,
-      conversationId: state.conversationId,
-      activeTab,
-      onComplete: keepRun,
-    });
+    // Approval can finish while the model is still streaming. Queue it rather
+    // than losing the follow-up or aborting that stream with a second send.
+    setPendingResolutions((pending) => [...pending, id]);
   }
+
+  useEffect(() => {
+    if (state.streaming || !providerId || !state.conversationId || !pendingResolutions.length) return;
+    const [id] = pendingResolutions;
+    setPendingResolutions((pending) => pending.slice(1));
+    const message = t("ai.summarizeResult");
+    setHistory((previous) => [...previous, userEntry(message)]);
+    void send({
+      message, providerId, model: model.trim(), approvalMode, hostId,
+      conversationId: state.conversationId, activeTab,
+      resolvedProposalId: id, onComplete: keepRun,
+    });
+  }, [state.streaming, state.conversationId, pendingResolutions, providerId, model,
+    approvalMode, hostId, activeTab, keepRun, send, t]);
 
   const proposals: AiProposal[] = state.proposals.map((proposal) => {
     const resolved = resolvedProposals[proposal.id];
@@ -237,7 +262,7 @@ export function AiPanel({ activeTab }: { activeTab?: string | null }) {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       {/*
         The panel also lives in the narrow sidebar, so the title and the
         provider picker get their own rows rather than competing for one line.
@@ -246,6 +271,10 @@ export function AiPanel({ activeTab }: { activeTab?: string | null }) {
         <div className="flex items-center gap-2 px-3 py-2">
           <Sparkles size={16} className="shrink-0" />
           <span className="truncate text-sm font-medium">{t("ai.title")}</span>
+          <Button type="button" size="sm" variant="ghost" disabled={state.streaming}
+            onClick={newConversation} aria-label={t("ai.newConversation")} title={t("ai.newConversation")}>
+            <Plus size={14} />
+          </Button>
           <a
             href="https://docs.termix.site/features/ai/overview"
             target="_blank"
@@ -265,25 +294,14 @@ export function AiPanel({ activeTab }: { activeTab?: string | null }) {
           </Button>
         </div>
 
-        {providers.length > 0 && (
-          <div className="flex items-center gap-2 px-3 pb-2">
-            <Select
-              value={providerId ? String(providerId) : undefined}
-              onValueChange={(value) => setProviderId(Number(value))}
-            >
-              <SelectTrigger className="h-7 min-w-0 flex-1 rounded-none text-xs">
-                <SelectValue placeholder={t("ai.selectProvider")} />
-              </SelectTrigger>
-              <SelectContent>
-                {providers.map((provider) => (
-                  <SelectItem key={provider.id} value={String(provider.id)}>
-                    {provider.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+        {hostId && <p className="px-3 pb-2 text-[11px] text-muted-foreground">
+          {t("ai.collaborativeTerminal", { host: hostLabel ?? String(hostId) })}
+        </p>}
+        {providers.length > 0 && <AiSessionControls
+          providers={providers.filter((item) => item.enabled)} providerId={providerId} onProviderChange={setProviderId}
+          model={model} onModelChange={setModel} approvalMode={approvalMode}
+          onApprovalModeChange={setApprovalMode} disabled={state.streaming} />}
+
       </div>
 
       {showSettings && (
@@ -298,7 +316,9 @@ export function AiPanel({ activeTab }: { activeTab?: string | null }) {
         </div>
       )}
 
-      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-3">
+      <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3" role="log" aria-label={t("ai.title")}>
+        {timeline.length === 0 && <p className="text-sm text-muted-foreground">{t("ai.chatWelcome")}</p>}
+        {setupError && <p role="alert" className="text-sm text-destructive">{setupError}</p>}
         {timeline.map((item) => {
           if (item.kind === "message") {
             return (
@@ -376,6 +396,7 @@ export function AiPanel({ activeTab }: { activeTab?: string | null }) {
             );
           }}
           onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
             if (mentionMatches.length > 0) {
               if (event.key === "ArrowDown") {
                 event.preventDefault();
@@ -417,7 +438,12 @@ export function AiPanel({ activeTab }: { activeTab?: string | null }) {
         <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
           {t("ai.attachHint")}
         </p>
-        <div className="mt-1.5 flex items-center justify-end gap-2">
+        <div className="mt-1.5 flex flex-wrap items-center justify-end gap-2">
+          {getTerminalContext && <Button type="button" size="sm" variant="ghost" className="mr-auto"
+            disabled={state.streaming} onClick={() => {
+              const output = getTerminalContext();
+              if (output) setInput((current) => `${current}${current ? "\n\n" : ""}${t("ai.terminalContextPrefill", { output })}`);
+            }}><Clipboard size={14} />{t("ai.attachTerminalOutput")}</Button>}
           {state.streaming ? (
             <Button size="sm" variant="outline" onClick={stop}>
               <Square size={14} />
@@ -428,7 +454,7 @@ export function AiPanel({ activeTab }: { activeTab?: string | null }) {
               size="sm"
               variant="outline"
               className="border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand"
-              disabled={!input.trim() || !providerId}
+              disabled={!input.trim() || !providerId || !model.trim()}
               onClick={() => void handleSend()}
             >
               <Send size={14} />

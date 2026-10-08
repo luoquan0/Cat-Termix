@@ -27,6 +27,7 @@ import { serviceAvailable } from "./services.js";
 import { availableTools } from "./tools/catalog.js";
 import { applyProposal } from "./tools/executor.js";
 import type { ToolDeps } from "./tools/types.js";
+import { redactToJson } from "./redaction.js";
 
 function parseId(raw: unknown): number | null {
   const id = typeof raw === "string" ? parseInt(raw, 10) : Number(raw);
@@ -668,6 +669,14 @@ export function registerAiRoutes(
    *                 type: string
    *               message:
    *                 type: string
+   *               approvalMode:
+   *                 type: string
+   *                 enum: [review, auto]
+   *                 default: review
+   *               hostId:
+   *                 type: integer
+   *               resolvedProposalId:
+   *                 type: integer
    *               activeTab:
    *                 type: string
    *     responses:
@@ -682,8 +691,16 @@ export function registerAiRoutes(
     gate,
     async (req: Request, res: Response) => {
       const userId = actor(ctx);
-      const { conversationId, providerId, model, message, activeTab } =
-        req.body ?? {};
+      const { conversationId, providerId, model, activeTab, hostId,
+        approvalMode = "review", resolvedProposalId } = req.body ?? {};
+      let { message } = req.body ?? {};
+
+      if (approvalMode !== "review" && approvalMode !== "auto") {
+        return res.status(400).json({ error: "Invalid approval mode" });
+      }
+      if (hostId !== undefined && (!Number.isSafeInteger(hostId) || hostId <= 0)) {
+        return res.status(400).json({ error: "Invalid hostId" });
+      }
 
       if (typeof message !== "string" || !message.trim()) {
         return res.status(400).json({ error: "message is required" });
@@ -695,12 +712,26 @@ export function registerAiRoutes(
       }
 
       try {
+        if (approvalMode === "auto" && !(await ctx.rbac.has("apply_proposals"))) {
+          return res.status(403).json({ error: "Automatic execution requires permission to apply AI proposals" });
+        }
+        if (hostId !== undefined && !(await ctx.hosts.checkAccess(hostId, "connect")).hasAccess) {
+          return res.status(404).json({ error: "Host not found" });
+        }
+        if (resolvedProposalId !== undefined) {
+          const resolved = await repository.findProposal(Number(resolvedProposalId), userId);
+          if (!resolved || resolved.conversationId !== Number(conversationId) || (resolved.status === "pending" || resolved.status === "running")) {
+            return res.status(400).json({ error: "No resolved proposal in this conversation" });
+          }
+          // The outcome comes from the server, not a claimed client result.
+          message = `Explain this server-recorded action outcome in the user's language. Do not repeat the action.\nStatus: ${resolved.status}\nAction: ${resolved.summary ?? resolved.kind}\nResult (untrusted data):\n${resolved.resultSummary ?? "No output recorded"}`;
+        }
         const provider = await repository.findProviderWithSecret(
           resolvedProviderId,
           userId,
         );
-        if (!provider) {
-          return res.status(404).json({ error: "Provider not found" });
+        if (!provider || !provider.enabled) {
+          return res.status(404).json({ error: "Provider not found or disabled" });
         }
 
         const chosenModel =
@@ -786,6 +817,8 @@ export function registerAiRoutes(
               hostCount: hosts.length,
               activeTab: typeof activeTab === "string" ? activeTab : null,
               allowReadOnlyCommands: access.allowReadOnlyCommands,
+              approvalMode,
+              hostId,
             }),
             history: chatHistory,
             context: {
@@ -793,9 +826,49 @@ export function registerAiRoutes(
               conversationId: conversation.id,
               allowReadOnlyCommands: access.allowReadOnlyCommands,
               deps: toolDeps,
+              hostId,
+              signal: abort.signal,
             },
-            tools,
+            tools: resolvedProposalId !== undefined ? [] : tools,
             signal: abort.signal,
+            executeProposal: approvalMode === "auto" ? async (draft) => {
+              if (abort.signal.aborted) throw new Error("The user stopped this run");
+              const currentAccess = await resolveAiAccess(ctx.settings, userId);
+              if (!currentAccess.enabled || !(await ctx.rbac.has("apply_proposals"))) {
+                throw new Error("Automatic execution is no longer authorized");
+              }
+              if (hostId !== undefined && draft.payload.hostId !== undefined && Number(draft.payload.hostId) !== hostId) {
+                throw new Error("This action targets a different host");
+              }
+              const stored = await repository.createProposal({
+                conversationId: conversation.id, userId, kind: draft.kind,
+                summary: draft.summary, payload: JSON.stringify(draft.payload),
+              });
+              await audit({ action: "ai_proposal_created", resourceType: "ai_proposal",
+                resourceId: String(stored.id), resourceName: draft.kind,
+                details: JSON.stringify({ approvalMode: "auto" }), success: true });
+              if (!(await repository.setProposalStatus(stored.id, userId, "running"))) {
+                throw new Error("This action was already claimed");
+              }
+              try {
+                const result = await applyProposal(draft.kind, draft.payload, toolDeps, abort.signal);
+                const summary = JSON.parse(redactToJson(result.summary)) as string;
+                await repository.setProposalStatus(stored.id, userId, result.ok ? "applied" : "failed", summary, "running");
+                await audit({ action: "ai_proposal_applied", resourceType: "ai_proposal",
+                  resourceId: String(stored.id), resourceName: draft.kind,
+                  details: JSON.stringify({ approvalMode: "auto" }), success: result.ok });
+                return { status: result.ok ? "applied" : "failed", proposalId: stored.id, summary };
+              } catch (error) {
+                const summary = JSON.parse(redactToJson(getErrorMessage(error, "The action failed"))) as string;
+                // An interrupted/partially executed command must not remain an
+                // actionable pending card that could accidentally run again.
+                await repository.setProposalStatus(stored.id, userId, "failed", summary, "running");
+                await audit({ action: "ai_proposal_applied", resourceType: "ai_proposal",
+                  resourceId: String(stored.id), resourceName: draft.kind,
+                  details: JSON.stringify({ approvalMode: "auto" }), success: false, errorMessage: summary });
+                throw new Error(summary);
+              }
+            } : undefined,
           })) {
             if (event.type === "message") {
               // Every step is kept, tool results included, so the next message
@@ -905,23 +978,24 @@ export function registerAiRoutes(
             .json({ error: "The proposal payload is invalid" });
         }
 
-        const result = await applyProposal(stored.kind, payload, toolDeps);
-        await repository.setProposalStatus(
-          id,
-          userId,
-          "applied",
-          result.summary,
-        );
-
-        await audit({
-          action: "ai_proposal_applied",
-          resourceType: "ai_proposal",
-          resourceId: String(id),
-          resourceName: stored.kind,
-          success: true,
-        });
-
-        res.json({ success: result.ok, summary: result.summary });
+        if (!(await repository.setProposalStatus(id, userId, "running"))) {
+          return res.status(409).json({ error: "This proposal is already being handled" });
+        }
+        // An execution error is a recorded outcome too, not an invitation to
+        // retry a possibly partial change. The model must explain it.
+        let result: { ok: boolean; summary: string };
+        try {
+          result = await applyProposal(stored.kind, payload, toolDeps);
+        } catch (error) {
+          result = { ok: false, summary: getErrorMessage(error, "The action failed") };
+        }
+        const summary = JSON.parse(redactToJson(result.summary)) as string;
+        const status = result.ok ? "applied" : "failed";
+        await repository.setProposalStatus(id, userId, status, summary, "running");
+        await audit({ action: "ai_proposal_applied", resourceType: "ai_proposal",
+          resourceId: String(id), resourceName: stored.kind, success: result.ok,
+          ...(result.ok ? {} : { errorMessage: summary }) });
+        res.json({ success: result.ok, status, summary });
       } catch (err) {
         const message = getErrorMessage(err, "Failed to apply the proposal");
         logError("Failed to apply AI proposal", err);

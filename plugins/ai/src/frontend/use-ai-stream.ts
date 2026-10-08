@@ -1,5 +1,5 @@
 import { getErrorMessage } from "./errors";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { aiApp } from "./app-ref";
 import type { AiProposal } from "./ai-api";
 
@@ -39,7 +39,14 @@ export function useAiStream() {
   const [state, setState] = useState<StreamState>(INITIAL);
   const abortRef = useRef<AbortController | null>(null);
 
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+  }, []);
+
   const reset = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
     setState(INITIAL);
   }, []);
 
@@ -56,6 +63,9 @@ export function useAiStream() {
       model?: string;
       conversationId?: number | null;
       activeTab?: string | null;
+      hostId?: number;
+      approvalMode?: "review" | "auto";
+      resolvedProposalId?: number;
       /**
        * Called however the run ends, with its steps, which are then cleared
        * from the live state. Keeping them is up to the caller.
@@ -70,14 +80,15 @@ export function useAiStream() {
       const controller = new AbortController();
       abortRef.current = controller;
 
-      setState({
+      setState((previous) => ({
         streaming: true,
         assistantText: "",
         tools: [],
-        proposals: [],
+        proposals: input.conversationId && input.conversationId === previous.conversationId
+          ? previous.proposals : [],
         error: null,
         conversationId: input.conversationId ?? null,
-      });
+      }));
 
       let conversationId = input.conversationId ?? null;
       let replyText = "";
@@ -108,9 +119,13 @@ export function useAiStream() {
             model: input.model,
             conversationId: input.conversationId ?? undefined,
             activeTab: input.activeTab ?? undefined,
+            hostId: input.hostId,
+            approvalMode: input.approvalMode ?? "review",
+            resolvedProposalId: input.resolvedProposalId,
           }),
         });
 
+        if (abortRef.current !== controller) { await response.body?.cancel(); return; }
         if (!response.ok) {
           let message = "The assistant could not be reached";
           try {
@@ -118,7 +133,7 @@ export function useAiStream() {
           } catch {
             // Keep the generic message.
           }
-          setState((prev) => ({ ...prev, streaming: false, error: message }));
+          if (abortRef.current === controller) setState((prev) => ({ ...prev, streaming: false, error: message }));
           return;
         }
 
@@ -137,6 +152,7 @@ export function useAiStream() {
 
         while (true) {
           const { done, value } = await reader.read();
+          if (abortRef.current !== controller) return;
           if (done) break;
 
           buffer += decoder.decode(value, { stream: true });

@@ -44,6 +44,7 @@ export async function startServer(
   options: {
     permissions?: string[];
     services?: Record<string, object>;
+    sshClient?: unknown;
     fetch?: (url: string, init?: unknown) => Promise<Response>;
   } = {},
 ): Promise<TestServer> {
@@ -63,6 +64,7 @@ export async function startServer(
     router: () => (router = express.Router()),
     permissions: options.permissions ?? ALL_PERMISSIONS,
     services: options.services,
+    sshClient: options.sshClient,
     fetch: options.fetch as never,
     hosts: [
       {

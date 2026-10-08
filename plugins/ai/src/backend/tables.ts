@@ -117,7 +117,7 @@ export const proposals = adoptLegacyTable(
       kind: varchar().notNull(),
       summary: text(),
       payload: text().notNull().default("{}"),
-      // pending | applied | rejected | expired
+      // pending | running | applied | rejected | expired | failed
       status: varchar(32).notNull().default("pending"),
       appliedAt: text(),
       resultSummary: text(),

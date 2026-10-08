@@ -56,6 +56,8 @@ export interface TerminalSidePanelProps {
   /** Whatever the opening action passed to openSidePanel. */
   panelProps: Record<string, unknown>;
   onClose: () => void;
+  /** Visible output, captured only when the user explicitly attaches it. */
+  getTerminalContext?: () => string;
   onRunInTerminal: (command: string) => void;
 }
 

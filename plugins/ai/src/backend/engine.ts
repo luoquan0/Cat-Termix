@@ -42,17 +42,27 @@ export interface EngineOptions {
   /** What the model may call this turn; availableTools() decides. */
   tools: AiTool[];
   signal?: AbortSignal;
+  /** Set only after the route has checked the user's explicit auto opt-in. */
+  executeProposal?: (draft: ProposalDraft) => Promise<unknown>;
 }
 
 export async function* runAgent(
   options: EngineOptions,
 ): AsyncGenerator<EngineEvent> {
   const adapter = getAdapter(options.config.providerType);
-  const tools = toolDefinitions(options.tools);
+  const tools = toolDefinitions(options.tools).map((tool) =>
+    options.executeProposal && tool.name.startsWith("propose_")
+      ? { ...tool, description: `${tool.description} In this conversation automatic execution is enabled: this tool executes the action and returns the actual result without waiting for approval.` }
+      : tool,
+  );
   const byName = new Map(options.tools.map((tool) => [tool.name, tool]));
   const messages: ChatMessage[] = [...options.history];
+  let summaryOnly = false;
 
   for (let turn = 0; turn < MAX_TURNS; turn += 1) {
+    if (options.signal?.aborted) return;
+    // Reserve the final provider turn for an explanation, not more actions.
+    const finalTurn = summaryOnly || turn === MAX_TURNS - 1;
     let text = "";
     const calls: ToolCall[] = [];
     let failed = false;
@@ -60,12 +70,15 @@ export async function* runAgent(
     try {
       for await (const chunk of adapter.streamChat(options.config, {
         model: options.model,
-        system: options.system,
+        system: finalTurn
+          ? `${options.system}\nNo more tools may run this turn. Summarize the observed results in the user's language. Explain failures and any unfinished work; do not claim unverified success.`
+          : options.system,
         messages,
-        tools,
+        tools: finalTurn ? [] : tools,
         signal: options.signal,
       })) {
         if (chunk.type === "text") {
+          if (!text && turn > 0 && chunk.text) yield { type: "token", text: "\n\n" };
           text += chunk.text;
           yield { type: "token", text: chunk.text };
         } else if (chunk.type === "tool_call") {
@@ -86,7 +99,20 @@ export async function* runAgent(
       return;
     }
 
-    if (failed) return;
+    if (failed || options.signal?.aborted) return;
+    if (finalTurn && calls.length) {
+      yield { type: "error", message: "The assistant reached its step limit. No further commands were executed; ask it to summarize or continue." };
+      return;
+    }
+
+    if (!calls.length && !text.trim()) {
+      if (!finalTurn) {
+        summaryOnly = true;
+        continue;
+      }
+      yield { type: "error", message: "The provider returned no explanation. Any completed tool results are shown above." };
+      return;
+    }
 
     if (!calls.length) {
       yield { type: "message", message: { role: "assistant", content: text } };
@@ -106,7 +132,18 @@ export async function* runAgent(
       if (options.signal?.aborted) return;
       yield { type: "tool_call", name: call.name, arguments: call.arguments };
 
-      const result = await runTool(byName, call, options.context);
+      let result = await runTool(byName, call, options.context);
+      if (options.signal?.aborted) return;
+
+      if (isProposalDraft(result) && options.executeProposal) {
+        try {
+          result = await options.executeProposal(result);
+        } catch (error) {
+          if (options.signal?.aborted) return;
+          result = { status: "failed", error: getErrorMessage(error, "The action failed") };
+        }
+      }
+      if (options.signal?.aborted) return;
 
       if (isProposalDraft(result)) {
         // Closes the tool call before the proposal card is emitted. Without
@@ -163,6 +200,18 @@ async function runTool(
   // A model can emit any name it likes; only what was offered runs.
   if (!tool) {
     return { error: `Unknown tool: ${call.name}` };
+  }
+
+  if (context.hostId !== undefined && tool.category === "propose" && call.name !== "propose_run_command") {
+    return { error: "Use a standalone chat for changes to the Termix inventory. This terminal workspace only runs commands on its bound host." };
+  }
+
+  if (
+    context.hostId !== undefined &&
+    call.arguments?.hostId !== undefined &&
+    Number(call.arguments.hostId) !== context.hostId
+  ) {
+    return { error: `This terminal conversation is bound to host ${context.hostId}. Open a standalone chat to work on another host.` };
   }
 
   try {
