@@ -45,13 +45,21 @@ function Harness({ disabled = false }: { disabled?: boolean }) {
     />
   );
 }
-beforeEach(() =>
-  api.getAiProviderModels.mockReset().mockResolvedValue(["other-model"]),
-);
+beforeEach(() => {
+  api.getAiProviderModels.mockReset().mockResolvedValue(["other-model"]);
+});
 afterEach(cleanup);
+async function discoveryFinished() {
+  await waitFor(() =>
+    expect(
+      document.querySelector('option[value="other-model"]'),
+    ).not.toBeNull(),
+  );
+}
 describe("shared conversation controls", () => {
   it("starts in approval mode and requires explicit confirmation for auto execution", async () => {
     render(<Harness />);
+    await discoveryFinished();
     fireEvent.click(screen.getByRole("button", { name: "ai.reviewMode" }));
     expect(screen.getByRole("alert").textContent).toContain(
       "ai.autoModeWarning",
@@ -90,15 +98,12 @@ describe("shared conversation controls", () => {
     const input = screen.getByLabelText("ai.modelPicker") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "my-model" } });
     finish(["other-model"]);
-    await waitFor(() =>
-      expect(
-        document.querySelector('option[value="other-model"]'),
-      ).not.toBeNull(),
-    );
+    await discoveryFinished();
     expect(input.value).toBe("my-model");
   });
-  it("locks model and mode controls while a run is active", () => {
+  it("locks model and mode controls while a run is active", async () => {
     render(<Harness disabled />);
+    await discoveryFinished();
     expect(
       (screen.getByLabelText("ai.modelPicker") as HTMLInputElement).disabled,
     ).toBe(true);
