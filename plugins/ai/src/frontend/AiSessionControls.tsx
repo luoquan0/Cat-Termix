@@ -79,7 +79,7 @@ export function AiSessionControls({
           >
             <SelectValue placeholder={t("ai.selectProvider")} />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="z-[200]">
             {providers.map((item) => (
               <SelectItem key={item.id} value={String(item.id)}>
                 {item.label}

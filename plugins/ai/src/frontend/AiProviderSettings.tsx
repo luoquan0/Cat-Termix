@@ -188,7 +188,7 @@ function AiProviderEditForm({
             >
               <SelectValue placeholder={t("ai.modelPlaceholder")} />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="z-[200]">
               {models.map((model) => (
                 <SelectItem key={model} value={model}>
                   {model}
@@ -422,7 +422,7 @@ export function AiProviderSettings({
               <SelectTrigger className="rounded-none">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="z-[200]">
                 {PROVIDER_TYPES.map((entry) => (
                   <SelectItem key={entry.value} value={entry.value}>
                     {t(entry.labelKey)}
@@ -503,7 +503,7 @@ export function AiProviderSettings({
                 <SelectTrigger className="rounded-none">
                   <SelectValue placeholder={t("ai.modelPlaceholder")} />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="z-[200]">
                   {models.map((model) => (
                     <SelectItem key={model} value={model}>
                       {model}
