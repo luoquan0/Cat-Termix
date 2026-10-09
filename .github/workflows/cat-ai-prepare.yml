@@ -41,6 +41,7 @@ jobs:
           python3 .github/cat-ai-frontend-edit.py
           git apply --check .github/cat-ai-final.patch
           git apply .github/cat-ai-final.patch
+          python3 .github/cat-ai-review-edit.py
       - name: Install locked dependencies
         run: npm ci
       - name: Format changed source
@@ -62,7 +63,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git rm -f .github/cat-ai-backend-edit.py .github/cat-ai-frontend-edit.py .github/cat-ai-final.patch .github/workflows/cat-ai-prepare.yml
+          git rm -f .github/cat-ai-backend-edit.py .github/cat-ai-frontend-edit.py .github/cat-ai-final.patch .github/cat-ai-review-edit.py .github/workflows/cat-ai-prepare.yml
           mkdir -p /tmp/cat-ai-prepared
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
