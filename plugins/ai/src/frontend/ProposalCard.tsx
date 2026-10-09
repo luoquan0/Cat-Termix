@@ -72,7 +72,9 @@ export function ProposalCard({
   onResolved,
 }: ProposalCardProps) {
   const { t } = useTranslation();
-  const [busy, setBusy] = useState<"apply" | "reject" | "terminal" | null>(null);
+  const [busy, setBusy] = useState<"apply" | "reject" | "terminal" | null>(
+    null,
+  );
   const [confirmTerminal, setConfirmTerminal] = useState(false);
   const [submittedLocally, setSubmittedLocally] = useState(false);
 
@@ -180,12 +182,12 @@ export function ProposalCard({
               : proposal.status === "submitted"
                 ? t("ai.terminalSubmitted")
                 : proposal.status === "failed"
-                ? t("ai.statusFailed")
-                : proposal.status === "running"
-                  ? t("ai.statusRunning")
-                  : proposal.status === "expired"
-                    ? t("ai.statusExpired")
-                    : t("ai.statusRejected")}
+                  ? t("ai.statusFailed")
+                  : proposal.status === "running"
+                    ? t("ai.statusRunning")
+                    : proposal.status === "expired"
+                      ? t("ai.statusExpired")
+                      : t("ai.statusRejected")}
           </span>
         )}
       </div>
@@ -232,13 +234,26 @@ export function ProposalCard({
       )}
 
       {!resolved && confirmTerminal && (
-        <div role="alert" className="mt-2 space-y-2 border border-border bg-background p-2 text-xs">
+        <div
+          role="alert"
+          className="mt-2 space-y-2 border border-border bg-background p-2 text-xs"
+        >
           <p>{t("ai.terminalSharedWarning")}</p>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="destructive" onClick={() => void handleSubmitToTerminal()}>
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              onClick={() => void handleSubmitToTerminal()}
+            >
               {t("ai.terminalConfirmSend")}
             </Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => setConfirmTerminal(false)}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setConfirmTerminal(false)}
+            >
               {t("common.cancel")}
             </Button>
           </div>
@@ -275,8 +290,14 @@ export function ProposalCard({
               onClick={() => setConfirmTerminal(true)}
               title={t("ai.terminalSharedWarning")}
             >
-              {busy === "terminal" ? <Loader2 size={13} className="animate-spin" /> : <Terminal size={13} />}
-              {submittedLocally ? t("ai.terminalSubmitted") : t("ai.terminalRunHere")}
+              {busy === "terminal" ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <Terminal size={13} />
+              )}
+              {submittedLocally
+                ? t("ai.terminalSubmitted")
+                : t("ai.terminalRunHere")}
             </Button>
           )}
           <Button
