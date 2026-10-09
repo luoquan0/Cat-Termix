@@ -1,0 +1,589 @@
+diff --git a/plugins/ai/locales/en.json b/plugins/ai/locales/en.json
+index 2fc4b3b..ec33ae3 100644
+--- a/plugins/ai/locales/en.json
++++ b/plugins/ai/locales/en.json
+@@ -112,7 +112,7 @@
+     "summarizeResult": "Explain the recorded action result. Do not execute it again.",
+     "newConversation": "New conversation",
+     "collaborativeTerminal": "Bound to {{host}}. AI runs through an independent SSH channel while you keep using your terminal. Shell state is not shared.",
+-    "chatWelcome": "Chat directly, use @ to mention a host or snippet, and choose a model above. Tool results are followed by an explanation.",
++    "chatWelcome": "Start a conversation or use @ to reference a host. The assistant can read its recent terminal output. Model and execution options are in Chat settings.",
+     "attachTerminalOutput": "Attach terminal output",
+     "terminalWorkspace": "SSH AI chat workspace",
+     "statusFailed": "Failed",
+@@ -140,7 +140,13 @@
+     "boundTerminal": "Current host: {{host}}",
+     "sharedExecutionHint": "Commands and output appear in this SSH terminal and results return automatically. Use an idle Bash/zsh prompt. Ctrl+C takes over. AI scripts inherit cwd/environment but cannot change the parent shell state.",
+     "isolatedExecutionHint": "Separate SSH exec channel; commands do not appear in the manual terminal.",
+-    "jumpToLatest": "Jump to latest reply"
++    "jumpToLatest": "Jump to latest reply",
++    "chatSettings": "Chat settings",
++    "sessionSettings": "Model and execution",
++    "autoModeCompact": "Auto",
++    "terminalContextAutomatic": "The assistant can read recent output from your current SSH terminal or an @host when needed. No manual attachment is required.",
++    "composerHint": "Use @ to reference a host, snippet or automation. Terminal output is read by the assistant when needed.",
++    "readingTerminalOutput": "Reading terminal output"
+   },
+   "nav": {
+     "ai": "AI"
+diff --git a/plugins/ai/locales/translated/zh_CN.json b/plugins/ai/locales/translated/zh_CN.json
+index 7aaea60..b34b019 100644
+--- a/plugins/ai/locales/translated/zh_CN.json
++++ b/plugins/ai/locales/translated/zh_CN.json
+@@ -112,7 +112,7 @@
+     "summarizeResult": "请解释已记录的执行结果，不要重复执行。",
+     "newConversation": "新建会话",
+     "collaborativeTerminal": "当前主机：{{host}}。AI 使用独立 SSH 通道，你可继续操作终端；命令不共享 shell 状态。",
+-    "chatWelcome": "可直接对话，输入 @ 选择主机或代码片段，在上方选择模型。工具执行后会继续解释结果。",
++    "chatWelcome": "可直接对话，或输入 @ 引用主机。模型可按需读取最近终端输出；模型、执行与审批选项统一在聊天设置中调整。",
+     "attachTerminalOutput": "附加终端输出",
+     "terminalWorkspace": "SSH AI 对话窗口",
+     "statusFailed": "执行失败",
+@@ -140,7 +140,13 @@
+     "boundTerminal": "当前主机：{{host}}",
+     "sharedExecutionHint": "指令和输出显示在左侧 SSH，结果自动交回 AI。需处于空闲 Bash/zsh 提示符；执行中按 Ctrl+C 接管。AI 脚本继承当前目录和环境，但不改变父 Shell 状态。",
+     "isolatedExecutionHint": "使用独立 SSH 执行通道，不向左侧手动终端写入指令。",
+-    "jumpToLatest": "查看最新回复"
++    "jumpToLatest": "查看最新回复",
++    "chatSettings": "聊天设置",
++    "sessionSettings": "模型与执行",
++    "autoModeCompact": "免审批",
++    "terminalContextAutomatic": "模型可按需读取当前 SSH 会话或 @ 主机的最近终端输出，无需手动粘贴或附加。",
++    "composerHint": "输入 @ 引用主机、代码片段或自动化流程，终端输出由模型按需读取。",
++    "readingTerminalOutput": "正在读取终端输出"
+   },
+   "nav": {
+     "ai": "AI"
+diff --git a/plugins/ai/src/frontend/AiPanel.tsx b/plugins/ai/src/frontend/AiPanel.tsx
+index d5dfcd8..4622867 100644
+--- a/plugins/ai/src/frontend/AiPanel.tsx
++++ b/plugins/ai/src/frontend/AiPanel.tsx
+@@ -1,7 +1,6 @@
+-import { useCallback, useEffect, useRef, useState } from "react";
++import { useCallback, useEffect, useId, useRef, useState } from "react";
+ import { useTranslation } from "@termix/plugin-sdk/frontend";
+ import {
+-  Clipboard,
+   History,
+   Loader2,
+   Plus,
+@@ -52,18 +51,15 @@ interface AiPanelProps {
+   activeTab?: string | null;
+   hostId?: number;
+   hostLabel?: string;
+-  initialContext?: string;
+-  getTerminalContext?: () => string;
++  terminalContext?: { hostId: number; tabInstanceId?: string };
+   getTerminalSessionId?: () => string | null;
+-  onRunInTerminal?: (command: string) => boolean;
+ }
+ 
+ export function AiPanel({
+   activeTab,
+   hostId,
+   hostLabel,
+-  initialContext,
+-  getTerminalContext,
++  terminalContext,
+   getTerminalSessionId,
+ }: AiPanelProps) {
+   const { t } = useTranslation();
+@@ -81,6 +77,7 @@ export function AiPanel({
+   const [setupError, setSetupError] = useState<string | null>(null);
+   const [loading, setLoading] = useState(true);
+   const [showSettings, setShowSettings] = useState(false);
++  const settingsId = useId();
+   const [input, setInput] = useState("");
+   const [history, setHistory] = useState<HistoryEntry[]>([]);
+   const [conversations, setConversations] = useState<AiConversation[]>([]);
+@@ -118,14 +115,6 @@ export function AiPanel({
+ 
+   const mentionMatches = mention ? searchMentions(mention.query) : [];
+ 
+-  useEffect(() => {
+-    if (initialContext)
+-      setInput(
+-        (current) =>
+-          current || t("ai.terminalContextPrefill", { output: initialContext }),
+-      );
+-  }, [initialContext, t]);
+-
+   function newConversation() {
+     historyOperationRef.current += 1;
+     reset();
+@@ -138,6 +127,7 @@ export function AiPanel({
+     setInput("");
+     setMention(null);
+     setShowHistory(false);
++    setShowSettings(false);
+     setConfirmDeleteId(null);
+     setLoadingConversationId(null);
+     setHistoryError(null);
+@@ -349,6 +339,7 @@ export function AiPanel({
+       approvalMode,
+       executionMode,
+       terminalSessionId: getTerminalSessionId?.(),
++      terminalContext,
+       hostId,
+       conversationId: state.conversationId,
+       activeTab,
+@@ -398,6 +389,7 @@ export function AiPanel({
+       approvalMode,
+       executionMode,
+       terminalSessionId: getTerminalSessionId?.(),
++      terminalContext,
+       hostId,
+       conversationId: state.conversationId,
+       activeTab,
+@@ -413,6 +405,7 @@ export function AiPanel({
+     approvalMode,
+     executionMode,
+     getTerminalSessionId,
++    terminalContext,
+     hostId,
+     activeTab,
+     keepRun,
+@@ -468,6 +461,7 @@ export function AiPanel({
+             disabled={executing}
+             onClick={() => {
+               setShowHistory((open) => !open);
++              setShowSettings(false);
+               if (!showHistory) void refreshConversations();
+             }}
+             aria-label={t("ai.history")}
+@@ -476,53 +470,41 @@ export function AiPanel({
+           >
+             <History size={14} />
+           </Button>
+-          <a
+-            href="https://docs.termix.site/features/ai/overview"
+-            target="_blank"
+-            rel="noreferrer"
+-            className="ml-auto shrink-0 text-[10px] text-accent-brand hover:underline"
+-          >
+-            {t("hosts.docsLink")}
+-          </a>
+           <Button
++            type="button"
+             size="sm"
+             variant="ghost"
+             className="shrink-0"
+-            onClick={() => setShowSettings((value) => !value)}
+-            aria-label={t("ai.providerSettings")}
++            onClick={() => {
++              setShowSettings((value) => !value);
++              setShowHistory(false);
++            }}
++            aria-label={t("ai.chatSettings")}
++            title={t("ai.chatSettings")}
++            aria-expanded={showSettings}
++            aria-controls={settingsId}
+           >
+             <Settings2 size={14} />
+           </Button>
++          {approvalMode === "auto" && (
++            <span
++              role="status"
++              className="ml-auto shrink-0 text-[10px] text-destructive"
++              title={t("ai.autoModeActive")}
++            >
++              {t("ai.autoModeCompact")}
++            </span>
++          )}
+         </div>
+ 
+         {hostId && (
+-          <p className="px-3 pb-2 text-[11px] text-muted-foreground">
++          <p className="truncate px-3 pb-2 text-[11px] text-muted-foreground">
+             {t("ai.boundTerminal", {
+               host: hostLabel ?? String(hostId),
+             })}
+           </p>
+         )}
+-        {providers.length > 0 && (
+-          <AiSessionControls
+-            providers={providers.filter((item) => item.enabled)}
+-            providerId={providerId}
+-            onProviderChange={setProviderId}
+-            model={model}
+-            onModelChange={setModel}
+-            approvalMode={approvalMode}
+-            onApprovalModeChange={setApprovalMode}
+-            disabled={executing}
+-            executionMode={executionMode}
+-            onExecutionModeChange={
+-              getTerminalSessionId
+-                ? (mode) => {
+-                    setExecutionMode(mode);
+-                    jumpToLatest();
+-                  }
+-                : undefined
+-            }
+-          />
+-        )}
++
+       </div>
+ 
+       {showHistory && (
+@@ -600,17 +582,65 @@ export function AiPanel({
+         </div>
+       )}
+ 
+-      {showSettings && (
+-        <div className="border-b border-border p-3">
+-          <AiProviderSettings
+-            providers={providers}
+-            onChanged={loadProviders}
+-            // Adding the first provider is the reason the form opened, so it
+-            // closes once that is done and the chat becomes usable.
+-            onAdded={() => setShowSettings(false)}
++      {/* Keep controls mounted: closing settings must not reset the model,
++          cancel discovery, or stop a conversation from sending. */}
++      <div
++        id={settingsId}
++        hidden={!showSettings}
++        role="region"
++        aria-label={t("ai.chatSettings")}
++        className="max-h-[55%] shrink-0 overflow-y-auto border-b border-border"
++      >
++        <section aria-label={t("ai.sessionSettings")}>
++          <h3 className="px-3 py-2 text-xs font-medium">
++            {t("ai.sessionSettings")}
++          </h3>
++          {providers.length > 0 && (
++          <AiSessionControls
++            providers={providers.filter((item) => item.enabled)}
++            providerId={providerId}
++            onProviderChange={setProviderId}
++            model={model}
++            onModelChange={setModel}
++            approvalMode={approvalMode}
++            onApprovalModeChange={setApprovalMode}
++            disabled={executing}
++            executionMode={executionMode}
++            onExecutionModeChange={
++              getTerminalSessionId
++                ? (mode) => {
++                    setExecutionMode(mode);
++                    jumpToLatest();
++                  }
++                : undefined
++            }
+           />
+-        </div>
+-      )}
++        )}
++        </section>
++        <details className="border-t border-border p-3" open={!providers.length}>
++          <summary className="cursor-pointer text-xs font-medium">
++            {t("ai.providerSettings")}
++          </summary>
++          <div className="pt-2">
++            <AiProviderSettings
++              providers={providers}
++              onChanged={loadProviders}
++              onAdded={() => setShowSettings(false)}
++            />
++          </div>
++        </details>
++        <p className="border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
++          {t("ai.terminalContextAutomatic")}
++        </p>
++        <a
++          href="https://docs.termix.site/features/ai/overview"
++          target="_blank"
++          rel="noreferrer"
++          className="block px-3 pb-2 text-[10px] text-accent-brand hover:underline"
++        >
++          {t("hosts.docsLink")}
++        </a>
++      </div>
+ 
+       <div
+         ref={chatScroll.viewportRef}
+@@ -770,29 +800,9 @@ export function AiPanel({
+           panel is at its narrowest.
+         */}
+         <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
+-          {t("ai.attachHint")}
++          {t("ai.composerHint")}
+         </p>
+         <div className="mt-1.5 flex flex-wrap items-center justify-end gap-2">
+-          {getTerminalContext && executionMode === "isolated" && (
+-            <Button
+-              type="button"
+-              size="sm"
+-              variant="ghost"
+-              className="mr-auto"
+-              disabled={executing}
+-              onClick={() => {
+-                const output = getTerminalContext();
+-                if (output)
+-                  setInput(
+-                    (current) =>
+-                      `${current}${current ? "\n\n" : ""}${t("ai.terminalContextPrefill", { output })}`,
+-                  );
+-              }}
+-            >
+-              <Clipboard size={14} />
+-              {t("ai.attachTerminalOutput")}
+-            </Button>
+-          )}
+           {state.streaming ? (
+             <Button size="sm" variant="outline" onClick={stop}>
+               <Square size={14} />
+diff --git a/plugins/ai/src/frontend/AiToolCall.tsx b/plugins/ai/src/frontend/AiToolCall.tsx
+index 8927a42..6b7671f 100644
+--- a/plugins/ai/src/frontend/AiToolCall.tsx
++++ b/plugins/ai/src/frontend/AiToolCall.tsx
+@@ -36,7 +36,10 @@ export function AiToolCall({
+         ) : (
+           <Wrench size={12} />
+         )}
+-        <span className="truncate">{toolLabel(tool.name)}</span>
++        <span className="truncate">
++          {tool.name === "get_terminal_output"
++            ? t("ai.readingTerminalOutput") : toolLabel(tool.name)}
++        </span>
+         {pending && (
+           <span className="text-muted-foreground">{t("ai.running")}</span>
+         )}
+diff --git a/plugins/ai/src/frontend/index.tsx b/plugins/ai/src/frontend/index.tsx
+index 39e2794..48e8268 100644
+--- a/plugins/ai/src/frontend/index.tsx
++++ b/plugins/ai/src/frontend/index.tsx
+@@ -21,10 +21,16 @@ const AI_RAIL_ID = "ai";
+ const ASSISTANT_ACTION = "ai.openWithContext";
+ const SIDE_PANEL_ID = "ai.assistant";
+ 
+-function AssistantPanel({ activeTabType }: PanelProps) {
++function AssistantPanel({ activeTabType, targetTab }: PanelProps) {
+   return (
+     <div className="flex flex-col flex-1 min-h-0">
+-      <AiPanel activeTab={activeTabType ?? null} />
++      <AiPanel
++        activeTab={activeTabType ?? null}
++        terminalContext={targetTab?.type === "terminal" && targetTab.host ? {
++          hostId: Number(targetTab.host.id),
++          tabInstanceId: targetTab.instanceId ?? targetTab.id,
++        } : undefined}
++      />
+     </div>
+   );
+ }
+@@ -38,11 +44,8 @@ function TerminalSidePanel({
+   host,
+   hostId,
+   hostLabel,
+-  panelProps,
+   onClose,
+-  getTerminalContext,
+   getTerminalSessionId,
+-  onRunInTerminal,
+ }: TerminalSidePanelProps) {
+   if (!hostId) return null;
+   return (
+@@ -50,13 +53,8 @@ function TerminalSidePanel({
+       hostLabel={hostLabel}
+       hostId={hostId}
+       activeTab={`terminal:${host?.name || host?.ip || ""}`}
+-      initialContext={
+-        typeof panelProps.context === "string" ? panelProps.context : ""
+-      }
+       onClose={onClose}
+-      getTerminalContext={getTerminalContext}
+       getTerminalSessionId={getTerminalSessionId}
+-      onRunInTerminal={onRunInTerminal}
+     />
+   );
+ }
+@@ -168,14 +166,12 @@ export function activate(app: TermixApp): void {
+ 
+   app.registerPanel(AI_RAIL_ID, AssistantPanel);
+ 
+-  // Opens the docked assistant on the terminal it was clicked from, seeded
+-  // with what is on screen.
++  // Opening a chat never copies screen contents into its draft. The model
++  // can read this session's output on demand through terminal.context.
+   app.registerAction(
+     ASSISTANT_ACTION,
+     (terminal: TerminalSlotApi) =>
+-      terminal?.openSidePanel(SIDE_PANEL_ID, {
+-        context: terminal.getBufferText(),
+-      }),
++      terminal?.openSidePanel(SIDE_PANEL_ID),
+     { permission: "services.use" },
+   );
+ 
+diff --git a/plugins/ai/src/frontend/labels.ts b/plugins/ai/src/frontend/labels.ts
+index 9dd0838..428bf10 100644
+--- a/plugins/ai/src/frontend/labels.ts
++++ b/plugins/ai/src/frontend/labels.ts
+@@ -17,6 +17,7 @@ const TOOL_LABELS: Record<string, string> = {
+   list_notification_channels: "Reading notification channels",
+   list_homepage_items: "Reading homepage items",
+   get_command_history: "Reading command history",
++  get_terminal_output: "Reading terminal output",
+   get_network_topology: "Reading network topology",
+   propose_create_host: "Add host",
+   propose_update_host: "Update host",
+diff --git a/plugins/ai/src/frontend/terminal/TerminalAiPanel.tsx b/plugins/ai/src/frontend/terminal/TerminalAiPanel.tsx
+index a2c1cec..d33618f 100644
+--- a/plugins/ai/src/frontend/terminal/TerminalAiPanel.tsx
++++ b/plugins/ai/src/frontend/terminal/TerminalAiPanel.tsx
+@@ -14,22 +14,16 @@ interface TerminalAiPanelProps {
+   hostLabel: string;
+   hostId: number;
+   activeTab?: string | null;
+-  initialContext?: string;
+-  getTerminalContext?: () => string;
+   getTerminalSessionId?: () => string | null;
+-  onRunInTerminal?: (command: string) => boolean;
+   onClose: () => void;
+ }
+ 
+-/** A resizable, non-modal workspace. AI exec never writes into the user's PTY. */
++/** A resizable chat workspace with selectable isolated/shared execution. */
+ export function TerminalAiPanel({
+   hostLabel,
+   hostId,
+   activeTab,
+-  initialContext,
+-  getTerminalContext,
+   getTerminalSessionId,
+-  onRunInTerminal,
+   onClose,
+ }: TerminalAiPanelProps) {
+   const { t } = useTranslation();
+@@ -158,10 +152,7 @@ export function TerminalAiPanel({
+           hostId={hostId}
+           hostLabel={hostLabel}
+           activeTab={activeTab}
+-          initialContext={initialContext}
+-          getTerminalContext={getTerminalContext}
+           getTerminalSessionId={getTerminalSessionId}
+-          onRunInTerminal={onRunInTerminal}
+         />
+       </div>
+     </div>
+diff --git a/plugins/ai/src/frontend/use-ai-stream.ts b/plugins/ai/src/frontend/use-ai-stream.ts
+index f57eb96..f9614d7 100644
+--- a/plugins/ai/src/frontend/use-ai-stream.ts
++++ b/plugins/ai/src/frontend/use-ai-stream.ts
+@@ -71,6 +71,7 @@ export function useAiStream() {
+       approvalMode?: "review" | "auto";
+       executionMode?: "isolated" | "shared";
+       terminalSessionId?: string | null;
++      terminalContext?: { hostId: number; tabInstanceId?: string };
+       resolvedProposalId?: number;
+       /**
+        * Called however the run ends, with its steps, which are then cleared
+@@ -131,7 +132,8 @@ export function useAiStream() {
+             hostId: input.hostId,
+             approvalMode: input.approvalMode ?? "review",
+             executionMode: input.executionMode ?? "isolated",
+-            terminalSessionId: input.terminalSessionId ?? undefined,
++            terminalSessionId: input.terminalSessionId,
++            terminalContext: input.terminalContext,
+             resolvedProposalId: input.resolvedProposalId,
+           }),
+         });
+diff --git a/plugins/ai/tests/frontend/AiPanel-settings.test.tsx b/plugins/ai/tests/frontend/AiPanel-settings.test.tsx
+new file mode 100644
+index 0000000..5b6109e
+--- /dev/null
++++ b/plugins/ai/tests/frontend/AiPanel-settings.test.tsx
+@@ -0,0 +1,93 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
++import { AiPanel } from "../../src/frontend/AiPanel";
++
++const api = vi.hoisted(() => ({
++  t: (key: string) => key,
++  getAiProviders: vi.fn(), getAiProviderModels: vi.fn(), getAiStatus: vi.fn(),
++  getAiConversations: vi.fn(), getAiConversation: vi.fn(),
++  deleteAiConversation: vi.fn(), setAiOptIn: vi.fn(), fetch: vi.fn(),
++}));
++vi.mock("../../src/frontend/ai-api", () => api);
++vi.mock("../../src/frontend/app-ref", () => ({ aiApp: () => api }));
++vi.mock("react-i18next", async (original) => ({
++  ...(await original<object>()), useTranslation: () => ({ t: api.t }),
++}));
++vi.mock("../../src/frontend/useMentions", () => ({
++  activeMentionQuery: () => null, useMentions: () => ({ search: () => [] }),
++}));
++vi.mock("../../src/frontend/AiProviderSettings", () => ({
++  AiProviderSettings: () => <div>Provider editor</div>,
++}));
++beforeEach(() => {
++  vi.clearAllMocks();
++  api.getAiProviders.mockResolvedValue([{
++    id: 1, providerType: "openai", label: "Upstream", defaultModel: "auto-model", enabled: true,
++  }]);
++  api.getAiProviderModels.mockResolvedValue(["auto-model"]);
++  api.getAiStatus.mockResolvedValue({ globallyEnabled: true, enabled: true });
++  api.getAiConversations.mockResolvedValue([]);
++  api.fetch.mockImplementation(async () => new Response(
++    'data: {"type":"conversation","conversationId":7}\n\ndata: {"type":"token","text":"Hello"}\n\n',
++  ));
++});
++afterEach(cleanup);
++async function ready() {
++  const composer = await screen.findByPlaceholderText("ai.inputPlaceholder") as HTMLTextAreaElement;
++  await waitFor(() => expect(api.getAiProviderModels).toHaveBeenCalled());
++  return composer;
++}
++describe("compact chat settings and a clean composer", () => {
++  it("starts empty, hides configuration and has no terminal attachment action", async () => {
++    const sessionId = vi.fn(() => "current");
++    render(<AiPanel hostId={1} getTerminalSessionId={sessionId} />);
++    const composer = await ready();
++    expect(composer.value).toBe("");
++    expect(sessionId).not.toHaveBeenCalled();
++    expect(api.fetch).not.toHaveBeenCalled();
++    expect(screen.queryByText("ai.attachTerminalOutput")).toBeNull();
++    expect(screen.queryByRole("combobox")).toBeNull();
++    const settings = screen.getByRole("button", { name: "ai.chatSettings" });
++    expect(screen.getByRole("button", { name: "ai.history" }).nextElementSibling).toBe(settings);
++    expect(settings.getAttribute("aria-expanded")).toBe("false");
++    fireEvent.click(settings);
++    expect(screen.getByRole("region", { name: "ai.chatSettings" })).toBeTruthy();
++    expect(screen.getByRole("combobox", { name: "ai.executionMode" })).toBeTruthy();
++    expect(screen.getByRole("combobox", { name: "ai.modelPicker" })).toBeTruthy();
++    expect(screen.getByText("ai.providerSettings")).toBeTruthy();
++  });
++  it("can send with settings closed and new chats never paste terminal text", async () => {
++    render(<AiPanel hostId={1} getTerminalSessionId={() => "current"} />);
++    const composer = await ready();
++    fireEvent.change(composer, { target: { value: "Explain the current terminal" } });
++    fireEvent.click(screen.getByRole("button", { name: "ai.send" }));
++    await waitFor(() => expect(api.fetch).toHaveBeenCalledOnce());
++    expect(JSON.parse(api.fetch.mock.calls[0][1].body)).toMatchObject({
++      message: "Explain the current terminal", model: "auto-model", hostId: 1,
++      terminalSessionId: "current", executionMode: "isolated",
++    });
++    await screen.findByText("Hello");
++    fireEvent.click(screen.getByRole("button", { name: "ai.newConversation" }));
++    expect(composer.value).toBe("");
++    expect(screen.queryByText("Hello")).toBeNull();
++    expect(api.fetch).toHaveBeenCalledTimes(1);
++  });
++  it("does not reset model or automatic mode when closing settings", async () => {
++    api.getAiProviders.mockResolvedValue([{ id: 1, label: "Upstream", enabled: true, defaultModel: null }]);
++    api.getAiProviderModels.mockResolvedValue([]);
++    render(<AiPanel />);
++    const composer = await ready();
++    const settings = screen.getByRole("button", { name: "ai.chatSettings" });
++    fireEvent.click(settings);
++    fireEvent.change(screen.getByLabelText("ai.modelPicker"), { target: { value: "my-model" } });
++    fireEvent.click(screen.getByRole("button", { name: "ai.reviewMode" }));
++    fireEvent.click(screen.getByRole("button", { name: "ai.enableAutoMode" }));
++    fireEvent.click(settings);
++    expect(screen.queryByRole("combobox")).toBeNull();
++    expect(screen.getByText("ai.autoModeCompact")).toBeTruthy();
++    fireEvent.change(composer, { target: { value: "Hello" } });
++    fireEvent.click(screen.getByRole("button", { name: "ai.send" }));
++    await waitFor(() => expect(api.fetch).toHaveBeenCalled());
++    expect(JSON.parse(api.fetch.mock.calls[0][1].body)).toMatchObject({ model: "my-model", approvalMode: "auto" });
++  });
++});
