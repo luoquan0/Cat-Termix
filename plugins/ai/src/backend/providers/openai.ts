@@ -14,7 +14,8 @@ function baseFor(config: ProviderConfig): string {
   if (config.baseUrl?.trim()) {
     // Some proxy UIs tell users to paste the full completions endpoint.
     // Normalize it once for both chat/completions and models.
-    return config.baseUrl.trim()
+    return config.baseUrl
+      .trim()
       .replace(/\/(?:chat\/completions|responses|models)\/?$/i, "")
       .replace(/\/+$/, "");
   }
