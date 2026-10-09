@@ -131,7 +131,8 @@ export function savedConversationEntries(
         if (typeof call.name !== "string") continue;
         const id = typeof call.id === "string" ? call.id : String(index);
         const args =
-          call.arguments && typeof call.arguments === "object" &&
+          call.arguments &&
+          typeof call.arguments === "object" &&
           !Array.isArray(call.arguments)
             ? (call.arguments as Record<string, unknown>)
             : {};
