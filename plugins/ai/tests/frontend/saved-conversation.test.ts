@@ -28,6 +28,8 @@ describe("saved AI transcript", () => {
     ]);
     expect(entries[0]).toMatchObject({ kind: "message", content: "Summarize the action result" });
     expect(entries[2]).toMatchObject({ kind: "tool", tool: { name: "propose_run_command" } });
-    expect("result" in (entries[2] as {kind:"tool"; tool:Record<string,unknown>}).tool).toBe(false);
+    const pending = entries[2];
+    if (pending.kind !== "tool") throw new Error("Expected tool");
+    expect("result" in pending.tool).toBe(false);
   });
 });
