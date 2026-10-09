@@ -60,7 +60,9 @@ export function AiSessionControls({
     getAiProviderModels(providerId)
       .then((upstream) => {
         if (cancelled) return;
-        const choices = [...new Set([defaultModel, ...upstream].filter(Boolean))];
+        const choices = [
+          ...new Set([defaultModel, ...upstream].filter(Boolean)),
+        ];
         setModels(choices);
         if (!modelRef.current.trim() && choices.length) {
           // A typed/custom model is never overwritten by slow discovery.
@@ -79,8 +81,8 @@ export function AiSessionControls({
     };
   }, [providerId, defaultModel, onModelChange, refreshIndex]);
 
-  const useCustomInput = customModel ||
-    (Boolean(model) && !models.includes(model));
+  const useCustomInput =
+    customModel || (Boolean(model) && !models.includes(model));
 
   return (
     <div className="space-y-2 px-3 pb-3">
@@ -130,7 +132,9 @@ export function AiSessionControls({
             </SelectTrigger>
             <SelectContent className="z-[200]">
               {models.map((name) => (
-                <SelectItem key={name} value={name}>{name}</SelectItem>
+                <SelectItem key={name} value={name}>
+                  {name}
+                </SelectItem>
               ))}
               <SelectItem value="__custom__">{t("ai.modelCustom")}</SelectItem>
             </SelectContent>
@@ -145,7 +149,9 @@ export function AiSessionControls({
               onModelChange(event.target.value);
             }}
             placeholder={t("ai.modelPlaceholder")}
-            aria-label={models.length ? t("ai.modelCustomInput") : t("ai.modelPicker")}
+            aria-label={
+              models.length ? t("ai.modelCustomInput") : t("ai.modelPicker")
+            }
             disabled={disabled || !providerId}
             autoComplete="off"
           />
@@ -160,7 +166,10 @@ export function AiSessionControls({
           disabled={disabled || !providerId || loadingModels}
           onClick={() => setRefreshIndex((index) => index + 1)}
         >
-          <RefreshCw size={14} className={loadingModels ? "animate-spin" : ""} />
+          <RefreshCw
+            size={14}
+            className={loadingModels ? "animate-spin" : ""}
+          />
         </Button>
       </div>
       {modelError && (
