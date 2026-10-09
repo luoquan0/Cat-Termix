@@ -219,16 +219,32 @@ export async function rejectAiProposal(id: number): Promise<void> {
  * For the terminal-docked assistant: records that a run_command proposal was
  * typed into the user's open terminal instead of run over a pooled connection.
  */
+export async function claimAiProposalRunInTerminal(
+  id: number,
+  hostId: number,
+): Promise<void> {
+  try {
+    await api().post(`/proposals/${id}/mark-run-in-terminal`, {
+      hostId,
+      claim: true,
+    });
+  } catch (error) {
+    throw apiError(error, "claim the terminal command");
+  }
+}
+
 export async function markAiProposalRunInTerminal(
   id: number,
   hostId: number,
   summary?: string,
-): Promise<{ success: boolean; status: "submitted"; summary: string }> {
+  failed = false,
+): Promise<{ success: boolean; status: "submitted" | "failed"; summary: string }> {
   try {
     return (
       await api().post(`/proposals/${id}/mark-run-in-terminal`, {
         hostId,
         summary,
+        failed,
       })
     ).data;
   } catch (error) {

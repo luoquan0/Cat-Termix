@@ -287,7 +287,21 @@ describe("explicit automatic execution", () => {
     const id = (server.db.sqlite
       .prepare("SELECT id FROM p_ai_proposals")
       .get() as { id: number }).id;
-    const result = await server.request("POST", `/proposals/${id}/mark-run-in-terminal`, {
+    const endpoint = `/proposals/${id}/mark-run-in-terminal`;
+    const preclaim = await server.request("POST", endpoint, {
+      body: { hostId: 1, summary: "forged" },
+    });
+    expect(preclaim.status).toBe(409);
+    const claimed = await server.request("POST", endpoint, {
+      body: { hostId: 1, claim: true },
+    });
+    expect(claimed.status).toBe(200);
+    expect(claimed.body.status).toBe("running");
+    const secondClaim = await server.request("POST", endpoint, {
+      body: { hostId: 1, claim: true },
+    });
+    expect(secondClaim.status).toBe(409);
+    const result = await server.request("POST", endpoint, {
       body: { hostId: 1, summary: "Submitted; result not verified" },
     });
     expect(result.status).toBe(200);

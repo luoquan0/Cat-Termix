@@ -1210,7 +1210,7 @@ export function registerAiRoutes(
       const id = parseId(req.params.id);
       if (!id) return res.status(400).json({ error: "Invalid proposal id" });
 
-      const { hostId, summary } = req.body ?? {};
+      const { hostId, summary, claim, failed } = req.body ?? {};
       const resolvedHostId = parseId(hostId);
       if (!resolvedHostId) {
         return res.status(400).json({ error: "hostId is required" });
@@ -1225,12 +1225,6 @@ export function registerAiRoutes(
             error: "Only run_command proposals can be marked this way",
           });
         }
-        if (stored.status !== "pending") {
-          return res
-            .status(400)
-            .json({ error: `This proposal was already ${stored.status}` });
-        }
-
         let payload: Record<string, unknown>;
         try {
           payload = JSON.parse(stored.payload) as Record<string, unknown>;
@@ -1256,30 +1250,52 @@ export function registerAiRoutes(
           return res.status(404).json({ error: "Host not found" });
         }
 
+        if (claim === true) {
+          // Claim first: check apply permission and atomically block duplicate
+          // browser tabs before any bytes are sent into the live PTY.
+          const taken = await repository.setProposalStatus(
+            id,
+            userId,
+            "running",
+            "Waiting for the user's terminal to accept the command",
+          );
+          if (!taken) {
+            return res.status(409).json({ error: "Proposal already claimed" });
+          }
+          return res.json({ success: true, status: "running" });
+        }
+        if (stored.status !== "running") {
+          return res.status(409).json({
+            error: "Terminal command must be claimed before submission",
+          });
+        }
+
         const resultSummary =
           typeof summary === "string" && summary.trim()
             ? summary.trim().slice(0, 2000)
-            : "Submitted to the visible terminal. Exit status and output are not verified.";
+            : "Sent to the visible terminal; result and exit status are unverified.";
+        const status = failed === true ? "failed" : "submitted";
         if (
           !(await repository.setProposalStatus(
             id,
             userId,
-            "submitted",
+            status,
             resultSummary,
+            "running",
           ))
         ) {
           return res.status(409).json({ error: "Proposal is already resolved" });
         }
 
         await audit({
-          action: "ai_proposal_submitted",
+          action: failed === true ? "ai_proposal_terminal_send_failed" : "ai_proposal_submitted",
           resourceType: "ai_proposal",
           resourceId: String(id),
           resourceName: stored.kind,
-          success: true,
+          success: failed !== true,
         });
 
-        res.json({ success: true, status: "submitted", summary: resultSummary });
+        res.json({ success: true, status, summary: resultSummary });
       } catch (err) {
         logError("Failed to mark AI proposal applied in terminal", err);
         res.status(400).json({

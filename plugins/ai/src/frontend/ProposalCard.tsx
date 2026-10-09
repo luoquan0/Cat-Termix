@@ -6,6 +6,7 @@ import { Check, Loader2, Terminal, TriangleAlert, X } from "lucide-react";
 import { Button } from "@termix/plugin-sdk/ui";
 import {
   applyAiProposal,
+  claimAiProposalRunInTerminal,
   markAiProposalRunInTerminal,
   rejectAiProposal,
   type AiProposal,
@@ -119,13 +120,21 @@ export function ProposalCard({
     setConfirmTerminal(false);
     setBusy("terminal");
     try {
-      // Client-side PTY dispatch cannot prove an exit status or success.
-      // Never retry blindly if the audit API becomes unavailable afterwards.
+      // Check permission and claim this proposal before sending to the
+      // interactive PTY. Never send the same command twice from two tabs.
+      await claimAiProposalRunInTerminal(proposal.id, hostId);
+      setSubmittedLocally(true);
       if (!onRunInTerminal(command)) {
+        const failed = await markAiProposalRunInTerminal(
+          proposal.id,
+          hostId,
+          t("ai.terminalSendUnavailable"),
+          true,
+        );
+        onResolved(proposal.id, "failed", failed.summary);
         toast.error(t("ai.terminalSendUnavailable"));
         return;
       }
-      setSubmittedLocally(true);
       const result = await markAiProposalRunInTerminal(
         proposal.id,
         hostId,
