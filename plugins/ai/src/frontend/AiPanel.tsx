@@ -49,6 +49,7 @@ interface AiPanelProps {
   hostLabel?: string;
   initialContext?: string;
   getTerminalContext?: () => string;
+  onRunInTerminal?: (command: string) => boolean;
 }
 
 export function AiPanel({
@@ -57,6 +58,7 @@ export function AiPanel({
   hostLabel,
   initialContext,
   getTerminalContext,
+  onRunInTerminal,
 }: AiPanelProps) {
   const { t } = useTranslation();
   const { state, send, stop, reset, setState } = useAiStream();
@@ -80,7 +82,7 @@ export function AiPanel({
   const [resolvedProposals, setResolvedProposals] = useState<
     Record<
       number,
-      { status: "applied" | "rejected" | "failed"; resultSummary?: string }
+      { status: "applied" | "submitted" | "rejected" | "failed"; resultSummary?: string }
     >
   >({});
   const runCountRef = useRef(0);
@@ -343,7 +345,7 @@ export function AiPanel({
    */
   function handleProposalResolved(
     id: number,
-    status: "applied" | "rejected" | "failed",
+    status: "applied" | "submitted" | "rejected" | "failed",
     resultSummary?: string,
   ) {
     setResolvedProposals((prev) => ({
@@ -599,6 +601,8 @@ export function AiPanel({
               key={item.key}
               proposal={item.proposal}
               onResolved={handleProposalResolved}
+              hostId={hostId}
+              onRunInTerminal={onRunInTerminal}
             />
           );
         })}

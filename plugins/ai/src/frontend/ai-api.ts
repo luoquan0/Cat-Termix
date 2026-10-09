@@ -71,7 +71,7 @@ export interface AiProposal {
   kind: string;
   summary: string | null;
   payload: string;
-  status: "pending" | "running" | "applied" | "rejected" | "expired" | "failed";
+  status: "pending" | "running" | "applied" | "submitted" | "rejected" | "expired" | "failed";
   resultSummary: string | null;
   createdAt: string;
 }
@@ -223,7 +223,7 @@ export async function markAiProposalRunInTerminal(
   id: number,
   hostId: number,
   summary?: string,
-): Promise<{ success: boolean; summary: string }> {
+): Promise<{ success: boolean; status: "submitted"; summary: string }> {
   try {
     return (
       await api().post(`/proposals/${id}/mark-run-in-terminal`, {

@@ -126,7 +126,14 @@
     "historyLoadFailed": "Could not load chat history",
     "historyDeleteFailed": "Could not delete chat",
     "historyHostMismatch": "This conversation belongs to another terminal",
-    "modelCustomInput": "Custom model ID"
+    "modelCustomInput": "Custom model ID",
+    "terminalRunHere": "Run in this terminal",
+    "terminalSharedWarning": "This sends the command to your existing SSH terminal, not an isolated exec session. Run only when the shell is idle. The assistant cannot verify completion or the exit status automatically; attach the terminal output for analysis.",
+    "terminalConfirmSend": "Send to terminal",
+    "terminalSubmitted": "Sent (unverified)",
+    "terminalSubmittedUnverified": "Sent to the visible SSH terminal; execution result and exit status are not verified. Ask the user to attach terminal output before reporting success.",
+    "terminalSendUnavailable": "Terminal disconnected or command has multiple lines; not sent",
+    "terminalSubmitRecordFailed": "Command may have been sent, but recording failed. Check the terminal; do not run it again blindly."
   },
   "nav": {
     "ai": "AI"

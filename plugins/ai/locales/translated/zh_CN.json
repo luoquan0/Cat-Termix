@@ -126,7 +126,14 @@
     "historyLoadFailed": "加载聊天记录失败",
     "historyDeleteFailed": "删除对话失败",
     "historyHostMismatch": "此对话属于另一台终端",
-    "modelCustomInput": "自定义模型 ID"
+    "modelCustomInput": "自定义模型 ID",
+    "terminalRunHere": "在当前终端执行",
+    "terminalSharedWarning": "命令将发送到当前 SSH 交互终端。请确认终端处于空闲 Shell 提示符，避免干扰正在运行的程序。AI 无法自动验证退出码或结果，请附加终端输出后再分析。",
+    "terminalConfirmSend": "确认发送到终端",
+    "terminalSubmitted": "已发送（待核实）",
+    "terminalSubmittedUnverified": "已发送到当前 SSH 终端，尚未验证是否执行完成或成功。分析结果前请用户附加终端输出。",
+    "terminalSendUnavailable": "终端已断开或命令包含多行内容，未发送",
+    "terminalSubmitRecordFailed": "命令可能已发送，但状态记录失败。请检查终端，不要盲目再次运行。"
   },
   "nav": {
     "ai": "AI"

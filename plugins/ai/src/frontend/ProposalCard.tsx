@@ -2,16 +2,23 @@ import { getErrorMessage } from "./errors";
 import { useState } from "react";
 import { useTranslation } from "@termix/plugin-sdk/frontend";
 import { toast } from "sonner";
-import { Check, Loader2, TriangleAlert, X } from "lucide-react";
+import { Check, Loader2, Terminal, TriangleAlert, X } from "lucide-react";
 import { Button } from "@termix/plugin-sdk/ui";
-import { applyAiProposal, rejectAiProposal, type AiProposal } from "./ai-api";
+import {
+  applyAiProposal,
+  markAiProposalRunInTerminal,
+  rejectAiProposal,
+  type AiProposal,
+} from "./ai-api";
 import { fieldLabel, toolLabel } from "./labels";
 
 interface ProposalCardProps {
   proposal: AiProposal;
+  hostId?: number;
+  onRunInTerminal?: (command: string) => boolean;
   onResolved: (
     id: number,
-    status: "applied" | "rejected" | "failed",
+    status: "applied" | "submitted" | "rejected" | "failed",
     resultSummary?: string,
   ) => void;
 }
@@ -57,9 +64,16 @@ function asText(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-export function ProposalCard({ proposal, onResolved }: ProposalCardProps) {
+export function ProposalCard({
+  proposal,
+  hostId,
+  onRunInTerminal,
+  onResolved,
+}: ProposalCardProps) {
   const { t } = useTranslation();
-  const [busy, setBusy] = useState<"apply" | "reject" | null>(null);
+  const [busy, setBusy] = useState<"apply" | "reject" | "terminal" | null>(null);
+  const [confirmTerminal, setConfirmTerminal] = useState(false);
+  const [submittedLocally, setSubmittedLocally] = useState(false);
 
   let payload: Record<string, unknown> = {};
   try {
@@ -100,6 +114,35 @@ export function ProposalCard({ proposal, onResolved }: ProposalCardProps) {
     }
   }
 
+  async function handleSubmitToTerminal() {
+    if (!command || !hostId || !onRunInTerminal) return;
+    setConfirmTerminal(false);
+    setBusy("terminal");
+    try {
+      // Client-side PTY dispatch cannot prove an exit status or success.
+      // Never retry blindly if the audit API becomes unavailable afterwards.
+      if (!onRunInTerminal(command)) {
+        toast.error(t("ai.terminalSendUnavailable"));
+        return;
+      }
+      setSubmittedLocally(true);
+      const result = await markAiProposalRunInTerminal(
+        proposal.id,
+        hostId,
+        t("ai.terminalSubmittedUnverified"),
+      );
+      onResolved(proposal.id, "submitted", result.summary);
+    } catch (error) {
+      toast.error(
+        t("ai.terminalSubmitRecordFailed") +
+          " " +
+          getErrorMessage(error, t("ai.terminalSubmitRecordFailed")),
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function handleReject() {
     setBusy("reject");
     try {
@@ -125,7 +168,9 @@ export function ProposalCard({ proposal, onResolved }: ProposalCardProps) {
           <span className="shrink-0 border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
             {proposal.status === "applied"
               ? t("ai.statusApplied")
-              : proposal.status === "failed"
+              : proposal.status === "submitted"
+                ? t("ai.terminalSubmitted")
+                : proposal.status === "failed"
                 ? t("ai.statusFailed")
                 : proposal.status === "running"
                   ? t("ai.statusRunning")
@@ -177,8 +222,22 @@ export function ProposalCard({ proposal, onResolved }: ProposalCardProps) {
         </pre>
       )}
 
+      {!resolved && confirmTerminal && (
+        <div role="alert" className="mt-2 space-y-2 border border-border bg-background p-2 text-xs">
+          <p>{t("ai.terminalSharedWarning")}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="destructive" onClick={() => void handleSubmitToTerminal()}>
+              {t("ai.terminalConfirmSend")}
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => setConfirmTerminal(false)}>
+              {t("common.cancel")}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {!resolved && (
-        <div className="mt-2 flex gap-1.5">
+        <div className="mt-2 flex flex-wrap gap-1.5">
           <Button
             size="sm"
             className={`h-7 flex-1 text-xs ${
@@ -187,7 +246,7 @@ export function ProposalCard({ proposal, onResolved }: ProposalCardProps) {
                 : "border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand"
             }`}
             variant={destructive ? "destructive" : "outline"}
-            disabled={busy !== null}
+            disabled={busy !== null || submittedLocally}
             onClick={handleApply}
           >
             {busy === "apply" ? (
@@ -197,11 +256,25 @@ export function ProposalCard({ proposal, onResolved }: ProposalCardProps) {
             )}
             {t("ai.approve")}
           </Button>
+          {command && hostId && onRunInTerminal && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 flex-1 text-xs"
+              disabled={busy !== null || submittedLocally}
+              onClick={() => setConfirmTerminal(true)}
+              title={t("ai.terminalSharedWarning")}
+            >
+              {busy === "terminal" ? <Loader2 size={13} className="animate-spin" /> : <Terminal size={13} />}
+              {submittedLocally ? t("ai.terminalSubmitted") : t("ai.terminalRunHere")}
+            </Button>
+          )}
           <Button
             size="sm"
             className="h-7 flex-1 text-xs"
             variant="outline"
-            disabled={busy !== null}
+            disabled={busy !== null || submittedLocally}
             onClick={handleReject}
           >
             {busy === "reject" ? (
