@@ -75,14 +75,21 @@ export function AiPanel({
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [conversations, setConversations] = useState<AiConversation[]>([]);
   const [showHistory, setShowHistory] = useState(false);
-  const [loadingConversationId, setLoadingConversationId] = useState<number | null>(null);
-  const [deletingConversationId, setDeletingConversationId] = useState<number | null>(null);
+  const [loadingConversationId, setLoadingConversationId] = useState<
+    number | null
+  >(null);
+  const [deletingConversationId, setDeletingConversationId] = useState<
+    number | null
+  >(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [resolvedProposals, setResolvedProposals] = useState<
     Record<
       number,
-      { status: "applied" | "submitted" | "rejected" | "failed"; resultSummary?: string }
+      {
+        status: "applied" | "submitted" | "rejected" | "failed";
+        resultSummary?: string;
+      }
     >
   >({});
   const runCountRef = useRef(0);
@@ -319,7 +326,8 @@ export function AiPanel({
       !model.trim() ||
       state.streaming ||
       loadingConversationId !== null
-    ) return;
+    )
+      return;
 
     setInput("");
     setHistory((prev) => [...prev, userEntry(message)]);
@@ -492,24 +500,39 @@ export function AiPanel({
       </div>
 
       {showHistory && (
-        <div className="max-h-52 overflow-y-auto border-b border-border p-2" aria-label={t("ai.history")}>
+        <div
+          className="max-h-52 overflow-y-auto border-b border-border p-2"
+          aria-label={t("ai.history")}
+        >
           {conversations.length === 0 && (
-            <p className="p-2 text-xs text-muted-foreground">{t("ai.historyEmpty")}</p>
+            <p className="p-2 text-xs text-muted-foreground">
+              {t("ai.historyEmpty")}
+            </p>
           )}
           {historyError && (
-            <p role="alert" className="p-2 text-xs text-destructive">{historyError}</p>
+            <p role="alert" className="p-2 text-xs text-destructive">
+              {historyError}
+            </p>
           )}
           {conversations.map((conversation) => (
             <div key={conversation.id} className="flex items-center gap-1">
               <button
                 type="button"
                 className="min-w-0 flex-1 truncate rounded-sm px-2 py-1.5 text-left text-xs hover:bg-muted disabled:opacity-50"
-                aria-current={state.conversationId === conversation.id ? "true" : undefined}
-                disabled={state.streaming || loadingConversationId !== null || deletingConversationId !== null}
+                aria-current={
+                  state.conversationId === conversation.id ? "true" : undefined
+                }
+                disabled={
+                  state.streaming ||
+                  loadingConversationId !== null ||
+                  deletingConversationId !== null
+                }
                 onClick={() => void openConversation(conversation.id)}
                 title={conversation.title ?? t("ai.historyUntitled")}
               >
-                {loadingConversationId === conversation.id && <Loader2 size={12} className="mr-1 inline animate-spin" />}
+                {loadingConversationId === conversation.id && (
+                  <Loader2 size={12} className="mr-1 inline animate-spin" />
+                )}
                 {conversation.title || t("ai.historyUntitled")}
               </button>
               {confirmDeleteId === conversation.id ? (
