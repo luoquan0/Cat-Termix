@@ -120,8 +120,8 @@ describe("model discovery and execution mode", () => {
       expect(api.getAiProviderModels).toHaveBeenCalledTimes(1),
     );
     expect(
-      screen.getByLabelText("ai.modelPicker").getAttribute("aria-disabled"),
-    ).toBe("true");
+      (screen.getByLabelText("ai.modelPicker") as HTMLButtonElement).disabled,
+    ).toBe(true);
     expect(
       (
         screen.getByRole("button", {
