@@ -176,7 +176,15 @@
       "host": {
         "editorGroup": "ssh",
         "editorOrder": 90,
-        "fields": []
+        "fields": [
+          {
+            "key": "enableAiAssistant",
+            "type": "boolean",
+            "labelKey": "settings.host.enableAiAssistant.label",
+            "descriptionKey": "settings.host.enableAiAssistant.description",
+            "default": false
+          }
+        ]
       }
     },
     "uses": ["terminal.sidePanel", "terminal.toolbar"]
