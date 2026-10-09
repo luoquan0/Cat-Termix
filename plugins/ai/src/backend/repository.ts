@@ -3,6 +3,7 @@ import type { PluginContext } from "@termix/plugin-sdk/backend";
 import {
   conversations as conversationsDef,
   messages as messagesDef,
+  modelContexts as modelContextsDef,
   proposals as proposalsDef,
   providers as providersDef,
 } from "./tables.js";
@@ -105,6 +106,7 @@ export async function createAiRepository(
   const conversations: Table = await db.define(conversationsDef);
   const messages: Table = await db.define(messagesDef);
   const proposals: Table = await db.define(proposalsDef);
+  const modelContexts: Table = await db.define(modelContextsDef);
 
   const client = () => db.client<Drizzle>();
 
@@ -239,8 +241,61 @@ export async function createAiRepository(
         .delete(providers)
         .where(and(eq(providers.id, id), eq(providers.userId, userId)));
       await secrets.delete(providerSecretKey(id));
+      await (await client()).delete(modelContexts).where(
+        and(eq(modelContexts.userId, userId), eq(modelContexts.providerId, id)),
+      );
       await db.persist();
       return true;
+    },
+
+    // --- per-model context windows, isolated by user and provider ---
+
+    async getModelContextOverride(
+      userId: string,
+      providerId: number,
+      model: string,
+    ): Promise<number | null> {
+      const record = await first<{ contextWindow: number }>(
+        modelContexts,
+        and(
+          eq(modelContexts.userId, userId),
+          eq(modelContexts.providerId, providerId),
+          eq(modelContexts.model, model),
+        ),
+      );
+      return record?.contextWindow ?? null;
+    },
+
+    async setModelContextOverride(
+      userId: string,
+      providerId: number,
+      model: string,
+      capacity: number | null,
+    ): Promise<void> {
+      const condition = and(
+        eq(modelContexts.userId, userId),
+        eq(modelContexts.providerId, providerId),
+        eq(modelContexts.model, model),
+      );
+      const old = await first<{ id: number }>(modelContexts, condition);
+      const drizzle = await client();
+      if (capacity === null) {
+        if (old) await drizzle.delete(modelContexts).where(condition);
+      } else if (old) {
+        await drizzle.update(modelContexts)
+          .set({ contextWindow: capacity, updatedAt: now() })
+          .where(condition);
+      } else {
+        await insertId(modelContexts, {
+          userId,
+          providerId,
+          model,
+          contextWindow: capacity,
+          createdAt: now(),
+          updatedAt: now(),
+        });
+      }
+      await db.persist();
     },
 
     // --- conversations ---

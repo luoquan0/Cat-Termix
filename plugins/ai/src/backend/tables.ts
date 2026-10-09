@@ -139,4 +139,26 @@ export const proposals = adoptLegacyTable(
   ),
 );
 
-export const tables = [providers, conversations, messages, proposals];
+/** Per-user, per-provider/model context capacity overrides. */
+export const modelContexts = defineTable(
+  "model_contexts",
+  {
+    id: id(),
+    userId: refUser(),
+    providerId: integer().notNull(),
+    model: varchar().notNull(),
+    contextWindow: integer().notNull(),
+    createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow(),
+  },
+  {
+    uniques: [
+      {
+        name: "idx_ai_model_context_unique",
+        columns: ["userId", "providerId", "model"],
+      },
+    ],
+  },
+);
+
+export const tables = [providers, conversations, messages, proposals, modelContexts];
