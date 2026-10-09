@@ -53,6 +53,17 @@ jobs:
           Path('/tmp/cat-ai-prepared4/paths.json').write_text(json.dumps([c['path'] for c in plan]))
           PY
           python3 .github/preview4/repair.py
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          name='src/backend/tests/plugins/permissions-rbac.test.ts'
+          p=Path(name);text=p.read_text()
+          before='      "ai.secrets.share",\n'
+          assert text.count(before)==1
+          p.write_text(text.replace(before,before+'      "ai.manage_updates",\n'))
+          p=Path('/tmp/cat-ai-prepared4/paths.json')
+          names=json.loads(p.read_text());names.append(name);p.write_text(json.dumps(names))
+          PY
           git add -N .
       - name: Install locked dependencies
         run: npm ci
@@ -65,6 +76,9 @@ jobs:
           npm run type-check
           npm run typecheck --workspace @termix-plugin/ai
           npm run typecheck --workspace @termix-plugin/ssh-terminal
+      - name: Build application and bundled plugins
+        id: build
+        run: npm run build 2>&1 | tee /tmp/cat-ai-prepared4/build.log
       - name: AI regression tests
         if: ${{ !cancelled() && steps.types.outcome == 'success' }}
         run: npm test --workspace @termix-plugin/ai 2>&1 | tee /tmp/cat-ai-prepared4/ai-tests.log
@@ -78,7 +92,7 @@ jobs:
           node docker/updater/smoke.mjs
           docker compose -f docker-compose.ai-test.yml -f docker-compose.ai-updates.yml config --quiet
       - name: Core regressions
-        if: ${{ !cancelled() && steps.types.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: npm test 2>&1 | tee /tmp/cat-ai-prepared4/core-tests.log
       - name: Lint changed source
         if: ${{ !cancelled() && steps.types.outcome == 'success' }}
