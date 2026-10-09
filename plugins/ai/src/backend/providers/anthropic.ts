@@ -108,7 +108,7 @@ export const anthropicAdapter: ProviderAdapter = {
 
     const stream = client.messages.stream({
       model: request.model,
-      max_tokens: 16000,
+      max_tokens: request.maxOutputTokens ?? 16000,
       system: request.system,
       messages: toAnthropicMessages(request),
       thinking: { type: "adaptive" },
@@ -152,6 +152,14 @@ export const anthropicAdapter: ProviderAdapter = {
       }
     }
 
+    yield {
+      type: "usage",
+      inputTokens:
+        final.usage.input_tokens +
+        (final.usage.cache_read_input_tokens ?? 0) +
+        (final.usage.cache_creation_input_tokens ?? 0),
+      outputTokens: final.usage.output_tokens,
+    };
     yield { type: "done", stopReason: final.stop_reason ?? undefined };
   },
 

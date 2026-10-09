@@ -1,0 +1,40 @@
+# Optional, privileged helper. Enable with BOTH compose files; do not replace the base file.
+# The application NEVER gets the Docker socket. The helper can control the host via it.
+# Auto-install remains off until an administrator enables it in Chat settings > Updates.
+services:
+  cat-termix:
+    labels:
+      io.cat-termix.autoupdate: "true"
+    environment:
+      CAT_TERMIX_UPDATER_ENABLED: "1"
+    volumes:
+      - cat-termix-update-control:/app/data/plugin-data/ai/updates
+  cat-termix-updater:
+    image: ${CAT_TERMIX_IMAGE:-ghcr.io/luoquan0/cat-termix:ai-dev}
+    entrypoint: ["node", "/app/updater/updater.mjs"]
+    user: "0:0"
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      CAT_TERMIX_PROJECT: ${COMPOSE_PROJECT_NAME:-cat-termix-ai-test}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    tmpfs:
+      - /tmp:size=64m
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - cat-termix-ai-data:/backup-source
+      - cat-termix-update-control:/control
+      - cat-termix-update-state:/state
+    healthcheck:
+      test: ["CMD", "node", "-e", "const s=JSON.parse(require('fs').readFileSync('/control/status.json'));process.exit(Date.now()-Date.parse(s.heartbeat)<120000?0:1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+volumes:
+  cat-termix-update-control:
+  cat-termix-update-state:

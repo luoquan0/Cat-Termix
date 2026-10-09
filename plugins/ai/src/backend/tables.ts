@@ -64,6 +64,8 @@ export const conversations = adoptLegacyTable(
       model: text(),
       // Null for standalone chats; SSH chats remain bound to one host.
       hostId: integer(),
+      // Working-context checkpoint only. Original messages are retained.
+      contextState: text(),
       createdAt: timestamp().notNull().defaultNow(),
       updatedAt: timestamp().notNull().defaultNow(),
     },

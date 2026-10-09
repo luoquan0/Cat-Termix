@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { useAiModels, type ModelDiscovery } from "./use-ai-models";
 import { useTranslation } from "@termix/plugin-sdk/frontend";
 import {
   Button,
@@ -9,8 +10,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@termix/plugin-sdk/ui";
-import { RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
-import { getAiProviderModels, type AiProvider } from "./ai-api";
+import { RefreshCw } from "lucide-react";
+import { type AiProvider } from "./ai-api";
 
 export type ApprovalMode = "review" | "auto";
 export type ExecutionMode = "isolated" | "shared";
@@ -21,8 +22,7 @@ interface Props {
   onProviderChange: (id: number) => void;
   model: string;
   onModelChange: (model: string) => void;
-  approvalMode: ApprovalMode;
-  onApprovalModeChange: (mode: ApprovalMode) => void;
+  discovery?: ModelDiscovery;
   disabled: boolean;
   executionMode?: ExecutionMode;
   onExecutionModeChange?: (mode: ExecutionMode) => void;
@@ -35,56 +35,24 @@ export function AiSessionControls({
   onProviderChange,
   model,
   onModelChange,
-  approvalMode,
-  onApprovalModeChange,
+  discovery,
   disabled,
   executionMode = "isolated",
   onExecutionModeChange,
 }: Props) {
   const { t } = useTranslation();
-  const [models, setModels] = useState<string[]>([]);
-  const [loadingModels, setLoadingModels] = useState(false);
-  const [modelError, setModelError] = useState(false);
   const [customModel, setCustomModel] = useState(false);
-  const [refreshIndex, setRefreshIndex] = useState(0);
-  const [confirmAuto, setConfirmAuto] = useState(false);
-  const modelRef = useRef(model);
-  modelRef.current = model;
-
-  const provider = providers.find((item) => item.id === providerId);
-  const defaultModel = provider?.defaultModel ?? "";
-
-  useEffect(() => {
-    let cancelled = false;
-    setModelError(false);
-    setModels(defaultModel ? [defaultModel] : []);
-    setLoadingModels(Boolean(providerId));
-    if (!modelRef.current.trim() && defaultModel) onModelChange(defaultModel);
-    if (!providerId) return;
-
-    getAiProviderModels(providerId)
-      .then((upstream) => {
-        if (cancelled) return;
-        const choices = [
-          ...new Set([defaultModel, ...upstream].filter(Boolean)),
-        ];
-        setModels(choices);
-        if (!modelRef.current.trim() && choices.length) {
-          // A typed/custom model is never overwritten by slow discovery.
-          onModelChange(choices[0]);
-        }
-        setModelError(upstream.length === 0);
-      })
-      .catch(() => {
-        if (!cancelled) setModelError(true);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingModels(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [providerId, defaultModel, onModelChange, refreshIndex]);
+  const defaultModel =
+    providers.find((item) => item.id === providerId)?.defaultModel ?? "";
+  const localDiscovery = useAiModels(
+    providerId,
+    defaultModel,
+    model,
+    onModelChange,
+    !discovery,
+  );
+  const { models, loadingModels, modelError, refresh } =
+    discovery ?? localDiscovery;
 
   const useCustomInput =
     customModel || (Boolean(model) && !models.includes(model));
@@ -107,7 +75,7 @@ export function AiSessionControls({
           >
             <SelectValue placeholder={t("ai.selectProvider")} />
           </SelectTrigger>
-          <SelectContent className="z-[200]">
+          <SelectContent className="z-[300]">
             {providers.map((item) => (
               <SelectItem key={item.id} value={String(item.id)}>
                 {item.label}
@@ -135,7 +103,7 @@ export function AiSessionControls({
             >
               <SelectValue placeholder={t("ai.modelPlaceholder")} />
             </SelectTrigger>
-            <SelectContent className="z-[200]">
+            <SelectContent className="z-[300]">
               {models.map((name) => (
                 <SelectItem key={name} value={name}>
                   {name}
@@ -169,7 +137,7 @@ export function AiSessionControls({
           title={t("ai.modelRefresh")}
           aria-label={t("ai.modelRefresh")}
           disabled={disabled || !providerId || loadingModels}
-          onClick={() => setRefreshIndex((index) => index + 1)}
+          onClick={() => refresh()}
         >
           <RefreshCw
             size={14}
@@ -192,7 +160,7 @@ export function AiSessionControls({
             >
               <SelectValue />
             </SelectTrigger>
-            <SelectContent className="z-[200]">
+            <SelectContent className="z-[300]">
               <SelectItem value="isolated">
                 {t("ai.executionIsolated")}
               </SelectItem>
@@ -211,67 +179,6 @@ export function AiSessionControls({
       {modelError && (
         <p className="text-[11px] text-muted-foreground">
           {t("ai.modelDiscoveryFallback")}
-        </p>
-      )}
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-7 text-xs"
-          disabled={disabled}
-          aria-pressed={approvalMode === "auto"}
-          onClick={() => {
-            if (approvalMode === "auto") {
-              onApprovalModeChange("review");
-              setConfirmAuto(false);
-            } else setConfirmAuto((open) => !open);
-          }}
-        >
-          {approvalMode === "auto" ? (
-            <ShieldAlert size={13} />
-          ) : (
-            <ShieldCheck size={13} />
-          )}
-          {t(approvalMode === "auto" ? "ai.autoMode" : "ai.reviewMode")}
-        </Button>
-        <span className="text-[11px] text-muted-foreground">
-          {t("ai.sessionModeHint")}
-        </span>
-      </div>
-      {confirmAuto && (
-        <div
-          role="alert"
-          className="space-y-2 border border-destructive/40 bg-destructive/10 p-2 text-xs"
-        >
-          <p>{t("ai.autoModeWarning")}</p>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="destructive"
-              disabled={disabled}
-              onClick={() => {
-                onApprovalModeChange("auto");
-                setConfirmAuto(false);
-              }}
-            >
-              {t("ai.enableAutoMode")}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => setConfirmAuto(false)}
-            >
-              {t("common.cancel")}
-            </Button>
-          </div>
-        </div>
-      )}
-      {approvalMode === "auto" && (
-        <p role="status" className="text-[11px] text-destructive">
-          {t("ai.autoModeActive")}
         </p>
       )}
     </div>

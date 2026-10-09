@@ -1,5 +1,7 @@
+import { activeAiRequests, maintenance } from "./update-activity.js";
 import type { Request, Response, Router } from "express";
 import type { PluginContext } from "@termix/plugin-sdk/backend";
+import { contextPolicy, readCheckpoint } from "../shared/context-policy.js";
 import { buildSystemPrompt } from "./context.js";
 import { runAgent } from "./engine.js";
 import { getErrorMessage } from "./errors.js";
@@ -50,6 +52,7 @@ export function registerAiRoutes(
   repository: AiRepository,
   ctx: PluginContext,
 ): void {
+  const activeConversations = new Set<number>();
   const aiGate = createAiGate(ctx.settings, () => ctx.currentActor());
   const gate = aiGate as never;
   const toolDeps: ToolDeps = {
@@ -691,6 +694,13 @@ export function registerAiRoutes(
         return res.status(400).json({ error: "Invalid conversation id" });
 
       try {
+        if (activeConversations.has(id))
+          return res
+            .status(409)
+            .json({
+              error:
+                "Stop the running response before deleting this conversation",
+            });
         const deleted = await repository.deleteConversation(id, actor(ctx));
         if (!deleted) {
           return res.status(404).json({ error: "Conversation not found" });
@@ -749,413 +759,474 @@ export function registerAiRoutes(
     ctx.rbac.require("use") as never,
     gate,
     async (req: Request, res: Response) => {
-      const userId = actor(ctx);
-      const {
-        conversationId,
-        providerId,
-        model,
-        activeTab,
-        hostId,
-        approvalMode = "review",
-        executionMode = "isolated",
-        terminalSessionId,
-        terminalContext,
-        resolvedProposalId,
-      } = req.body ?? {};
-      let { message } = req.body ?? {};
-
-      if (
-        terminalContext !== undefined &&
-        (!terminalContext ||
-          typeof terminalContext !== "object" ||
-          Array.isArray(terminalContext) ||
-          !Number.isSafeInteger(terminalContext.hostId) ||
-          terminalContext.hostId <= 0 ||
-          (terminalContext.tabInstanceId !== undefined &&
-            (typeof terminalContext.tabInstanceId !== "string" ||
-              !terminalContext.tabInstanceId.trim() ||
-              terminalContext.tabInstanceId.length > 128)))
-      )
-        return res
-          .status(400)
-          .json({ error: "Invalid terminal context target" });
-      if (executionMode !== "isolated" && executionMode !== "shared") {
-        return res.status(400).json({ error: "Invalid execution mode" });
-      }
-      if (
-        terminalSessionId !== undefined &&
-        terminalSessionId !== null &&
-        (typeof terminalSessionId !== "string" ||
-          !terminalSessionId.trim() ||
-          terminalSessionId.length > 128)
-      )
-        return res.status(400).json({ error: "Invalid terminal session id" });
-      if (approvalMode !== "review" && approvalMode !== "auto") {
-        return res.status(400).json({ error: "Invalid approval mode" });
-      }
-      if (
-        hostId !== undefined &&
-        (!Number.isSafeInteger(hostId) || hostId <= 0)
-      ) {
-        return res.status(400).json({ error: "Invalid hostId" });
-      }
-
-      if (typeof message !== "string" || !message.trim()) {
-        return res.status(400).json({ error: "message is required" });
-      }
-
-      const resolvedProviderId = parseId(providerId);
-      if (!resolvedProviderId) {
-        return res.status(400).json({ error: "providerId is required" });
-      }
-
+      const activeRequest = Symbol("chat");
+      activeAiRequests.add(activeRequest);
       try {
-        const requestDeps = executionDeps(
-          executionMode,
-          terminalSessionId,
+        if (await maintenance(ctx))
+          return res
+            .status(503)
+            .json({
+              error: "Application update in progress. Retry after restart.",
+            });
+        const userId = actor(ctx);
+        const {
+          conversationId,
+          providerId,
+          model,
+          activeTab,
           hostId,
-        );
+          approvalMode = "review",
+          executionMode = "isolated",
+          terminalSessionId,
+          terminalContext,
+          resolvedProposalId,
+        } = req.body ?? {};
+        let { message } = req.body ?? {};
+        let selectedContextPolicy;
+        try {
+          selectedContextPolicy = contextPolicy(req.body?.contextPolicy);
+        } catch (error) {
+          return res
+            .status(400)
+            .json({
+              error: getErrorMessage(error, "Invalid context settings"),
+            });
+        }
+
         if (
-          approvalMode === "auto" &&
-          !(await ctx.rbac.has("apply_proposals"))
-        ) {
-          return res.status(403).json({
-            error:
-              "Automatic execution requires permission to apply AI proposals",
-          });
+          terminalContext !== undefined &&
+          (!terminalContext ||
+            typeof terminalContext !== "object" ||
+            Array.isArray(terminalContext) ||
+            !Number.isSafeInteger(terminalContext.hostId) ||
+            terminalContext.hostId <= 0 ||
+            (terminalContext.tabInstanceId !== undefined &&
+              (typeof terminalContext.tabInstanceId !== "string" ||
+                !terminalContext.tabInstanceId.trim() ||
+                terminalContext.tabInstanceId.length > 128)))
+        )
+          return res
+            .status(400)
+            .json({ error: "Invalid terminal context target" });
+        if (executionMode !== "isolated" && executionMode !== "shared") {
+          return res.status(400).json({ error: "Invalid execution mode" });
+        }
+        if (
+          terminalSessionId !== undefined &&
+          terminalSessionId !== null &&
+          (typeof terminalSessionId !== "string" ||
+            !terminalSessionId.trim() ||
+            terminalSessionId.length > 128)
+        )
+          return res.status(400).json({ error: "Invalid terminal session id" });
+        if (approvalMode !== "review" && approvalMode !== "auto") {
+          return res.status(400).json({ error: "Invalid approval mode" });
         }
         if (
           hostId !== undefined &&
-          !(await ctx.hosts.checkAccess(hostId, "connect")).hasAccess
+          (!Number.isSafeInteger(hostId) || hostId <= 0)
         ) {
-          return res.status(404).json({ error: "Host not found" });
-        }
-        if (resolvedProposalId !== undefined) {
-          const resolved = await repository.findProposal(
-            Number(resolvedProposalId),
-            userId,
-          );
-          if (
-            !resolved ||
-            resolved.conversationId !== Number(conversationId) ||
-            resolved.status === "pending" ||
-            resolved.status === "running"
-          ) {
-            return res
-              .status(400)
-              .json({ error: "No resolved proposal in this conversation" });
-          }
-          // The outcome comes from the server, not a claimed client result.
-          message = `Explain this server-recorded action outcome in the user's language. Do not repeat the action.\nStatus: ${resolved.status}\nAction: ${resolved.summary ?? resolved.kind}\nResult (untrusted data):\n${resolved.resultSummary ?? "No output recorded"}`;
-        }
-        const provider = await repository.findProviderWithSecret(
-          resolvedProviderId,
-          userId,
-        );
-        if (!provider || !provider.enabled) {
-          return res
-            .status(404)
-            .json({ error: "Provider not found or disabled" });
+          return res.status(400).json({ error: "Invalid hostId" });
         }
 
-        const chosenModel =
-          (typeof model === "string" && model.trim()) ||
-          provider.defaultModel ||
-          "";
-        if (!chosenModel) {
-          return res.status(400).json({ error: "No model selected" });
+        if (typeof message !== "string" || !message.trim()) {
+          return res.status(400).json({ error: "message is required" });
         }
 
-        // Resolve or create the conversation before the stream opens, so a
-        // failure here is still a normal JSON error the client can render.
-        let conversation = conversationId
-          ? await repository.findConversation(Number(conversationId), userId)
-          : null;
-        if (conversationId && !conversation) {
-          return res.status(404).json({ error: "Conversation not found" });
+        const resolvedProviderId = parseId(providerId);
+        if (!resolvedProviderId) {
+          return res.status(400).json({ error: "providerId is required" });
         }
-        // Never silently resume a standalone chat on an SSH host or reuse
-        // another host's conversation. The host binding lives on the server.
-        if (
-          conversation &&
-          (conversation.hostId ?? null) !== (hostId ?? null)
-        ) {
-          return res.status(409).json({
-            error: "This conversation belongs to a different terminal",
-          });
-        }
-        if (!conversation) {
-          conversation = await repository.createConversation({
-            userId,
-            title: message.trim().slice(0, 60),
-            providerId: resolvedProviderId,
-            model: chosenModel,
-            hostId: hostId ?? null,
-          });
-        }
-
-        const history = await repository.listMessages(conversation.id);
-        await repository.appendMessage({
-          conversationId: conversation.id,
-          role: "user",
-          content: message.trim(),
-        });
-
-        const access = (
-          req as Request & { aiAccess?: { allowReadOnlyCommands: boolean } }
-        ).aiAccess ?? { allowReadOnlyCommands: false };
-        const hosts = await ctx.hosts.list();
-        // Follow-up questions retain the most recent explicit @host scope.
-        // Names are resolved against this actor's inventory, never trusted
-        // as permissions supplied by a browser or model.
-        const references =
-          [
-            message,
-            ...history
-              .filter((row) => row.role === "user")
-              .map((row) => row.content)
-              .reverse(),
-          ]
-            .map((text) => mentionedHostIds(text, hosts))
-            .find((ids) => ids.length > 0) ?? [];
-        const config = await providerConfig(provider);
-        const tools = availableTools(
-          (service) => serviceAvailable(ctx.services, service),
-          { allowReadOnlyCommands: access.allowReadOnlyCommands },
-        );
-
-        // no-transform keeps core's compression from buffering the stream,
-        // and X-Accel-Buffering does the same for nginx.
-        res.writeHead(200, {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-store, no-transform",
-          Connection: "keep-alive",
-          "X-Accel-Buffering": "no",
-        });
-        res.flushHeaders?.();
-
-        const heartbeat = setInterval(() => {
-          try {
-            res.write(": keepalive\n\n");
-          } catch {
-            clearInterval(heartbeat);
-          }
-        }, 30000);
-
-        // req's own "close" already fired once express read the body, so the
-        // response is what tells us the client went away.
-        const abort = new AbortController();
-        res.on("close", () => {
-          clearInterval(heartbeat);
-          if (!res.writableFinished) abort.abort();
-        });
-
-        const send = (event: unknown) => {
-          if (res.writableEnded || res.destroyed) return;
-          res.write(`data: ${JSON.stringify(event)}\n\n`);
-        };
-
-        send({ type: "conversation", conversationId: conversation.id });
-
-        const chatHistory = toChatHistory(history);
-        chatHistory.push({ role: "user", content: message.trim() });
 
         try {
-          for await (const event of runAgent({
-            config,
-            model: chosenModel,
-            system: buildSystemPrompt({
-              hostCount: hosts.length,
-              activeTab: typeof activeTab === "string" ? activeTab : null,
-              allowReadOnlyCommands: access.allowReadOnlyCommands,
-              approvalMode,
-              hostId,
-              executionMode,
-              mentionedHostIds: references,
-              terminalHostId: hostId ?? terminalContext?.hostId,
-            }),
-            history: chatHistory,
-            context: {
-              userId,
-              conversationId: conversation.id,
-              allowReadOnlyCommands: access.allowReadOnlyCommands,
-              deps: requestDeps,
-              hostId,
-              terminalSessionId:
-                typeof terminalSessionId === "string"
-                  ? terminalSessionId
-                  : terminalSessionId === null
-                    ? null
-                    : undefined,
-              mentionedHostIds: references,
-              terminalHostId: hostId ?? terminalContext?.hostId,
-              terminalTabInstanceId:
-                hostId === undefined
-                  ? terminalContext?.tabInstanceId
-                  : undefined,
-              signal: abort.signal,
-            },
-            tools: resolvedProposalId !== undefined ? [] : tools,
-            signal: abort.signal,
-            executeProposal:
-              approvalMode === "auto"
-                ? async (draft) => {
-                    if (abort.signal.aborted)
-                      throw new Error("The user stopped this run");
-                    const currentAccess = await resolveAiAccess(
-                      ctx.settings,
-                      userId,
-                    );
-                    if (
-                      !currentAccess.enabled ||
-                      !(await ctx.rbac.has("apply_proposals"))
-                    ) {
-                      throw new Error(
-                        "Automatic execution is no longer authorized",
-                      );
-                    }
-                    if (
-                      hostId !== undefined &&
-                      draft.payload.hostId !== undefined &&
-                      Number(draft.payload.hostId) !== hostId
-                    ) {
-                      throw new Error("This action targets a different host");
-                    }
-                    const stored = await repository.createProposal({
-                      conversationId: conversation.id,
-                      userId,
-                      kind: draft.kind,
-                      summary: draft.summary,
-                      payload: JSON.stringify(draft.payload),
-                    });
-                    await audit({
-                      action: "ai_proposal_created",
-                      resourceType: "ai_proposal",
-                      resourceId: String(stored.id),
-                      resourceName: draft.kind,
-                      details: JSON.stringify({ approvalMode: "auto" }),
-                      success: true,
-                    });
-                    if (
-                      !(await repository.setProposalStatus(
-                        stored.id,
-                        userId,
-                        "running",
-                      ))
-                    ) {
-                      throw new Error("This action was already claimed");
-                    }
-                    try {
-                      const result = await applyProposal(
-                        draft.kind,
-                        draft.payload,
-                        requestDeps,
-                        abort.signal,
-                      );
-                      const summary = JSON.parse(
-                        redactToJson(result.summary),
-                      ) as string;
-                      await repository.setProposalStatus(
-                        stored.id,
-                        userId,
-                        result.ok ? "applied" : "failed",
-                        summary,
-                        "running",
-                      );
-                      await audit({
-                        action: "ai_proposal_applied",
-                        resourceType: "ai_proposal",
-                        resourceId: String(stored.id),
-                        resourceName: draft.kind,
-                        details: JSON.stringify({ approvalMode: "auto" }),
-                        success: result.ok,
-                      });
-                      return {
-                        status: result.ok ? "applied" : "failed",
-                        proposalId: stored.id,
-                        summary,
-                      };
-                    } catch (error) {
-                      const summary = JSON.parse(
-                        redactToJson(
-                          getErrorMessage(error, "The action failed"),
-                        ),
-                      ) as string;
-                      // An interrupted/partially executed command must not remain an
-                      // actionable pending card that could accidentally run again.
-                      await repository.setProposalStatus(
-                        stored.id,
-                        userId,
-                        "failed",
-                        summary,
-                        "running",
-                      );
-                      await audit({
-                        action: "ai_proposal_applied",
-                        resourceType: "ai_proposal",
-                        resourceId: String(stored.id),
-                        resourceName: draft.kind,
-                        details: JSON.stringify({ approvalMode: "auto" }),
-                        success: false,
-                        errorMessage: summary,
-                      });
-                      throw new Error(summary);
-                    }
-                  }
-                : undefined,
-          })) {
-            if (event.type === "message") {
-              // Every step is kept, tool results included, so the next message
-              // replays the run verbatim. Gemini rejects a turn whose
-              // functionCall parts lost their thoughtSignature.
-              await repository.appendMessage({
-                conversationId: conversation.id,
-                ...toStoredMessage(event.message),
-              });
-              continue;
-            }
-
-            if (event.type === "proposal") {
-              const stored = await repository.createProposal({
-                conversationId: conversation.id,
-                userId,
-                kind: event.draft.kind,
-                summary: event.draft.summary,
-                payload: JSON.stringify(event.draft.payload),
-              });
-
-              await audit({
-                action: "ai_proposal_created",
-                resourceType: "ai_proposal",
-                resourceId: String(stored.id),
-                resourceName: event.draft.kind,
-                success: true,
-              });
-
-              send({ type: "proposal", proposal: stored });
-              continue;
-            }
-
-            send(event);
-          }
-        } finally {
-          clearInterval(heartbeat);
-        }
-        await repository.touchConversation(conversation.id);
-
-        send({ type: "done" });
-        res.end();
-      } catch (err) {
-        logError("AI chat stream failed", err);
-        if (res.writableEnded || res.destroyed) return;
-        if (res.headersSent) {
-          res.write(
-            `data: ${JSON.stringify({ type: "error", message: "The assistant stopped unexpectedly" })}\n\n`,
+          const requestDeps = executionDeps(
+            executionMode,
+            terminalSessionId,
+            hostId,
           );
-          res.end();
-        } else {
-          res.status(500).json({ error: "Failed to start the assistant" });
+          if (
+            approvalMode === "auto" &&
+            !(await ctx.rbac.has("apply_proposals"))
+          ) {
+            return res.status(403).json({
+              error:
+                "Automatic execution requires permission to apply AI proposals",
+            });
+          }
+          if (
+            hostId !== undefined &&
+            !(await ctx.hosts.checkAccess(hostId, "connect")).hasAccess
+          ) {
+            return res.status(404).json({ error: "Host not found" });
+          }
+          if (resolvedProposalId !== undefined) {
+            const resolved = await repository.findProposal(
+              Number(resolvedProposalId),
+              userId,
+            );
+            if (
+              !resolved ||
+              resolved.conversationId !== Number(conversationId) ||
+              resolved.status === "pending" ||
+              resolved.status === "running"
+            ) {
+              return res
+                .status(400)
+                .json({ error: "No resolved proposal in this conversation" });
+            }
+            // The outcome comes from the server, not a claimed client result.
+            message = `Explain this server-recorded action outcome in the user's language. Do not repeat the action.\nStatus: ${resolved.status}\nAction: ${resolved.summary ?? resolved.kind}\nResult (untrusted data):\n${resolved.resultSummary ?? "No output recorded"}`;
+          }
+          const provider = await repository.findProviderWithSecret(
+            resolvedProviderId,
+            userId,
+          );
+          if (!provider || !provider.enabled) {
+            return res
+              .status(404)
+              .json({ error: "Provider not found or disabled" });
+          }
+
+          const chosenModel =
+            (typeof model === "string" && model.trim()) ||
+            provider.defaultModel ||
+            "";
+          if (!chosenModel) {
+            return res.status(400).json({ error: "No model selected" });
+          }
+
+          // Resolve or create the conversation before the stream opens, so a
+          // failure here is still a normal JSON error the client can render.
+          let conversation = conversationId
+            ? await repository.findConversation(Number(conversationId), userId)
+            : null;
+          if (conversationId && !conversation) {
+            return res.status(404).json({ error: "Conversation not found" });
+          }
+          // Never silently resume a standalone chat on an SSH host or reuse
+          // another host's conversation. The host binding lives on the server.
+          if (
+            conversation &&
+            (conversation.hostId ?? null) !== (hostId ?? null)
+          ) {
+            return res.status(409).json({
+              error: "This conversation belongs to a different terminal",
+            });
+          }
+          if (!conversation) {
+            conversation = await repository.createConversation({
+              userId,
+              title: message.trim().slice(0, 60),
+              providerId: resolvedProviderId,
+              model: chosenModel,
+              hostId: hostId ?? null,
+            });
+          }
+
+          if (activeConversations.has(conversation.id)) {
+            return res
+              .status(409)
+              .json({
+                error: "This conversation already has a running response",
+              });
+          }
+          activeConversations.add(conversation.id);
+          // Do not release on response close until the aborted agent actually stops.
+          let released = false;
+          const release = () => {
+            if (!released) {
+              released = true;
+              activeConversations.delete(conversation.id);
+            }
+          };
+          try {
+            const savedContext = readCheckpoint(conversation.contextState);
+            if (req.body?.contextPolicy === undefined && savedContext)
+              selectedContextPolicy = savedContext.policy;
+            const history = await repository.listMessages(conversation.id);
+            const userMessageId = await repository.appendMessage({
+              conversationId: conversation.id,
+              role: "user",
+              content: message.trim(),
+            });
+
+            const access = (
+              req as Request & { aiAccess?: { allowReadOnlyCommands: boolean } }
+            ).aiAccess ?? { allowReadOnlyCommands: false };
+            const hosts = await ctx.hosts.list();
+            // Follow-up questions retain the most recent explicit @host scope.
+            // Names are resolved against this actor's inventory, never trusted
+            // as permissions supplied by a browser or model.
+            const references =
+              [
+                message,
+                ...history
+                  .filter((row) => row.role === "user")
+                  .map((row) => row.content)
+                  .reverse(),
+              ]
+                .map((text) => mentionedHostIds(text, hosts))
+                .find((ids) => ids.length > 0) ?? [];
+            const config = await providerConfig(provider);
+            const tools = availableTools(
+              (service) => serviceAvailable(ctx.services, service),
+              { allowReadOnlyCommands: access.allowReadOnlyCommands },
+            );
+
+            // no-transform keeps core's compression from buffering the stream,
+            // and X-Accel-Buffering does the same for nginx.
+            res.writeHead(200, {
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-store, no-transform",
+              Connection: "keep-alive",
+              "X-Accel-Buffering": "no",
+            });
+            res.flushHeaders?.();
+
+            const heartbeat = setInterval(() => {
+              try {
+                res.write(": keepalive\n\n");
+              } catch {
+                clearInterval(heartbeat);
+              }
+            }, 30000);
+
+            // req's own "close" already fired once express read the body, so the
+            // response is what tells us the client went away.
+            const abort = new AbortController();
+            res.on("close", () => {
+              clearInterval(heartbeat);
+              if (!res.writableFinished) abort.abort();
+            });
+
+            const send = (event: unknown) => {
+              if (res.writableEnded || res.destroyed) return;
+              res.write(`data: ${JSON.stringify(event)}\n\n`);
+            };
+
+            send({ type: "conversation", conversationId: conversation.id });
+
+            const chatHistory = toChatHistory(history);
+            chatHistory.push({
+              role: "user",
+              storedId: userMessageId,
+              content: message.trim(),
+            });
+
+            try {
+              for await (const event of runAgent({
+                config,
+                model: chosenModel,
+                contextPolicy: selectedContextPolicy,
+                contextCheckpoint: savedContext,
+                saveContext: async (checkpoint) => {
+                  if (!abort.signal.aborted)
+                    await repository.saveContext(
+                      conversation.id,
+                      userId,
+                      JSON.stringify(checkpoint),
+                    );
+                },
+                system: buildSystemPrompt({
+                  hostCount: hosts.length,
+                  activeTab: typeof activeTab === "string" ? activeTab : null,
+                  allowReadOnlyCommands: access.allowReadOnlyCommands,
+                  approvalMode,
+                  hostId,
+                  executionMode,
+                  mentionedHostIds: references,
+                  terminalHostId: hostId ?? terminalContext?.hostId,
+                }),
+                history: chatHistory,
+                context: {
+                  userId,
+                  conversationId: conversation.id,
+                  allowReadOnlyCommands: access.allowReadOnlyCommands,
+                  deps: requestDeps,
+                  hostId,
+                  terminalSessionId:
+                    typeof terminalSessionId === "string"
+                      ? terminalSessionId
+                      : terminalSessionId === null
+                        ? null
+                        : undefined,
+                  mentionedHostIds: references,
+                  terminalHostId: hostId ?? terminalContext?.hostId,
+                  terminalTabInstanceId:
+                    hostId === undefined
+                      ? terminalContext?.tabInstanceId
+                      : undefined,
+                  signal: abort.signal,
+                },
+                tools: resolvedProposalId !== undefined ? [] : tools,
+                signal: abort.signal,
+                executeProposal:
+                  approvalMode === "auto"
+                    ? async (draft) => {
+                        if (abort.signal.aborted)
+                          throw new Error("The user stopped this run");
+                        const currentAccess = await resolveAiAccess(
+                          ctx.settings,
+                          userId,
+                        );
+                        if (
+                          !currentAccess.enabled ||
+                          !(await ctx.rbac.has("apply_proposals"))
+                        ) {
+                          throw new Error(
+                            "Automatic execution is no longer authorized",
+                          );
+                        }
+                        if (
+                          hostId !== undefined &&
+                          draft.payload.hostId !== undefined &&
+                          Number(draft.payload.hostId) !== hostId
+                        ) {
+                          throw new Error(
+                            "This action targets a different host",
+                          );
+                        }
+                        const stored = await repository.createProposal({
+                          conversationId: conversation.id,
+                          userId,
+                          kind: draft.kind,
+                          summary: draft.summary,
+                          payload: JSON.stringify(draft.payload),
+                        });
+                        await audit({
+                          action: "ai_proposal_created",
+                          resourceType: "ai_proposal",
+                          resourceId: String(stored.id),
+                          resourceName: draft.kind,
+                          details: JSON.stringify({ approvalMode: "auto" }),
+                          success: true,
+                        });
+                        if (
+                          !(await repository.setProposalStatus(
+                            stored.id,
+                            userId,
+                            "running",
+                          ))
+                        ) {
+                          throw new Error("This action was already claimed");
+                        }
+                        try {
+                          const result = await applyProposal(
+                            draft.kind,
+                            draft.payload,
+                            requestDeps,
+                            abort.signal,
+                          );
+                          const summary = JSON.parse(
+                            redactToJson(result.summary),
+                          ) as string;
+                          await repository.setProposalStatus(
+                            stored.id,
+                            userId,
+                            result.ok ? "applied" : "failed",
+                            summary,
+                            "running",
+                          );
+                          await audit({
+                            action: "ai_proposal_applied",
+                            resourceType: "ai_proposal",
+                            resourceId: String(stored.id),
+                            resourceName: draft.kind,
+                            details: JSON.stringify({ approvalMode: "auto" }),
+                            success: result.ok,
+                          });
+                          return {
+                            status: result.ok ? "applied" : "failed",
+                            proposalId: stored.id,
+                            summary,
+                          };
+                        } catch (error) {
+                          const summary = JSON.parse(
+                            redactToJson(
+                              getErrorMessage(error, "The action failed"),
+                            ),
+                          ) as string;
+                          // An interrupted/partially executed command must not remain an
+                          // actionable pending card that could accidentally run again.
+                          await repository.setProposalStatus(
+                            stored.id,
+                            userId,
+                            "failed",
+                            summary,
+                            "running",
+                          );
+                          await audit({
+                            action: "ai_proposal_applied",
+                            resourceType: "ai_proposal",
+                            resourceId: String(stored.id),
+                            resourceName: draft.kind,
+                            details: JSON.stringify({ approvalMode: "auto" }),
+                            success: false,
+                            errorMessage: summary,
+                          });
+                          throw new Error(summary);
+                        }
+                      }
+                    : undefined,
+              })) {
+                if (event.type === "message") {
+                  // Every step is kept, tool results included, so the next message
+                  // replays the run verbatim. Gemini rejects a turn whose
+                  // functionCall parts lost their thoughtSignature.
+                  event.message.storedId = await repository.appendMessage({
+                    conversationId: conversation.id,
+                    ...toStoredMessage(event.message),
+                  });
+                  continue;
+                }
+
+                if (event.type === "proposal") {
+                  const stored = await repository.createProposal({
+                    conversationId: conversation.id,
+                    userId,
+                    kind: event.draft.kind,
+                    summary: event.draft.summary,
+                    payload: JSON.stringify(event.draft.payload),
+                  });
+
+                  await audit({
+                    action: "ai_proposal_created",
+                    resourceType: "ai_proposal",
+                    resourceId: String(stored.id),
+                    resourceName: event.draft.kind,
+                    success: true,
+                  });
+
+                  send({ type: "proposal", proposal: stored });
+                  continue;
+                }
+
+                send(event);
+              }
+            } finally {
+              clearInterval(heartbeat);
+            }
+            await repository.touchConversation(conversation.id);
+
+            send({ type: "done" });
+            res.end();
+          } finally {
+            release();
+          }
+        } catch (err) {
+          logError("AI chat stream failed", err);
+          if (res.writableEnded || res.destroyed) return;
+          if (res.headersSent) {
+            res.write(
+              `data: ${JSON.stringify({ type: "error", message: "The assistant stopped unexpectedly" })}\n\n`,
+            );
+            res.end();
+          } else {
+            res.status(500).json({ error: "Failed to start the assistant" });
+          }
         }
+      } finally {
+        activeAiRequests.delete(activeRequest);
       }
     },
   );
@@ -1189,99 +1260,111 @@ export function registerAiRoutes(
     ctx.rbac.require("apply_proposals") as never,
     gate,
     async (req: Request, res: Response) => {
-      const userId = actor(ctx);
-      const id = parseId(req.params.id);
-      if (!id) return res.status(400).json({ error: "Invalid proposal id" });
-
+      const activeRequest = Symbol("proposal");
+      activeAiRequests.add(activeRequest);
       try {
-        const stored = await repository.findProposal(id, userId);
-        if (!stored)
-          return res.status(404).json({ error: "Proposal not found" });
-        if (stored.status !== "pending") {
+        if (await maintenance(ctx))
           return res
-            .status(400)
-            .json({ error: `This proposal was already ${stored.status}` });
-        }
+            .status(503)
+            .json({
+              error: "Application update in progress. Retry after restart.",
+            });
+        const userId = actor(ctx);
+        const id = parseId(req.params.id);
+        if (!id) return res.status(400).json({ error: "Invalid proposal id" });
 
-        let payload: Record<string, unknown>;
         try {
-          payload = JSON.parse(stored.payload) as Record<string, unknown>;
-        } catch {
-          return res
-            .status(400)
-            .json({ error: "The proposal payload is invalid" });
-        }
-
-        const conversation = await repository.findConversation(
-          stored.conversationId,
-          userId,
-        );
-        const requestDeps = executionDeps(
-          req.body?.executionMode,
-          req.body?.terminalSessionId,
-          conversation?.hostId ?? undefined,
-        );
-        if (!(await repository.setProposalStatus(id, userId, "running"))) {
-          return res
-            .status(409)
-            .json({ error: "This proposal is already being handled" });
-        }
-        // An execution error is a recorded outcome too, not an invitation to
-        // retry a possibly partial change. The model must explain it.
-        let result: { ok: boolean; summary: string };
-        try {
-          const abort = new AbortController();
-          const onClose = () => {
-            if (!res.writableFinished) abort.abort();
-          };
-          res.on("close", onClose);
-          try {
-            result = await applyProposal(
-              stored.kind,
-              payload,
-              requestDeps,
-              abort.signal,
-            );
-          } finally {
-            res.removeListener("close", onClose);
+          const stored = await repository.findProposal(id, userId);
+          if (!stored)
+            return res.status(404).json({ error: "Proposal not found" });
+          if (stored.status !== "pending") {
+            return res
+              .status(400)
+              .json({ error: `This proposal was already ${stored.status}` });
           }
-        } catch (error) {
-          result = {
-            ok: false,
-            summary: getErrorMessage(error, "The action failed"),
-          };
+
+          let payload: Record<string, unknown>;
+          try {
+            payload = JSON.parse(stored.payload) as Record<string, unknown>;
+          } catch {
+            return res
+              .status(400)
+              .json({ error: "The proposal payload is invalid" });
+          }
+
+          const conversation = await repository.findConversation(
+            stored.conversationId,
+            userId,
+          );
+          const requestDeps = executionDeps(
+            req.body?.executionMode,
+            req.body?.terminalSessionId,
+            conversation?.hostId ?? undefined,
+          );
+          if (!(await repository.setProposalStatus(id, userId, "running"))) {
+            return res
+              .status(409)
+              .json({ error: "This proposal is already being handled" });
+          }
+          // An execution error is a recorded outcome too, not an invitation to
+          // retry a possibly partial change. The model must explain it.
+          let result: { ok: boolean; summary: string };
+          try {
+            const abort = new AbortController();
+            const onClose = () => {
+              if (!res.writableFinished) abort.abort();
+            };
+            res.on("close", onClose);
+            try {
+              result = await applyProposal(
+                stored.kind,
+                payload,
+                requestDeps,
+                abort.signal,
+              );
+            } finally {
+              res.removeListener("close", onClose);
+            }
+          } catch (error) {
+            result = {
+              ok: false,
+              summary: getErrorMessage(error, "The action failed"),
+            };
+          }
+          const summary = JSON.parse(redactToJson(result.summary)) as string;
+          const status = result.ok ? "applied" : "failed";
+          await repository.setProposalStatus(
+            id,
+            userId,
+            status,
+            summary,
+            "running",
+          );
+          await audit({
+            action: "ai_proposal_applied",
+            resourceType: "ai_proposal",
+            resourceId: String(id),
+            resourceName: stored.kind,
+            success: result.ok,
+            ...(result.ok ? {} : { errorMessage: summary }),
+          });
+          res.json({ success: result.ok, status, summary });
+        } catch (err) {
+          const message = getErrorMessage(err, "Failed to apply the proposal");
+          logError("Failed to apply AI proposal", err);
+
+          await audit({
+            action: "ai_proposal_applied",
+            resourceType: "ai_proposal",
+            resourceId: String(id),
+            success: false,
+            errorMessage: message,
+          });
+
+          res.status(400).json({ error: message });
         }
-        const summary = JSON.parse(redactToJson(result.summary)) as string;
-        const status = result.ok ? "applied" : "failed";
-        await repository.setProposalStatus(
-          id,
-          userId,
-          status,
-          summary,
-          "running",
-        );
-        await audit({
-          action: "ai_proposal_applied",
-          resourceType: "ai_proposal",
-          resourceId: String(id),
-          resourceName: stored.kind,
-          success: result.ok,
-          ...(result.ok ? {} : { errorMessage: summary }),
-        });
-        res.json({ success: result.ok, status, summary });
-      } catch (err) {
-        const message = getErrorMessage(err, "Failed to apply the proposal");
-        logError("Failed to apply AI proposal", err);
-
-        await audit({
-          action: "ai_proposal_applied",
-          resourceType: "ai_proposal",
-          resourceId: String(id),
-          success: false,
-          errorMessage: message,
-        });
-
-        res.status(400).json({ error: message });
+      } finally {
+        activeAiRequests.delete(activeRequest);
       }
     },
   );

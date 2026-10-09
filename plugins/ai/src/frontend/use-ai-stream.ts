@@ -1,3 +1,4 @@
+import type { ContextPolicy, ContextUsage } from "../shared/context-policy";
 import { getErrorMessage } from "./errors";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { aiApp } from "./app-ref";
@@ -20,6 +21,7 @@ export interface ToolActivity {
 
 export interface StreamState {
   streaming: boolean;
+  contextUsage: ContextUsage | null;
   assistantText: string;
   tools: ToolActivity[];
   proposals: AiProposal[];
@@ -29,6 +31,7 @@ export interface StreamState {
 
 const INITIAL: StreamState = {
   streaming: false,
+  contextUsage: null,
   assistantText: "",
   tools: [],
   proposals: [],
@@ -57,7 +60,14 @@ export function useAiStream() {
   // The run's own cleanup clears abortRef, after it has handed its steps over.
   const stop = useCallback(() => {
     abortRef.current?.abort();
-    setState((prev) => ({ ...prev, streaming: false }));
+    setState((prev) => ({
+      ...prev,
+      streaming: false,
+      contextUsage:
+        prev.contextUsage?.state === "compacting"
+          ? { ...prev.contextUsage, state: "ready" }
+          : prev.contextUsage,
+    }));
   }, []);
 
   const send = useCallback(
@@ -65,6 +75,7 @@ export function useAiStream() {
       message: string;
       providerId: number;
       model?: string;
+      contextPolicy?: ContextPolicy;
       conversationId?: number | null;
       activeTab?: string | null;
       hostId?: number;
@@ -89,6 +100,10 @@ export function useAiStream() {
 
       setState((previous) => ({
         streaming: true,
+        contextUsage:
+          input.conversationId === previous.conversationId
+            ? previous.contextUsage
+            : null,
         assistantText: "",
         tools: [],
         proposals:
@@ -112,6 +127,10 @@ export function useAiStream() {
         setState((prev) => ({
           ...prev,
           streaming: false,
+          contextUsage:
+            prev.contextUsage?.state === "compacting"
+              ? { ...prev.contextUsage, state: error ? "error" : "ready" }
+              : prev.contextUsage,
           assistantText: "",
           tools: [],
           ...(error ? { error } : {}),
@@ -127,6 +146,7 @@ export function useAiStream() {
             message: input.message,
             providerId: input.providerId,
             model: input.model,
+            contextPolicy: input.contextPolicy,
             conversationId: input.conversationId ?? undefined,
             activeTab: input.activeTab ?? undefined,
             hostId: input.hostId,
@@ -195,6 +215,8 @@ export function useAiStream() {
                 ...prev,
                 conversationId: event.conversationId,
               }));
+            } else if (event.type === "context") {
+              setState((prev) => ({ ...prev, contextUsage: event.usage }));
             } else if (event.type === "token") {
               replyText += event.text;
               setState((prev) => ({

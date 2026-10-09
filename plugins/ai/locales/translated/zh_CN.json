@@ -19,6 +19,10 @@
     "secrets.share": {
       "title": "分享 API 密钥",
       "description": "其他功能可能在看不到密钥的情况下使用已存储的 AI API 密钥。"
+    },
+    "manage_updates": {
+      "title": "管理软件更新",
+      "description": "配置并请求 Docker 自动更新，同时要求管理员设置权限。"
     }
   },
   "settings": {
@@ -146,7 +150,37 @@
     "autoModeCompact": "免审批",
     "terminalContextAutomatic": "模型可按需读取当前 SSH 会话或 @ 主机的最近终端输出，无需手动粘贴或附加。",
     "composerHint": "输入 @ 引用主机、代码片段或自动化流程，终端输出由模型按需读取。",
-    "readingTerminalOutput": "正在读取终端输出"
+    "readingTerminalOutput": "正在读取终端输出",
+    "disableAutoHint": "点击恢复逐次审批。权限检查和审计日志保持开启。",
+    "enableAutoHint": "点击后，本会话的命令无需逐条确认即可自动执行，可能修改服务器。权限检查与审计日志仍保留。",
+    "settingsDialogHint": "在这个独立悬浮窗中调整配置，关闭后继续对话。",
+    "contextSettings": "上下文压缩",
+    "contextUsage": "上下文占用",
+    "contextShort": "上下文",
+    "contextPending": "上下文 —",
+    "contextCompacting": "压缩中…",
+    "contextUsageDetail": "估算输入 {{tokens}} + 预留回复 {{reserve}} / 配置容量 {{capacity}} Token。已压缩 {{count}} 次；上次上游实际输入：{{actual}}。这是启发式估算，不是精确分词统计。",
+    "contextAutomatic": "自动总结并压缩较早的上下文",
+    "contextCapacity": "模型上下文容量（Token）",
+    "contextReserve": "预留回复 Token",
+    "contextThreshold": "自动压缩阈值（%）",
+    "contextRecent": "优先保留最近对话轮数",
+    "contextExplanation": "容量须按实际上游模型填写，不是自动探测值。占用估算包含系统指令、工具定义、历史及回复预留；达到阈值后总结旧对话，必要时精简过长工具输出。完整聊天记录不删除。摘要使用当前模型，会消耗额外 API 用量，仍可能丢失细节。",
+    "updateSettings": "软件自动更新（管理员）",
+    "updateLoadError": "暂时无法读取更新配置。",
+    "updateActionError": "更新操作失败，请检查管理员权限、代理配置和更新器状态。",
+    "updateScope": "只跟踪 ghcr.io/luoquan0/cat-termix:ai-dev 魔改版，不会用原版 Termix 覆盖。",
+    "updateInstallHint": "未连接更新器。首次需同时使用 docker-compose.ai-test.yml 和 docker-compose.ai-updates.yml 启动。仅独立更新器挂载 Docker 套接字，聊天应用不挂载。",
+    "updateAutomatic": "自动安装已发布的 Cat-Termix 新构建",
+    "updateRestartWarning": "更新会重启应用并断开 SSH 会话，正在执行的 AI 请求会延后更新。支持标准 Docker 与本地 SQLite，替换前先做停机数据备份。维护期间请勿修改数据。",
+    "updateInterval": "检查间隔（小时）",
+    "updateProxy": "更新 HTTP / HTTPS 代理",
+    "updateProxyHint": "可留空，例如 http://host.docker.internal:7890。版本检查与镜像层下载都走此代理，保持 TLS 校验。已保存的代理密码不会回显；不修改则保留，清空则关闭代理。",
+    "updateCheck": "立即检查",
+    "updateApply": "立即更新",
+    "updateConfirm": "确认重启并更新",
+    "updateCurrent": "当前构建",
+    "updateAvailable": "已发布构建"
   },
   "nav": {
     "ai": "AI"

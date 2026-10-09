@@ -8,6 +8,9 @@ import {
 } from "@testing-library/react";
 import { AiPanel } from "../../src/frontend/AiPanel";
 
+vi.mock("../../src/frontend/UpdateSettings", () => ({
+  UpdateSettings: () => null,
+}));
 const api = vi.hoisted(() => ({
   t: (key: string) => key,
   getAiProviders: vi.fn(),
@@ -78,7 +81,7 @@ describe("compact chat settings and a clean composer", () => {
     expect(settings.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(settings);
     expect(
-      screen.getByRole("region", { name: "ai.chatSettings" }),
+      screen.getByRole("dialog", { name: "ai.chatSettings" }),
     ).toBeTruthy();
     expect(
       screen.getByRole("combobox", { name: "ai.executionMode" }),
@@ -87,6 +90,9 @@ describe("compact chat settings and a clean composer", () => {
       screen.getByRole("combobox", { name: "ai.modelPicker" }),
     ).toBeTruthy();
     expect(screen.getByText("ai.providerSettings")).toBeTruthy();
+    const dialog = screen.getByRole("dialog", { name: "ai.chatSettings" });
+    expect(dialog.closest("[data-slot=dialog-content]")).toBeTruthy();
+    expect(composer.closest("[role=dialog]")).toBeNull();
   });
   it("can send with settings closed and new chats never paste terminal text", async () => {
     render(<AiPanel hostId={1} getTerminalSessionId={() => "current"} />);
@@ -121,9 +127,8 @@ describe("compact chat settings and a clean composer", () => {
     fireEvent.change(screen.getByLabelText("ai.modelPicker"), {
       target: { value: "my-model" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
     fireEvent.click(screen.getByRole("button", { name: "ai.reviewMode" }));
-    fireEvent.click(screen.getByRole("button", { name: "ai.enableAutoMode" }));
-    fireEvent.click(settings);
     expect(screen.queryByRole("combobox")).toBeNull();
     expect(screen.getByText("ai.autoModeCompact")).toBeTruthy();
     fireEvent.change(composer, { target: { value: "Hello" } });

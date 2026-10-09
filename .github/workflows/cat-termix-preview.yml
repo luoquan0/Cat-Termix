@@ -53,6 +53,11 @@ jobs:
           npm test --workspace @termix-plugin/ai 2>&1 | tee /tmp/cat-termix-reports/ai-tests.log
       - name: Terminal regression tests
         run: npm test --workspace @termix-plugin/ssh-terminal 2>&1 | tee /tmp/cat-termix-reports/terminal-tests.log
+      - name: Update helper tests and Docker rollback smoke
+        run: |
+          node --test docker/updater/updater.test.mjs
+          node docker/updater/smoke.mjs
+          docker compose -f docker-compose.ai-test.yml -f docker-compose.ai-updates.yml config --quiet
       - name: Core regression tests
         run: npm test 2>&1 | tee /tmp/cat-termix-reports/core-tests.log
       - name: Lint changed source
@@ -123,7 +128,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=2.9.2-ai-preview.3
+            org.opencontainers.image.version=2.9.2-ai-preview.4
             org.opencontainers.image.title=Cat-Termix AI Preview
       - name: Start the exact image and check health, web and bundled AI
         env:

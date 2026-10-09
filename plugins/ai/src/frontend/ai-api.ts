@@ -52,6 +52,7 @@ export interface AiConversation {
   providerId: number | null;
   model: string | null;
   hostId: number | null;
+  contextState?: string | null;
   createdAt: string;
   updatedAt: string;
 }

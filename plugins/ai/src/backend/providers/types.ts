@@ -22,6 +22,8 @@ export function isAiProviderType(value: unknown): value is AiProviderType {
 }
 
 export interface ChatMessage {
+  /** Internal database ID, never sent to a provider. */
+  storedId?: number;
   role: "system" | "user" | "assistant" | "tool";
   content: string;
   /** Set on assistant turns that requested tools. */
@@ -54,10 +56,12 @@ export interface ChatRequest {
   system: string;
   messages: ChatMessage[];
   tools: ToolDefinition[];
+  maxOutputTokens?: number;
   signal?: AbortSignal;
 }
 
 export type ChatChunk =
+  | { type: "usage"; inputTokens: number; outputTokens?: number }
   | { type: "text"; text: string }
   | { type: "tool_call"; call: ToolCall }
   | { type: "done"; stopReason?: string }

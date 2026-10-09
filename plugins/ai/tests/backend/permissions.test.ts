@@ -17,6 +17,7 @@ const EXPECTED = [
   "ai.apply_proposals",
   "ai.services.use",
   "ai.secrets.share",
+  "ai.manage_updates",
 ];
 
 describe("ai permissions", () => {
@@ -33,7 +34,7 @@ describe("ai permissions", () => {
     expect(manifest.errors).toEqual([]);
   });
 
-  it("registers exactly the ids roles already hold", () => {
+  it("retains existing ids and adds a distinct administrator-only update permission", () => {
     const ids = (manifest.manifest?.contributes?.permissions ?? []).map(
       (permission) => qualifyPermission("ai", permission.name),
     );
@@ -54,7 +55,9 @@ describe("ai permissions", () => {
   it("keeps the fresh-install defaults core used to seed", () => {
     for (const permission of manifest.manifest?.contributes?.permissions ??
       []) {
-      expect(permission.defaultRoles).toEqual(["user"]);
+      expect(permission.defaultRoles).toEqual(
+        permission.name === "manage_updates" ? ["admin"] : ["user"],
+      );
     }
   });
 });

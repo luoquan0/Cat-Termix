@@ -1,3 +1,9 @@
+import { ContextManager, isContextOverflow } from "./context-manager.js";
+import type {
+  ContextCheckpoint,
+  ContextPolicy,
+  ContextUsage,
+} from "../shared/context-policy.js";
 import { getErrorMessage } from "./errors.js";
 import { describeProviderError } from "./providers/http.js";
 import { getAdapter } from "./providers/registry.js";
@@ -24,6 +30,7 @@ import {
 const MAX_TURNS = 8;
 
 export type EngineEvent =
+  | { type: "context"; usage: ContextUsage }
   | { type: "token"; text: string }
   | { type: "tool_call"; name: string; arguments: Record<string, unknown> }
   | { type: "tool_result"; name: string; result: unknown }
@@ -35,6 +42,9 @@ export type EngineEvent =
 
 export interface EngineOptions {
   config: ProviderConfig;
+  contextPolicy?: ContextPolicy;
+  contextCheckpoint?: ContextCheckpoint | null;
+  saveContext?: (checkpoint: ContextCheckpoint) => Promise<void>;
   model: string;
   system: string;
   history: ChatMessage[];
@@ -59,7 +69,20 @@ export async function* runAgent(
       : tool,
   );
   const byName = new Map(options.tools.map((tool) => [tool.name, tool]));
-  const messages: ChatMessage[] = [...options.history];
+  const manager = new ContextManager(
+    options.history,
+    options.contextPolicy,
+    options.contextCheckpoint,
+  );
+  let overflowRetried = false;
+  const report = (state: ContextUsage["state"] = "ready"): EngineEvent => ({
+    type: "context",
+    usage: manager.usage(options.system, tools, state),
+  });
+  const persistContext = async () => {
+    manager.checkpoint.usage = manager.usage(options.system, tools);
+    await options.saveContext?.(manager.checkpoint);
+  };
   let summaryOnly = false;
 
   for (let turn = 0; turn < MAX_TURNS; turn += 1) {
@@ -71,12 +94,25 @@ export async function* runAgent(
     let failed = false;
 
     try {
+      if (manager.needsCompaction(options.system, tools))
+        yield report("compacting");
+      await manager.prepare({
+        system: options.system,
+        tools,
+        adapter,
+        config: options.config,
+        model: options.model,
+        signal: options.signal,
+        save: options.saveContext,
+      });
+      yield report();
       for await (const chunk of adapter.streamChat(options.config, {
         model: options.model,
         system: finalTurn
           ? `${options.system}\nNo more tools may run this turn. Summarize the observed results in the user's language. Explain failures and any unfinished work; do not claim unverified success.`
           : options.system,
-        messages,
+        messages: manager.history(),
+        maxOutputTokens: manager.policy.outputReserve,
         tools: finalTurn ? [] : tools,
         signal: options.signal,
       })) {
@@ -85,6 +121,10 @@ export async function* runAgent(
             yield { type: "token", text: "\n\n" };
           text += chunk.text;
           yield { type: "token", text: chunk.text };
+        } else if (chunk.type === "usage") {
+          manager.actualInputTokens = chunk.inputTokens;
+          manager.actualOutputTokens = chunk.outputTokens;
+          yield report();
         } else if (chunk.type === "tool_call") {
           calls.push(chunk.call);
         } else if (chunk.type === "error") {
@@ -95,6 +135,42 @@ export async function* runAgent(
     } catch (error) {
       // The user stopped it; there is no one left to show an error to.
       if (options.signal?.aborted) return;
+      if (
+        !overflowRetried &&
+        manager.policy.autoCompact &&
+        !text &&
+        !calls.length &&
+        isContextOverflow(error)
+      ) {
+        overflowRetried = true;
+        yield report("compacting");
+        try {
+          await manager.prepare({
+            system: options.system,
+            tools,
+            adapter,
+            config: options.config,
+            model: options.model,
+            signal: options.signal,
+            force: true,
+            save: options.saveContext,
+          });
+          yield report();
+          turn -= 1; // Retry only the rejected provider request, NEVER an executed command.
+          continue;
+        } catch (compressionError) {
+          yield report("error");
+          yield {
+            type: "error",
+            message: describeProviderError(
+              compressionError,
+              "Context compression failed; history preserved",
+            ),
+          };
+          return;
+        }
+      }
+      yield report("error");
       const message = describeProviderError(
         error,
         "The provider request failed",
@@ -127,7 +203,11 @@ export async function* runAgent(
     }
 
     if (!calls.length) {
-      yield { type: "message", message: { role: "assistant", content: text } };
+      const answer: ChatMessage = { role: "assistant", content: text };
+      manager.messages.push(answer);
+      yield { type: "message", message: answer };
+      await persistContext();
+      yield report();
       yield { type: "done" };
       return;
     }
@@ -137,7 +217,7 @@ export async function* runAgent(
       content: text,
       toolCalls: calls,
     };
-    messages.push(assistant);
+    manager.messages.push(assistant);
     yield { type: "message", message: assistant };
 
     for (const call of calls) {
@@ -181,7 +261,7 @@ export async function* runAgent(
           toolCallId: call.id,
           toolName: call.name,
         };
-        messages.push(pending);
+        manager.messages.push(pending);
         yield { type: "message", message: pending };
         continue;
       }
@@ -193,11 +273,13 @@ export async function* runAgent(
         toolCallId: call.id,
         toolName: call.name,
       };
-      messages.push(answer);
+      manager.messages.push(answer);
       yield { type: "message", message: answer };
     }
   }
 
+  await persistContext();
+  yield report();
   // Ran out of turns with the model still calling tools.
   yield {
     type: "error",

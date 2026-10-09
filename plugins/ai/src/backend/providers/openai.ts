@@ -80,28 +80,57 @@ export const openAiAdapter: ProviderAdapter = {
     };
     if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
 
-    const response = await config.fetch(url, {
-      method: "POST",
-      headers,
-      signal: request.signal,
-      body: JSON.stringify({
-        model: request.model,
-        messages: toOpenAiMessages(request),
-        stream: true,
-        ...(request.tools.length
-          ? {
-              tools: request.tools.map((tool) => ({
-                type: "function",
-                function: {
-                  name: tool.name,
-                  description: tool.description,
-                  parameters: tool.parameters,
-                },
-              })),
-            }
-          : {}),
-      }),
-    });
+    const payload: Record<string, unknown> = {
+      model: request.model,
+      messages: toOpenAiMessages(request),
+      stream: true,
+      ...(config.providerType === "openai"
+        ? { stream_options: { include_usage: true } }
+        : {}),
+      ...(request.maxOutputTokens
+        ? config.providerType === "openai"
+          ? { max_completion_tokens: request.maxOutputTokens }
+          : { max_tokens: request.maxOutputTokens }
+        : {}),
+      ...(request.tools.length
+        ? {
+            tools: request.tools.map((tool) => ({
+              type: "function",
+              function: {
+                name: tool.name,
+                description: tool.description,
+                parameters: tool.parameters,
+              },
+            })),
+          }
+        : {}),
+    };
+    const send = () =>
+      config.fetch(url, {
+        method: "POST",
+        headers,
+        signal: request.signal,
+        body: JSON.stringify(payload),
+      });
+    let response = await send();
+    if (response.status === 400 && request.maxOutputTokens) {
+      const body = await response.clone().text();
+      const rejected =
+        "max_tokens" in payload ? "max_tokens" : "max_completion_tokens";
+      // Compatible gateways differ. Retry once only for an explicitly rejected
+      // parameter before a stream starts; retain the exact output budget.
+      if (
+        body.includes(rejected) &&
+        /unsupported|not supported|unrecognized|unknown parameter/i.test(body)
+      ) {
+        await response.body?.cancel();
+        delete payload[rejected];
+        payload[
+          rejected === "max_tokens" ? "max_completion_tokens" : "max_tokens"
+        ] = request.maxOutputTokens;
+        response = await send();
+      }
+    }
 
     await assertOk(response, "OpenAI");
 
@@ -118,6 +147,13 @@ export const openAiAdapter: ProviderAdapter = {
         continue;
       }
 
+      if (Number.isFinite(frame.usage?.prompt_tokens)) {
+        yield {
+          type: "usage",
+          inputTokens: frame.usage.prompt_tokens,
+          outputTokens: frame.usage.completion_tokens,
+        };
+      }
       const choice = frame.choices?.[0];
       if (!choice) continue;
 

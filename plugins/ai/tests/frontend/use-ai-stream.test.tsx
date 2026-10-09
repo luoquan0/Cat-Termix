@@ -113,3 +113,26 @@ describe("chat stream lifecycle", () => {
     expect(result.current.state.streaming).toBe(false);
   });
 });
+
+it("settles context compression when the response is stopped", () => {
+  const { result } = renderHook(useAiStream);
+  act(() =>
+    result.current.setState((old) => ({
+      ...old,
+      streaming: true,
+      contextUsage: {
+        inputTokens: 24000,
+        contextWindow: 32768,
+        outputReserve: 4096,
+        percent: 86,
+        estimated: true,
+        compactions: 0,
+        state: "compacting",
+      },
+    })),
+  );
+  act(() => result.current.stop());
+  expect(result.current.state.streaming).toBe(false);
+  expect(result.current.state.contextUsage?.state).toBe("ready");
+  expect(result.current.state.contextUsage?.inputTokens).toBe(24000);
+});

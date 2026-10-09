@@ -19,6 +19,10 @@
     "secrets.share": {
       "title": "Share the API key",
       "description": "Other features may use the stored AI API key without seeing it."
+    },
+    "manage_updates": {
+      "title": "Manage application updates",
+      "description": "Configure and request opt-in Docker updates; administrator settings permission is also required."
     }
   },
   "settings": {
@@ -143,10 +147,40 @@
     "jumpToLatest": "Jump to latest reply",
     "chatSettings": "Chat settings",
     "sessionSettings": "Model and execution",
-    "autoModeCompact": "Auto",
+    "autoModeCompact": "Auto execution",
     "terminalContextAutomatic": "The assistant can read recent output from your current SSH terminal or an @host when needed. No manual attachment is required.",
     "composerHint": "Use @ to reference a host, snippet or automation. Terminal output is read by the assistant when needed.",
-    "readingTerminalOutput": "Reading terminal output"
+    "readingTerminalOutput": "Reading terminal output",
+    "disableAutoHint": "Click to return to per-command approval. Audit logging and permissions remain enabled.",
+    "enableAutoHint": "Click to enable automatic execution for this conversation without per-command prompts. Commands can change your server. Audit logging and permissions remain enabled.",
+    "settingsDialogHint": "Session settings. Close this floating window to return to chat.",
+    "contextSettings": "Context compression",
+    "contextUsage": "Context usage",
+    "contextShort": "Context",
+    "contextPending": "Context —",
+    "contextCompacting": "Compacting…",
+    "contextUsageDetail": "Estimated input {{tokens}} + reserved output {{reserve}} / configured capacity {{capacity}} tokens. Compactions: {{count}}. Last upstream input count: {{actual}}. This is a heuristic estimate, not a tokenizer measurement.",
+    "contextAutomatic": "Automatically summarize older context",
+    "contextCapacity": "Configured context capacity (tokens)",
+    "contextReserve": "Reserved response tokens",
+    "contextThreshold": "Compression threshold (%)",
+    "contextRecent": "Preferred recent turns to retain",
+    "contextExplanation": "Capacity must match your upstream model; it is not automatically detected. Usage estimates include system instructions, tool schemas, history and output reserve. At the threshold, older turns are summarized; long tool output can be shortened. Complete chat records remain stored. Summary calls use your selected model and incur API usage. Critical details can still be lost.",
+    "updateSettings": "Application updates (administrator)",
+    "updateLoadError": "Update configuration is unavailable.",
+    "updateActionError": "Update action failed. Check administrator permissions, proxy settings and the updater status.",
+    "updateScope": "Tracks only ghcr.io/luoquan0/cat-termix:ai-dev. Never replaces this fork with upstream Termix.",
+    "updateInstallHint": "Updater not connected. One-time setup: start Compose with docker-compose.ai-test.yml AND docker-compose.ai-updates.yml. The Docker socket belongs only to the separate updater.",
+    "updateAutomatic": "Automatically install published Cat-Termix builds",
+    "updateRestartWarning": "Updates restart the application and disconnect SSH sessions. In-flight AI requests are deferred. Only standard Docker + local SQLite is supported: a cold data snapshot is retained before replacement. Avoid editing data during maintenance.",
+    "updateInterval": "Check interval (hours)",
+    "updateProxy": "Update HTTP/HTTPS proxy",
+    "updateProxyHint": "Optional proxy origin, e.g. http://host.docker.internal:7890. Used for both version checks and image layers, with TLS verification. Saved credentials are masked; leave the field unchanged to retain them, clear it to disable proxy.",
+    "updateCheck": "Check now",
+    "updateApply": "Update now",
+    "updateConfirm": "Confirm restart and update",
+    "updateCurrent": "Current revision",
+    "updateAvailable": "Published revision"
   },
   "nav": {
     "ai": "AI"

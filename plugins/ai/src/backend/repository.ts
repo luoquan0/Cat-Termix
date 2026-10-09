@@ -38,6 +38,7 @@ export interface AiConversationRecord {
   providerId: number | null;
   model: string | null;
   hostId: number | null;
+  contextState: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -297,6 +298,20 @@ export async function createAiRepository(
       return created;
     },
 
+    async saveContext(
+      id: number,
+      userId: string,
+      state: string,
+    ): Promise<void> {
+      await (
+        await client()
+      )
+        .update(conversations)
+        .set({ contextState: state })
+        .where(and(eq(conversations.id, id), eq(conversations.userId, userId)));
+      await db.persist();
+    },
+
     async touchConversation(id: number): Promise<void> {
       await (
         await client()
@@ -337,8 +352,8 @@ export async function createAiRepository(
       role: string;
       content: string;
       toolCalls?: string | null;
-    }): Promise<void> {
-      await insertId(messages, {
+    }): Promise<number> {
+      const id = await insertId(messages, {
         conversationId: input.conversationId,
         role: input.role,
         content: input.content,
@@ -346,6 +361,7 @@ export async function createAiRepository(
         createdAt: now(),
       });
       await db.persist();
+      return id;
     },
 
     // --- proposals ---

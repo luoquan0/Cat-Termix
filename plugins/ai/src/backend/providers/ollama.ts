@@ -55,6 +55,9 @@ export const ollamaAdapter: ProviderAdapter = {
         model: request.model,
         messages: toOllamaMessages(request),
         stream: true,
+        ...(request.maxOutputTokens
+          ? { options: { num_predict: request.maxOutputTokens } }
+          : {}),
         ...(request.tools.length
           ? {
               tools: request.tools.map((tool) => ({
@@ -107,6 +110,13 @@ export const ollamaAdapter: ProviderAdapter = {
         };
       }
 
+      if (payload.done && Number.isFinite(payload.prompt_eval_count)) {
+        yield {
+          type: "usage",
+          inputTokens: payload.prompt_eval_count,
+          outputTokens: payload.eval_count,
+        };
+      }
       if (payload.done) {
         stopReason = payload.done_reason ?? "stop";
         break;

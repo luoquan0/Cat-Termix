@@ -89,6 +89,9 @@
         },
         "hostId": {
           "type": "integer"
+        },
+        "contextState": {
+          "type": "text"
         }
       },
       "indexes": [

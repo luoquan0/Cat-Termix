@@ -25,7 +25,8 @@
     "notify:send",
     "network:serve",
     "ui:surface",
-    "users:impersonate"
+    "users:impersonate",
+    "files:own"
   ],
   "optionalDependencies": {
     "workspaces": "^1.0.0",
@@ -140,6 +141,12 @@
         "titleKey": "permissions.secrets.share.title",
         "descriptionKey": "permissions.secrets.share.description",
         "defaultRoles": ["user"]
+      },
+      {
+        "name": "manage_updates",
+        "titleKey": "permissions.manage_updates.title",
+        "descriptionKey": "permissions.manage_updates.description",
+        "defaultRoles": ["admin"]
       }
     ],
     "settings": {

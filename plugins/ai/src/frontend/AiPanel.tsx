@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useAiModels } from "./use-ai-models";
+import { ApprovalToggle } from "./ApprovalToggle";
+import { ContextControls, ContextStatus } from "./ContextControls";
+import {
+  DEFAULT_CONTEXT_POLICY,
+  readCheckpoint,
+  type ContextPolicy,
+} from "../shared/context-policy";
+import { UpdateSettings } from "./UpdateSettings";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "@termix/plugin-sdk/frontend";
 import {
   History,
@@ -10,7 +19,14 @@ import {
   Sparkles,
   Square,
 } from "lucide-react";
-import { Button, Textarea } from "@termix/plugin-sdk/ui";
+import {
+  Button,
+  Textarea,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+} from "@termix/plugin-sdk/ui";
 import {
   deleteAiConversation,
   getAiConversation,
@@ -77,7 +93,9 @@ export function AiPanel({
   const [setupError, setSetupError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
-  const settingsId = useId();
+  const [contextConfig, setContextConfig] = useState<ContextPolicy>({
+    ...DEFAULT_CONTEXT_POLICY,
+  });
   const [input, setInput] = useState("");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [conversations, setConversations] = useState<AiConversation[]>([]);
@@ -105,6 +123,7 @@ export function AiPanel({
   const { jumpToLatest } = chatScroll;
   const executing = state.streaming || executingProposalId !== null;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
 
   const [mention, setMention] = useState<{
     query: string;
@@ -114,6 +133,12 @@ export function AiPanel({
   const { search: searchMentions } = useMentions(Boolean(providerId));
 
   const mentionMatches = mention ? searchMentions(mention.query) : [];
+  const modelDiscovery = useAiModels(
+    providerId,
+    providers.find((p) => p.id === providerId)?.defaultModel ?? "",
+    model,
+    setModel,
+  );
 
   function newConversation() {
     historyOperationRef.current += 1;
@@ -229,8 +254,11 @@ export function AiPanel({
         setProviderId(saved.conversation.providerId);
         setModel(saved.conversation.model ?? "");
       }
+      const savedContext = readCheckpoint(saved.conversation.contextState);
+      if (savedContext) setContextConfig(savedContext.policy);
       setState((prev) => ({
         ...prev,
+        contextUsage: savedContext?.usage ?? null,
         conversationId: saved.conversation.id,
         streaming: false,
         assistantText: "",
@@ -336,6 +364,7 @@ export function AiPanel({
       message,
       providerId,
       model: model.trim(),
+      contextPolicy: contextConfig,
       approvalMode,
       executionMode,
       terminalSessionId: getTerminalSessionId?.(),
@@ -386,6 +415,7 @@ export function AiPanel({
       message,
       providerId,
       model: model.trim(),
+      contextPolicy: contextConfig,
       approvalMode,
       executionMode,
       terminalSessionId: getTerminalSessionId?.(),
@@ -406,6 +436,7 @@ export function AiPanel({
     executionMode,
     getTerminalSessionId,
     terminalContext,
+    contextConfig,
     hostId,
     activeTab,
     keepRun,
@@ -440,7 +471,7 @@ export function AiPanel({
         provider picker get their own rows rather than competing for one line.
       */}
       <div className="border-b border-border">
-        <div className="flex items-center gap-2 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-1.5 px-3 py-2">
           <Sparkles size={16} className="shrink-0" />
           <span className="truncate text-sm font-medium">{t("ai.title")}</span>
           <Button
@@ -479,22 +510,27 @@ export function AiPanel({
               setShowSettings((value) => !value);
               setShowHistory(false);
             }}
+            ref={settingsButtonRef}
             aria-label={t("ai.chatSettings")}
             title={t("ai.chatSettings")}
             aria-expanded={showSettings}
-            aria-controls={settingsId}
+            aria-haspopup="dialog"
           >
             <Settings2 size={14} />
           </Button>
-          {approvalMode === "auto" && (
-            <span
-              role="status"
-              className="ml-auto shrink-0 text-[10px] text-destructive"
-              title={t("ai.autoModeActive")}
-            >
-              {t("ai.autoModeCompact")}
-            </span>
-          )}
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
+            <ContextStatus
+              usage={state.contextUsage}
+              policy={contextConfig}
+              draft={input}
+              onClick={() => setShowSettings(true)}
+            />
+            <ApprovalToggle
+              mode={approvalMode}
+              onChange={setApprovalMode}
+              disabled={executing}
+            />
+          </div>
         </div>
 
         {hostId && (
@@ -581,68 +617,76 @@ export function AiPanel({
         </div>
       )}
 
-      {/* Keep controls mounted: closing settings must not reset the model,
-          cancel discovery, or stop a conversation from sending. */}
-      <div
-        id={settingsId}
-        hidden={!showSettings}
-        role="region"
-        aria-label={t("ai.chatSettings")}
-        className="max-h-[55%] shrink-0 overflow-y-auto border-b border-border"
-      >
-        <section aria-label={t("ai.sessionSettings")}>
-          <h3 className="px-3 py-2 text-xs font-medium">
-            {t("ai.sessionSettings")}
-          </h3>
-          {providers.length > 0 && (
-            <AiSessionControls
-              providers={providers.filter((item) => item.enabled)}
-              providerId={providerId}
-              onProviderChange={setProviderId}
-              model={model}
-              onModelChange={setModel}
-              approvalMode={approvalMode}
-              onApprovalModeChange={setApprovalMode}
-              disabled={executing}
-              executionMode={executionMode}
-              onExecutionModeChange={
-                getTerminalSessionId
-                  ? (mode) => {
-                      setExecutionMode(mode);
-                      jumpToLatest();
-                    }
-                  : undefined
-              }
-            />
-          )}
-        </section>
-        <details
-          className="border-t border-border p-3"
-          open={!providers.length}
+      <Dialog open={showSettings} onOpenChange={setShowSettings}>
+        <DialogContent
+          className="z-[220] w-[calc(100vw-2rem)] sm:max-w-[560px] max-h-[80dvh] overflow-y-auto gap-2 p-3"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            settingsButtonRef.current?.focus();
+          }}
+          onEscapeKeyDown={(event) => event.stopPropagation()}
         >
-          <summary className="cursor-pointer text-xs font-medium">
-            {t("ai.providerSettings")}
-          </summary>
-          <div className="pt-2">
-            <AiProviderSettings
-              providers={providers}
-              onChanged={loadProviders}
-              onAdded={() => setShowSettings(false)}
-            />
-          </div>
-        </details>
-        <p className="border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
-          {t("ai.terminalContextAutomatic")}
-        </p>
-        <a
-          href="https://docs.termix.site/features/ai/overview"
-          target="_blank"
-          rel="noreferrer"
-          className="block px-3 pb-2 text-[10px] text-accent-brand hover:underline"
-        >
-          {t("hosts.docsLink")}
-        </a>
-      </div>
+          <DialogTitle>{t("ai.chatSettings")}</DialogTitle>
+          <DialogDescription>{t("ai.settingsDialogHint")}</DialogDescription>
+          <section aria-label={t("ai.sessionSettings")}>
+            <h3 className="px-3 py-2 text-xs font-medium">
+              {t("ai.sessionSettings")}
+            </h3>
+            {providers.length > 0 && (
+              <AiSessionControls
+                providers={providers.filter((item) => item.enabled)}
+                providerId={providerId}
+                onProviderChange={setProviderId}
+                model={model}
+                onModelChange={setModel}
+                discovery={modelDiscovery}
+                disabled={executing}
+                executionMode={executionMode}
+                onExecutionModeChange={
+                  getTerminalSessionId
+                    ? (mode) => {
+                        setExecutionMode(mode);
+                        jumpToLatest();
+                      }
+                    : undefined
+                }
+              />
+            )}
+          </section>
+          <ContextControls
+            value={contextConfig}
+            onChange={setContextConfig}
+            disabled={executing}
+          />
+          <UpdateSettings />
+          <details
+            className="border-t border-border p-3"
+            open={!providers.length}
+          >
+            <summary className="cursor-pointer text-xs font-medium">
+              {t("ai.providerSettings")}
+            </summary>
+            <div className="pt-2">
+              <AiProviderSettings
+                providers={providers}
+                onChanged={loadProviders}
+                onAdded={() => setShowSettings(false)}
+              />
+            </div>
+          </details>
+          <p className="border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
+            {t("ai.terminalContextAutomatic")}
+          </p>
+          <a
+            href="https://docs.termix.site/features/ai/overview"
+            target="_blank"
+            rel="noreferrer"
+            className="block px-3 pb-2 text-[10px] text-accent-brand hover:underline"
+          >
+            {t("hosts.docsLink")}
+          </a>
+        </DialogContent>
+      </Dialog>
 
       <div
         ref={chatScroll.viewportRef}

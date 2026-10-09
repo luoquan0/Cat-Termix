@@ -114,6 +114,9 @@ export const geminiAdapter: ProviderAdapter = {
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: request.system }] },
         contents: toGeminiContents(request),
+        ...(request.maxOutputTokens
+          ? { generationConfig: { maxOutputTokens: request.maxOutputTokens } }
+          : {}),
         ...(request.tools.length
           ? {
               tools: [
@@ -143,6 +146,13 @@ export const geminiAdapter: ProviderAdapter = {
         continue;
       }
 
+      if (Number.isFinite(frame.usageMetadata?.promptTokenCount)) {
+        yield {
+          type: "usage",
+          inputTokens: frame.usageMetadata.promptTokenCount,
+          outputTokens: frame.usageMetadata.candidatesTokenCount,
+        };
+      }
       const candidate = frame.candidates?.[0];
       if (!candidate) continue;
       if (candidate.finishReason) stopReason = candidate.finishReason;

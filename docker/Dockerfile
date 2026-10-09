@@ -153,3 +153,6 @@ COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 CMD ["/entrypoint.sh"]
+
+# Used only by the opt-in updater sidecar, never executed by the application.
+COPY --chown=node:node docker/updater/updater.mjs /app/updater/updater.mjs

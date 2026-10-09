@@ -1,6 +1,7 @@
 import type { ChatMessage, ToolCall } from "./providers/types.js";
 
 export interface StoredMessage {
+  id?: number;
   role: string;
   content: string;
   toolCalls: string | null;
@@ -50,17 +51,20 @@ export function toStoredMessage(message: ChatMessage): StoredMessage {
 export function toChatHistory(rows: StoredMessage[]): ChatMessage[] {
   const history: ChatMessage[] = [];
   let open: ToolCall[] = [];
+  let openId: number | undefined;
 
   const closeOpen = () => {
     for (const call of open) {
       history.push({
         role: "tool",
         content: INTERRUPTED_RESULT,
+        storedId: openId,
         toolCallId: call.id,
         toolName: call.name,
       });
     }
     open = [];
+    openId = undefined;
   };
 
   for (const row of rows) {
@@ -71,6 +75,7 @@ export function toChatHistory(rows: StoredMessage[]): ChatMessage[] {
       const [call] = open.splice(index, 1);
       history.push({
         role: "tool",
+        storedId: row.id,
         content: row.content,
         toolCallId: call.id,
         toolName: call.name,
@@ -84,12 +89,14 @@ export function toChatHistory(rows: StoredMessage[]): ChatMessage[] {
       const calls = parseCalls(row.toolCalls);
       history.push({
         role: "assistant",
+        storedId: row.id,
         content: row.content,
         ...(calls.length ? { toolCalls: calls } : {}),
       });
       open = [...calls];
+      openId = row.id;
     } else if (row.role === "user") {
-      history.push({ role: "user", content: row.content });
+      history.push({ role: "user", storedId: row.id, content: row.content });
     }
   }
 

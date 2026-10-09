@@ -1,3 +1,4 @@
+import { ApprovalToggle } from "../../src/frontend/ApprovalToggle";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -39,16 +40,17 @@ function Harness({
   const [model, setModel] = useState("");
   const [mode, setMode] = useState<ApprovalMode>("review");
   return (
-    <AiSessionControls
-      providers={[{ ...provider, defaultModel }]}
-      providerId={1}
-      onProviderChange={() => {}}
-      model={model}
-      onModelChange={setModel}
-      approvalMode={mode}
-      onApprovalModeChange={setMode}
-      disabled={disabled}
-    />
+    <>
+      <ApprovalToggle mode={mode} onChange={setMode} disabled={disabled} />
+      <AiSessionControls
+        providers={[{ ...provider, defaultModel }]}
+        providerId={1}
+        onProviderChange={() => {}}
+        model={model}
+        onModelChange={setModel}
+        disabled={disabled}
+      />
+    </>
   );
 }
 beforeEach(() => {
@@ -57,22 +59,18 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("model discovery and execution mode", () => {
-  it("starts in review and requires explicit confirmation before auto mode", async () => {
+  it("starts in review and explicitly toggles session auto mode with one click", async () => {
     render(<Harness />);
     await waitFor(() =>
       expect(api.getAiProviderModels).toHaveBeenCalledTimes(1),
     );
     fireEvent.click(screen.getByRole("button", { name: "ai.reviewMode" }));
-    expect(screen.getByRole("alert").textContent).toContain(
-      "ai.autoModeWarning",
-    );
-    fireEvent.click(screen.getByRole("button", { name: "ai.enableAutoMode" }));
     expect(
       screen
-        .getByRole("button", { name: "ai.autoMode" })
+        .getByRole("button", { name: "ai.autoModeCompact" })
         .getAttribute("aria-pressed"),
     ).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: "ai.autoMode" }));
+    fireEvent.click(screen.getByRole("button", { name: "ai.autoModeCompact" }));
     expect(
       screen
         .getByRole("button", { name: "ai.reviewMode" })

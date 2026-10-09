@@ -175,8 +175,9 @@ describe("runAgent", () => {
 
     const events = await collect();
 
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({
+    const errors = events.filter((event) => event.type !== "context");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
       type: "error",
       message: "provider unreachable",
     });
@@ -361,5 +362,58 @@ describe("Cat-Termix execution and summary boundaries", () => {
     expect(streamChat.mock.calls.at(-1)?.[1].tools).toEqual([]);
     expect(handler).toHaveBeenCalledTimes(7);
     expect(result.at(-1)?.type).toBe("error");
+  });
+});
+
+describe("context accounting and overflow recovery", () => {
+  beforeEach(() => vi.clearAllMocks());
+  it("emits estimated occupancy and keeps actual provider usage separate", async () => {
+    streamChat.mockReturnValueOnce(
+      chunks(
+        { type: "usage", inputTokens: 321, outputTokens: 12 },
+        { type: "text", text: "done" },
+        { type: "done" },
+      ),
+    );
+    const events = await collect();
+    expect(events.findLast((e) => e.type === "context").usage).toMatchObject({
+      estimated: true,
+      actualInputTokens: 321,
+      actualOutputTokens: 12,
+      state: "ready",
+    });
+  });
+  it("retries only the rejected provider request and never reruns an executed tool", async () => {
+    handler.mockResolvedValue({ ok: true });
+    streamChat
+      .mockImplementationOnce(() => {
+        throw new Error("context_length_exceeded");
+      })
+      .mockReturnValueOnce(
+        chunks(
+          { type: "text", text: "Earlier inspection; no changes." },
+          { type: "done" },
+        ),
+      )
+      .mockReturnValueOnce(
+        chunks(
+          {
+            type: "tool_call",
+            call: { id: "c1", name: "list_hosts", arguments: {} },
+          },
+          { type: "done" },
+        ),
+      )
+      .mockReturnValueOnce(
+        chunks({ type: "text", text: "inspected" }, { type: "done" }),
+      );
+    const events = await collect([
+      { role: "user", content: "old" },
+      { role: "assistant", content: "old reply" },
+      { role: "user", content: "check" },
+    ]);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(streamChat).toHaveBeenCalledTimes(4);
+    expect(events.at(-1).type).toBe("done");
   });
 });
