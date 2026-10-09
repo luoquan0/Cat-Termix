@@ -546,9 +546,30 @@ export function registerAiRoutes(
     "/conversations",
     ctx.rbac.require("use") as never,
     gate,
-    async (_req: Request, res: Response) => {
+    async (req: Request, res: Response) => {
+      const hostIdQuery = req.query.hostId;
+      const hostId =
+        typeof hostIdQuery === "string" ? Number(hostIdQuery) : null;
+      if (
+        hostIdQuery !== undefined &&
+        (typeof hostIdQuery !== "string" ||
+          !Number.isSafeInteger(hostId) ||
+          (hostId ?? 0) <= 0)
+      ) {
+        return res.status(400).json({ error: "Invalid hostId" });
+      }
       try {
-        const conversations = await repository.listConversations(actor(ctx));
+        if (
+          hostId !== null &&
+          !(await ctx.hosts.checkAccess(hostId, "connect")).hasAccess
+        ) {
+          return res.status(404).json({ error: "Host not found" });
+        }
+        const conversations = await repository.listConversations(
+          actor(ctx),
+          50,
+          hostId,
+        );
         res.json({ conversations });
       } catch (err) {
         logError("Failed to list AI conversations", err);
@@ -778,12 +799,26 @@ export function registerAiRoutes(
         let conversation = conversationId
           ? await repository.findConversation(Number(conversationId), userId)
           : null;
+        if (conversationId && !conversation) {
+          return res.status(404).json({ error: "Conversation not found" });
+        }
+        // Never silently resume a standalone chat on an SSH host or reuse
+        // another host's conversation. The host binding lives on the server.
+        if (
+          conversation &&
+          (conversation.hostId ?? null) !== (hostId ?? null)
+        ) {
+          return res.status(409).json({
+            error: "This conversation belongs to a different terminal",
+          });
+        }
         if (!conversation) {
           conversation = await repository.createConversation({
             userId,
             title: message.trim().slice(0, 60),
             providerId: resolvedProviderId,
             model: chosenModel,
+            hostId: hostId ?? null,
           });
         }
 
@@ -1209,27 +1244,42 @@ export function registerAiRoutes(
             .status(400)
             .json({ error: "This proposal is for a different host" });
         }
+        const conversation = await repository.findConversation(
+          stored.conversationId,
+          userId,
+        );
+        if (
+          !conversation ||
+          (conversation.hostId ?? null) !== resolvedHostId ||
+          !(await ctx.hosts.checkAccess(resolvedHostId, "connect")).hasAccess
+        ) {
+          return res.status(404).json({ error: "Host not found" });
+        }
 
         const resultSummary =
           typeof summary === "string" && summary.trim()
             ? summary.trim().slice(0, 2000)
-            : "Run in the open terminal session";
-        await repository.setProposalStatus(
-          id,
-          userId,
-          "applied",
-          resultSummary,
-        );
+            : "Submitted to the visible terminal. Exit status and output are not verified.";
+        if (
+          !(await repository.setProposalStatus(
+            id,
+            userId,
+            "submitted",
+            resultSummary,
+          ))
+        ) {
+          return res.status(409).json({ error: "Proposal is already resolved" });
+        }
 
         await audit({
-          action: "ai_proposal_applied",
+          action: "ai_proposal_submitted",
           resourceType: "ai_proposal",
           resourceId: String(id),
           resourceName: stored.kind,
           success: true,
         });
 
-        res.json({ success: true, summary: resultSummary });
+        res.json({ success: true, status: "submitted", summary: resultSummary });
       } catch (err) {
         logError("Failed to mark AI proposal applied in terminal", err);
         res.status(400).json({

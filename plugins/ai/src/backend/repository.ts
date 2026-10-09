@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import type { PluginContext } from "@termix/plugin-sdk/backend";
 import {
   conversations as conversationsDef,
@@ -37,6 +37,7 @@ export interface AiConversationRecord {
   title: string | null;
   providerId: number | null;
   model: string | null;
+  hostId: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -246,11 +247,19 @@ export async function createAiRepository(
     async listConversations(
       userId: string,
       limit = 50,
+      hostId: number | null = null,
     ): Promise<AiConversationRecord[]> {
       return (await client())
         .select()
         .from(conversations)
-        .where(eq(conversations.userId, userId))
+        .where(
+          and(
+            eq(conversations.userId, userId),
+            hostId === null
+              ? isNull(conversations.hostId)
+              : eq(conversations.hostId, hostId),
+          ),
+        )
         .orderBy(desc(conversations.updatedAt))
         .limit(limit);
     },
@@ -270,6 +279,7 @@ export async function createAiRepository(
       title?: string | null;
       providerId?: number | null;
       model?: string | null;
+      hostId?: number | null;
     }): Promise<AiConversationRecord> {
       const stamp = now();
       const id = await insertId(conversations, {
@@ -277,6 +287,7 @@ export async function createAiRepository(
         title: input.title ?? null,
         providerId: input.providerId ?? null,
         model: input.model ?? null,
+        hostId: input.hostId ?? null,
         createdAt: stamp,
         updatedAt: stamp,
       });
