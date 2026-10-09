@@ -15,8 +15,8 @@ function baseFor(config: ProviderConfig): string {
     // Some proxy UIs tell users to paste the full completions endpoint.
     // Normalize it once for both chat/completions and models.
     return config.baseUrl.trim()
-      .replace(/\\/(?:chat\\/completions|responses|models)\\/?$/i, "")
-      .replace(/\\/+$/, "");
+      .replace(/\/(?:chat\/completions|responses|models)\/?$/i, "")
+      .replace(/\/+$/, "");
   }
   if (config.providerType === "openai") return OPENAI_DEFAULT_BASE;
   throw new AiProviderError("This provider needs a base URL");
