@@ -1,0 +1,192 @@
+--- a/.github/workflows/cat-termix-preview.yml
++++ b/.github/workflows/cat-termix-preview.yml
+@@ -123,7 +123,7 @@
+           labels: |
+             org.opencontainers.image.source=https://github.com/${{ github.repository }}
+             org.opencontainers.image.revision=${{ github.sha }}
+-            org.opencontainers.image.version=2.9.2-ai-preview
++            org.opencontainers.image.version=2.9.2-ai-preview.2
+             org.opencontainers.image.title=Cat-Termix AI Preview
+       - name: Start the exact image and check health, web and bundled AI
+         env:
+--- a/docs/cat-termix-ai-preview.md
++++ b/docs/cat-termix-ai-preview.md
+@@ -20,7 +20,7 @@
+ 
+ ## 与手动终端并行
+ 
+-AI 自动执行默认使用同一主机的独立非交互式 SSH exec 通道，执行过程和输出显示在聊天中。SSH 悬浮窗中的单行命令提案也可点击「在当前终端执行」，经过一次明确确认后把命令输入用户正在看的交互式 PTY。此模式不自动验证退出码或是否执行成功，会标记为「已发送（待核实）」；需要用户附加终端输出再由模型分析。免逐次审批仍走独立 exec，不会自动注入当前 PTY。用户继续使用原来的交互终端，AI 不向用户正在输入的命令行或 `vim`/`top` 会话注入按键。
++AI 自动执行默认使用同一主机的独立非交互式 SSH exec 通道，执行过程和输出显示在聊天中。Preview 2 新增「共用当前 SSH 终端」执行模式；指令和输出出现在同一个 SSH 窗口，结果和退出码自动交回模型，支持逐次审批和免逐次审批。详见本文末尾说明。独立执行模式下，用户可同时操作原来的交互终端。共用模式下，AI 执行期间保留键盘输入，按 Ctrl+C 可以接管；不会往尚未输入完的命令行或 `vim`/`top` 会话注入指令。
+ 
+ 两个通道不共享 `cd`、shell 变量或交互程序状态。涉及目录时应使用绝对路径，或在一条命令中明确执行 `cd /path && ...`。需要模型分析当前终端画面时，使用“附加终端输出”按钮，检查输入框内容后发送。它不会持续暗中同步终端输出。
+ 
+@@ -76,3 +76,18 @@
+ 先在独立聊天进行普通问答，验证上游模型下拉和刷新；发几条消息并刷新页面，确认会话可恢复和删除；输入 `@` 确认资源建议正常。再在测试主机打开 SSH 聊天，要求执行只读检查，确认审批后的回复包含结论而不只是原始数据。开启免逐次审批后重复检查，确认无需逐条点击且聊天显示真实输出；同时在用户终端执行自己的命令，确认输入互不干扰。最后测试故意失败的命令、停止 AI、新建对话恢复审批模式。
+ 
+ 自动化回归使用受控提供商响应与 SSH 通道替身来检查权限、结果反馈、失败记录、重复执行防护和取消行为；它不能替代对你自己的模型服务、真实 SSH 主机及代理网络的部署验收。
++
++## AI Preview 2: shared PTY and conversation scrolling
++
++In the SSH floating chat, the new **Command execution mode** selector offers:
++
++- **Isolated execution**: the existing independent SSH exec channel, with results in chat only.
++- **Shared SSH terminal**: commands are sent server-side to the SSH PTY already visible in the terminal. The terminal displays the readable command and its live output. Verified exit status and bounded output return to the agent automatically, in both per-command approval and automatic modes. There is no need to use Attach terminal output for AI-run commands in shared mode.
++
++Shared mode requires an attached session owned by the signed-in user, access to its host, and an idle Bash/zsh prompt with Readline-style bracketed-paste signaling. It refuses partially typed input, foreground applications/alternate-screen programs, disconnected sessions, and concurrent AI runs. If readiness cannot be confirmed, finish the foreground program and press Enter at the shell prompt, or use isolated mode. It never silently falls back to a separate SSH connection.
++
++AI scripts run as foreground subshells in that same PTY, inheriting the current shell's directory and environment. This deliberately prevents `exit`, `exec`, or `set -e` in an AI script from logging the user out; `cd`/`export` changes inside an AI script do not persist into the parent shell. Use absolute paths or a combined script for dependent commands. Multiline scripts are supported. Human command input is reserved while an AI command is active; **Ctrl+C** interrupts and takes over. Stop/timeout cancels the command without closing the SSH session. Completed changes and background processes are not rolled back.
++
++Approval cards now stay next to their originating command and collapse after resolution, instead of being appended below every later answer. New output follows the bottom even after card/viewport resizing; scrolling up keeps the reader's position and shows a **Jump to latest reply** button.
++
++The regression suite includes a real local Bash PTY check covering human `cd`, multiline AI commands, nonzero `exit`, interruption, and reuse of the same connection. This supplements, but does not replace, testing against your SSH server and model provider.
+--- a/plugins/ai/src/frontend/AiPanel.tsx
++++ b/plugins/ai/src/frontend/AiPanel.tsx
+@@ -127,6 +127,8 @@
+     setResolvedProposals({});
+     setPendingResolutions([]);
+     setApprovalMode("review");
++    setExecutionMode("isolated");
++    jumpToLatest();
+     setInput("");
+     setMention(null);
+     setShowHistory(false);
+@@ -201,7 +203,7 @@
+   }, [hostId, t]);
+ 
+   const openConversation = async (id: number) => {
+-    if (state.streaming || loadingConversationId !== null) return;
++    if (executing || loadingConversationId !== null) return;
+     const operation = ++historyOperationRef.current;
+     setLoadingConversationId(id);
+     setHistoryError(null);
+@@ -216,6 +218,8 @@
+       setResolvedProposals({});
+       setPendingResolutions([]);
+       setApprovalMode("review");
++      setExecutionMode("isolated");
++      jumpToLatest();
+       setInput("");
+       setMention(null);
+       setConfirmDeleteId(null);
+@@ -252,7 +256,7 @@
+   };
+ 
+   const removeConversation = async (id: number) => {
+-    if (state.streaming || deletingConversationId !== null) return;
++    if (executing || deletingConversationId !== null) return;
+     setDeletingConversationId(id);
+     setHistoryError(null);
+     try {
+--- a/plugins/ai/src/frontend/transcript.ts
++++ b/plugins/ai/src/frontend/transcript.ts
+@@ -76,8 +76,8 @@
+     ordered.push(item);
+     if (item.kind !== "tool") continue;
+     const result = item.tool.result as { proposalId?: number } | undefined;
+-    const proposal = [...remaining.values()].find((candidate) => {
+-      if (candidate.id === item.tool.proposalId || candidate.id === result?.proposalId) return true;
++    const linkedId = item.tool.proposalId ?? result?.proposalId;
++    const proposal = linkedId !== undefined ? remaining.get(linkedId) : [...remaining.values()].find((candidate) => {
+       if (candidate.kind !== item.tool.name) return false;
+       try {
+         const payload = JSON.parse(candidate.payload) as Record<string, unknown>;
+--- a/plugins/ai/tests/backend/auto-execution.test.ts
++++ b/plugins/ai/tests/backend/auto-execution.test.ts
+@@ -75,6 +75,51 @@
+ }
+ 
+ describe("explicit automatic execution", () => {
++  it.each([0, 9])("executes on the selected live PTY and returns the real outcome (code %s)", async (code) => {
++    const client = ssh();
++    const execute = vi.fn().mockResolvedValue({
++      output: "visible terminal output", code,
++      ...(code ? {error:"Exited with code 9"} : {}),
++    });
++    const bodies: {messages: unknown}[] = [];
++    let turn=0;
++    server=await startServer({
++      sshClient:client, services:{"terminal.commands":{execute}},
++      fetch:async (_url,init)=>{
++        bodies.push(JSON.parse((init as {body:string}).body));
++        return response(turn++ === 0 ? call : {content:"Real terminal outcome summarized"});
++      },
++    });
++    const providerId=await provider();
++    const reply=await server.request("POST","/chat/stream",{body:{
++      providerId,hostId:1,message:"check",approvalMode:"auto",
++      executionMode:"shared",terminalSessionId:"my-live-pty",
++    }});
++    expect(reply.status).toBe(200);
++    expect(execute).toHaveBeenCalledOnce();
++    expect(execute.mock.calls[0][0]).toMatchObject({
++      hostId:1,sessionId:"my-live-pty",command:"printf 'healthy'",
++    });
++    expect(client.exec).not.toHaveBeenCalled();
++    expect(JSON.stringify(bodies[1].messages)).toContain(code ? "Exited with code 9" : "visible terminal output");
++    expect(reply.body).toContain("outcome summarized");
++    expect(server.db.sqlite.prepare("SELECT status FROM p_ai_proposals").get()).toEqual({status:code?"failed":"applied"});
++  });
++
++  it("uses the shared transport after manual approval and never a fallback independent channel",async()=>{
++    const client=ssh();const execute=vi.fn().mockResolvedValue({output:"manual PTY result",code:0});
++    server=await startServer({sshClient:client,services:{"terminal.commands":{execute}},
++      fetch:vi.fn().mockResolvedValueOnce(response(call)).mockResolvedValueOnce(response({content:"Please approve"})),
++    });
++    const providerId=await provider();
++    await server.request("POST","/chat/stream",{body:{providerId,hostId:1,message:"check",executionMode:"shared",terminalSessionId:"live"}});
++    expect(execute).not.toHaveBeenCalled();
++    const {id}=server.db.sqlite.prepare("SELECT id FROM p_ai_proposals").get() as {id:number};
++    const applied=await server.request("POST",`/proposals/${id}/apply`,{body:{executionMode:"shared",terminalSessionId:"live"}});
++    expect(applied.status).toBe(200);expect(applied.body.summary).toBe("manual PTY result");
++    expect(execute).toHaveBeenCalledOnce();expect(client.exec).not.toHaveBeenCalled();
++  });
++
+   it("rejects invalid modes and requires the apply permission", async () => {
+     server = await startServer({
+       permissions: ALL_PERMISSIONS.filter((p) => p !== "ai.apply_proposals"),
+--- a/plugins/ai/tests/frontend/transcript.test.ts
++++ b/plugins/ai/tests/frontend/transcript.test.ts
+@@ -65,3 +65,17 @@
+     );
+   });
+ });
++
++it("anchors approval cards before later summaries instead of pinning old cards to the bottom", () => {
++  const proposal = {
++    id: 7, conversationId: 1, kind: "propose_run_command", summary: "Check",
++    payload: JSON.stringify({ hostId: 1, command: "df -h" }),
++    status: "applied" as const, resultSummary: "Healthy", createdAt: "",
++  };
++  const history = [userEntry("check"), ...finishedRunEntries(0, [{
++    id:"t1", name:"propose_run_command", arguments: {hostId:1,command:"df -h"}, proposalId:7,
++  }], "Waiting"),userEntry("summarize"), ...finishedRunEntries(1,[],"The disk is healthy")];
++  const timeline=buildTimeline(history,{tools:[],assistantText:""},[proposal]);
++  expect(timeline.findIndex(x=>x.kind==="proposal")).toBe(2);
++  expect(timeline.at(-1)).toMatchObject({kind:"message",content:"The disk is healthy"});
++});
+--- a/plugins/ssh-terminal/src/backend/index.ts
++++ b/plugins/ssh-terminal/src/backend/index.ts
+@@ -176,11 +176,11 @@
+       if (
+         !userId || !session || session.userId !== userId ||
+         session.hostId !== input.hostId ||
+-        !sessionManager.getOwnerParticipant(session) ||
++        !Array.from(session.participants.values()).some((p) => p.isOwner && p.userId === userId && p.ws.readyState === 1) ||
+         !(await ctx.hosts.checkAccess(input.hostId, "connect")).hasAccess
+       ) throw new Error("Shared terminal not found or not owned by this user");
+       // Recheck attachment after the asynchronous access check.
+-      if (!sessionManager.getOwnerParticipant(session))
++      if (sessionManager.getSession(input.sessionId) !== session || !Array.from(session.participants.values()).some((p) => p.isOwner && p.userId === userId && p.ws.readyState === 1))
+         throw new Error("The shared terminal was detached");
+       return sessionManager.sharedCommands.execute(
+         session, input.command, input.signal,
+--- a/plugins/ssh-terminal/src/frontend/terminal/Terminal.tsx
++++ b/plugins/ssh-terminal/src/frontend/terminal/Terminal.tsx
+@@ -1982,6 +1982,7 @@
+             updateConnectionError(errorMessage);
+             setIsConnecting(false);
+           } else if (msg.type === "connected") {
++            setAiCommandActive(false);
+             if (keepScrollbackRef.current) {
+               keepScrollbackRef.current = false;
+               reconnectAttempts.current = 0;

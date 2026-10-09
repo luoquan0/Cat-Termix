@@ -1,0 +1,116 @@
+name: Prepare AI Preview 2
+
+on:
+  push:
+    branches: [cat-termix/prepare-ai-preview2]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prepare-ai-preview2
+  cancel-in-progress: true
+
+env:
+  BASE_SHA: 6a9e07a1fe5ad7a0ebb044a6aa982946a316356c
+  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+  HUSKY: "0"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  prepare:
+    if: github.repository == 'luoquan0/Cat-Termix' && github.ref == 'refs/heads/cat-termix/prepare-ai-preview2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+      - name: Apply reviewed source edits
+        run: |
+          python3 .github/cat-ai-backend-edit.py
+          python3 .github/cat-ai-frontend-edit.py
+          git apply --check .github/cat-ai-final.patch
+          git apply .github/cat-ai-final.patch
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Format changed source
+        run: |
+          git diff --diff-filter=ACM --name-only -z "$BASE_SHA" -- '*.ts' '*.tsx' '*.json' | xargs -0 -r npx prettier --write
+      - name: Type checks
+        run: |
+          npm run type-check
+          npm run typecheck --workspace @termix-plugin/ai
+          npm run typecheck --workspace @termix-plugin/ssh-terminal
+      - name: AI and shared PTY regression tests
+        run: |
+          npm test --workspace @termix-plugin/ai
+          npm test --workspace @termix-plugin/ssh-terminal
+      - name: Lint modified source
+        run: |
+          git diff --diff-filter=ACM --name-only -z "$BASE_SHA" -- '*.ts' '*.tsx' | xargs -0 -r npx eslint
+      - name: Create reviewed commit object without publishing any branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git rm -f .github/cat-ai-backend-edit.py .github/cat-ai-frontend-edit.py .github/cat-ai-final.patch .github/workflows/cat-ai-prepare.yml
+          mkdir -p /tmp/cat-ai-prepared
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          const repo = process.env.GITHUB_REPOSITORY;
+          const base = process.env.BASE_SHA;
+          if (repo !== 'luoquan0/Cat-Termix') throw new Error('Unexpected repository');
+          const call = async (path, body) => {
+            const response = await fetch(`https://api.github.com/repos/${repo}/${path}`, {
+              method: body ? 'POST' : 'GET',
+              headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+              ...(body ? { body: JSON.stringify(body) } : {}),
+            });
+            if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`);
+            return response.json();
+          };
+          const parent = await call(`git/commits/${base}`);
+          const names = execFileSync('git', ['diff', '--name-status', '-z', base], { encoding: 'utf8' }).split('\0').filter(Boolean);
+          const entries = [];
+          for (let index = 0; index < names.length; index += 2) {
+            const status = names[index], path = names[index + 1];
+            if (!/^[AMD]$/.test(status)) throw new Error(`Unexpected status ${status}`);
+            if (!(path.startsWith('plugins/') || path === 'docs/cat-termix-ai-preview.md' || path === '.github/workflows/cat-termix-preview.yml')) throw new Error(`Unexpected change ${path}`);
+            if (status === 'D') { entries.push({ path, mode: '100644', type: 'blob', sha: null }); continue; }
+            const content = fs.readFileSync(path, 'utf8');
+            const blob = await call('git/blobs', { content, encoding: 'utf-8' });
+            entries.push({ path, mode: '100644', type: 'blob', sha: blob.sha });
+          }
+          if (!entries.length) throw new Error('No source changes');
+          const tree = await call('git/trees', { base_tree: parent.tree.sha, tree: entries });
+          const commit = await call('git/commits', {
+            message: 'feat(ai): shared live SSH execution and stable conversation scrolling',
+            tree: tree.sha, parents: [base],
+          });
+          fs.writeFileSync('/tmp/cat-ai-prepared/commit.txt', commit.sha + '\n');
+          fs.writeFileSync('/tmp/cat-ai-prepared/metadata.json', JSON.stringify({ base, sha: commit.sha, tree: tree.sha, files: entries.map(({path}) => path) }, null, 2));
+          console.log(`PREPARED_COMMIT=${commit.sha}`);
+          console.log(`CHANGED_FILES=${entries.length}`);
+          NODE
+      - name: Archive changes for inspection
+        if: always()
+        run: |
+          mkdir -p /tmp/cat-ai-prepared
+          git diff "$BASE_SHA" > /tmp/cat-ai-prepared/prepared.patch
+          git diff --diff-filter=ACM --name-only -z "$BASE_SHA" | tar --null -T - -czf /tmp/cat-ai-prepared/changed-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cat-ai-prepared-${{ github.run_id }}
+          path: /tmp/cat-ai-prepared
+          retention-days: 7
