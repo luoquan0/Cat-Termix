@@ -22,6 +22,7 @@ import {
 import { ADMIN_KEYS } from "./settings.js";
 import { commandHistory } from "./tables.js";
 import { createTerminalSocket } from "./terminal-socket.js";
+import { createTerminalContextService } from "./terminal-context.js";
 import {
   validateAdminSettings,
   validateUserSettings,
@@ -204,6 +205,11 @@ export async function activate(ctx: PluginContext) {
       );
     },
   });
+
+  ctx.services.provide(
+    "terminal.context",
+    createTerminalContextService(ctx, sessionManager),
+  );
 
   const terminalHistory: TerminalHistoryV1 = {
     list: async (hostId, limit = 200) => {

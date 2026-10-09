@@ -112,7 +112,7 @@
     "summarizeResult": "Explain the recorded action result. Do not execute it again.",
     "newConversation": "New conversation",
     "collaborativeTerminal": "Bound to {{host}}. AI runs through an independent SSH channel while you keep using your terminal. Shell state is not shared.",
-    "chatWelcome": "Chat directly, use @ to mention a host or snippet, and choose a model above. Tool results are followed by an explanation.",
+    "chatWelcome": "Start a conversation or use @ to reference a host. The assistant can read its recent terminal output. Model and execution options are in Chat settings.",
     "attachTerminalOutput": "Attach terminal output",
     "terminalWorkspace": "SSH AI chat workspace",
     "statusFailed": "Failed",
@@ -140,7 +140,13 @@
     "boundTerminal": "Current host: {{host}}",
     "sharedExecutionHint": "Commands and output appear in this SSH terminal and results return automatically. Use an idle Bash/zsh prompt. Ctrl+C takes over. AI scripts inherit cwd/environment but cannot change the parent shell state.",
     "isolatedExecutionHint": "Separate SSH exec channel; commands do not appear in the manual terminal.",
-    "jumpToLatest": "Jump to latest reply"
+    "jumpToLatest": "Jump to latest reply",
+    "chatSettings": "Chat settings",
+    "sessionSettings": "Model and execution",
+    "autoModeCompact": "Auto",
+    "terminalContextAutomatic": "The assistant can read recent output from your current SSH terminal or an @host when needed. No manual attachment is required.",
+    "composerHint": "Use @ to reference a host, snippet or automation. Terminal output is read by the assistant when needed.",
+    "readingTerminalOutput": "Reading terminal output"
   },
   "nav": {
     "ai": "AI"

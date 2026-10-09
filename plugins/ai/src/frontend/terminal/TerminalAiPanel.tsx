@@ -14,22 +14,16 @@ interface TerminalAiPanelProps {
   hostLabel: string;
   hostId: number;
   activeTab?: string | null;
-  initialContext?: string;
-  getTerminalContext?: () => string;
   getTerminalSessionId?: () => string | null;
-  onRunInTerminal?: (command: string) => boolean;
   onClose: () => void;
 }
 
-/** A resizable, non-modal workspace. AI exec never writes into the user's PTY. */
+/** A resizable chat workspace with selectable isolated/shared execution. */
 export function TerminalAiPanel({
   hostLabel,
   hostId,
   activeTab,
-  initialContext,
-  getTerminalContext,
   getTerminalSessionId,
-  onRunInTerminal,
   onClose,
 }: TerminalAiPanelProps) {
   const { t } = useTranslation();
@@ -158,10 +152,7 @@ export function TerminalAiPanel({
           hostId={hostId}
           hostLabel={hostLabel}
           activeTab={activeTab}
-          initialContext={initialContext}
-          getTerminalContext={getTerminalContext}
           getTerminalSessionId={getTerminalSessionId}
-          onRunInTerminal={onRunInTerminal}
         />
       </div>
     </div>

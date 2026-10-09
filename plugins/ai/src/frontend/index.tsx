@@ -21,10 +21,20 @@ const AI_RAIL_ID = "ai";
 const ASSISTANT_ACTION = "ai.openWithContext";
 const SIDE_PANEL_ID = "ai.assistant";
 
-function AssistantPanel({ activeTabType }: PanelProps) {
+function AssistantPanel({ activeTabType, targetTab }: PanelProps) {
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <AiPanel activeTab={activeTabType ?? null} />
+      <AiPanel
+        activeTab={activeTabType ?? null}
+        terminalContext={
+          targetTab?.type === "terminal" && targetTab.host
+            ? {
+                hostId: Number(targetTab.host.id),
+                tabInstanceId: targetTab.instanceId ?? targetTab.id,
+              }
+            : undefined
+        }
+      />
     </div>
   );
 }
@@ -38,11 +48,8 @@ function TerminalSidePanel({
   host,
   hostId,
   hostLabel,
-  panelProps,
   onClose,
-  getTerminalContext,
   getTerminalSessionId,
-  onRunInTerminal,
 }: TerminalSidePanelProps) {
   if (!hostId) return null;
   return (
@@ -50,13 +57,8 @@ function TerminalSidePanel({
       hostLabel={hostLabel}
       hostId={hostId}
       activeTab={`terminal:${host?.name || host?.ip || ""}`}
-      initialContext={
-        typeof panelProps.context === "string" ? panelProps.context : ""
-      }
       onClose={onClose}
-      getTerminalContext={getTerminalContext}
       getTerminalSessionId={getTerminalSessionId}
-      onRunInTerminal={onRunInTerminal}
     />
   );
 }
@@ -168,14 +170,11 @@ export function activate(app: TermixApp): void {
 
   app.registerPanel(AI_RAIL_ID, AssistantPanel);
 
-  // Opens the docked assistant on the terminal it was clicked from, seeded
-  // with what is on screen.
+  // Opening a chat never copies screen contents into its draft. The model
+  // can read this session's output on demand through terminal.context.
   app.registerAction(
     ASSISTANT_ACTION,
-    (terminal: TerminalSlotApi) =>
-      terminal?.openSidePanel(SIDE_PANEL_ID, {
-        context: terminal.getBufferText(),
-      }),
+    (terminal: TerminalSlotApi) => terminal?.openSidePanel(SIDE_PANEL_ID),
     { permission: "services.use" },
   );
 

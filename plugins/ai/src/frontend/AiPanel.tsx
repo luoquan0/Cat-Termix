@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "@termix/plugin-sdk/frontend";
 import {
-  Clipboard,
   History,
   Loader2,
   Plus,
@@ -52,18 +51,15 @@ interface AiPanelProps {
   activeTab?: string | null;
   hostId?: number;
   hostLabel?: string;
-  initialContext?: string;
-  getTerminalContext?: () => string;
+  terminalContext?: { hostId: number; tabInstanceId?: string };
   getTerminalSessionId?: () => string | null;
-  onRunInTerminal?: (command: string) => boolean;
 }
 
 export function AiPanel({
   activeTab,
   hostId,
   hostLabel,
-  initialContext,
-  getTerminalContext,
+  terminalContext,
   getTerminalSessionId,
 }: AiPanelProps) {
   const { t } = useTranslation();
@@ -81,6 +77,7 @@ export function AiPanel({
   const [setupError, setSetupError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const settingsId = useId();
   const [input, setInput] = useState("");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [conversations, setConversations] = useState<AiConversation[]>([]);
@@ -118,14 +115,6 @@ export function AiPanel({
 
   const mentionMatches = mention ? searchMentions(mention.query) : [];
 
-  useEffect(() => {
-    if (initialContext)
-      setInput(
-        (current) =>
-          current || t("ai.terminalContextPrefill", { output: initialContext }),
-      );
-  }, [initialContext, t]);
-
   function newConversation() {
     historyOperationRef.current += 1;
     reset();
@@ -138,6 +127,7 @@ export function AiPanel({
     setInput("");
     setMention(null);
     setShowHistory(false);
+    setShowSettings(false);
     setConfirmDeleteId(null);
     setLoadingConversationId(null);
     setHistoryError(null);
@@ -349,6 +339,7 @@ export function AiPanel({
       approvalMode,
       executionMode,
       terminalSessionId: getTerminalSessionId?.(),
+      terminalContext,
       hostId,
       conversationId: state.conversationId,
       activeTab,
@@ -398,6 +389,7 @@ export function AiPanel({
       approvalMode,
       executionMode,
       terminalSessionId: getTerminalSessionId?.(),
+      terminalContext,
       hostId,
       conversationId: state.conversationId,
       activeTab,
@@ -413,6 +405,7 @@ export function AiPanel({
     approvalMode,
     executionMode,
     getTerminalSessionId,
+    terminalContext,
     hostId,
     activeTab,
     keepRun,
@@ -468,6 +461,7 @@ export function AiPanel({
             disabled={executing}
             onClick={() => {
               setShowHistory((open) => !open);
+              setShowSettings(false);
               if (!showHistory) void refreshConversations();
             }}
             aria-label={t("ai.history")}
@@ -476,52 +470,39 @@ export function AiPanel({
           >
             <History size={14} />
           </Button>
-          <a
-            href="https://docs.termix.site/features/ai/overview"
-            target="_blank"
-            rel="noreferrer"
-            className="ml-auto shrink-0 text-[10px] text-accent-brand hover:underline"
-          >
-            {t("hosts.docsLink")}
-          </a>
           <Button
+            type="button"
             size="sm"
             variant="ghost"
             className="shrink-0"
-            onClick={() => setShowSettings((value) => !value)}
-            aria-label={t("ai.providerSettings")}
+            onClick={() => {
+              setShowSettings((value) => !value);
+              setShowHistory(false);
+            }}
+            aria-label={t("ai.chatSettings")}
+            title={t("ai.chatSettings")}
+            aria-expanded={showSettings}
+            aria-controls={settingsId}
           >
             <Settings2 size={14} />
           </Button>
+          {approvalMode === "auto" && (
+            <span
+              role="status"
+              className="ml-auto shrink-0 text-[10px] text-destructive"
+              title={t("ai.autoModeActive")}
+            >
+              {t("ai.autoModeCompact")}
+            </span>
+          )}
         </div>
 
         {hostId && (
-          <p className="px-3 pb-2 text-[11px] text-muted-foreground">
+          <p className="truncate px-3 pb-2 text-[11px] text-muted-foreground">
             {t("ai.boundTerminal", {
               host: hostLabel ?? String(hostId),
             })}
           </p>
-        )}
-        {providers.length > 0 && (
-          <AiSessionControls
-            providers={providers.filter((item) => item.enabled)}
-            providerId={providerId}
-            onProviderChange={setProviderId}
-            model={model}
-            onModelChange={setModel}
-            approvalMode={approvalMode}
-            onApprovalModeChange={setApprovalMode}
-            disabled={executing}
-            executionMode={executionMode}
-            onExecutionModeChange={
-              getTerminalSessionId
-                ? (mode) => {
-                    setExecutionMode(mode);
-                    jumpToLatest();
-                  }
-                : undefined
-            }
-          />
         )}
       </div>
 
@@ -600,17 +581,68 @@ export function AiPanel({
         </div>
       )}
 
-      {showSettings && (
-        <div className="border-b border-border p-3">
-          <AiProviderSettings
-            providers={providers}
-            onChanged={loadProviders}
-            // Adding the first provider is the reason the form opened, so it
-            // closes once that is done and the chat becomes usable.
-            onAdded={() => setShowSettings(false)}
-          />
-        </div>
-      )}
+      {/* Keep controls mounted: closing settings must not reset the model,
+          cancel discovery, or stop a conversation from sending. */}
+      <div
+        id={settingsId}
+        hidden={!showSettings}
+        role="region"
+        aria-label={t("ai.chatSettings")}
+        className="max-h-[55%] shrink-0 overflow-y-auto border-b border-border"
+      >
+        <section aria-label={t("ai.sessionSettings")}>
+          <h3 className="px-3 py-2 text-xs font-medium">
+            {t("ai.sessionSettings")}
+          </h3>
+          {providers.length > 0 && (
+            <AiSessionControls
+              providers={providers.filter((item) => item.enabled)}
+              providerId={providerId}
+              onProviderChange={setProviderId}
+              model={model}
+              onModelChange={setModel}
+              approvalMode={approvalMode}
+              onApprovalModeChange={setApprovalMode}
+              disabled={executing}
+              executionMode={executionMode}
+              onExecutionModeChange={
+                getTerminalSessionId
+                  ? (mode) => {
+                      setExecutionMode(mode);
+                      jumpToLatest();
+                    }
+                  : undefined
+              }
+            />
+          )}
+        </section>
+        <details
+          className="border-t border-border p-3"
+          open={!providers.length}
+        >
+          <summary className="cursor-pointer text-xs font-medium">
+            {t("ai.providerSettings")}
+          </summary>
+          <div className="pt-2">
+            <AiProviderSettings
+              providers={providers}
+              onChanged={loadProviders}
+              onAdded={() => setShowSettings(false)}
+            />
+          </div>
+        </details>
+        <p className="border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
+          {t("ai.terminalContextAutomatic")}
+        </p>
+        <a
+          href="https://docs.termix.site/features/ai/overview"
+          target="_blank"
+          rel="noreferrer"
+          className="block px-3 pb-2 text-[10px] text-accent-brand hover:underline"
+        >
+          {t("hosts.docsLink")}
+        </a>
+      </div>
 
       <div
         ref={chatScroll.viewportRef}
@@ -770,29 +802,9 @@ export function AiPanel({
           panel is at its narrowest.
         */}
         <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
-          {t("ai.attachHint")}
+          {t("ai.composerHint")}
         </p>
         <div className="mt-1.5 flex flex-wrap items-center justify-end gap-2">
-          {getTerminalContext && executionMode === "isolated" && (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="mr-auto"
-              disabled={executing}
-              onClick={() => {
-                const output = getTerminalContext();
-                if (output)
-                  setInput(
-                    (current) =>
-                      `${current}${current ? "\n\n" : ""}${t("ai.terminalContextPrefill", { output })}`,
-                  );
-              }}
-            >
-              <Clipboard size={14} />
-              {t("ai.attachTerminalOutput")}
-            </Button>
-          )}
           {state.streaming ? (
             <Button size="sm" variant="outline" onClick={stop}>
               <Square size={14} />

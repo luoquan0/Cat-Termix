@@ -112,7 +112,7 @@
     "summarizeResult": "请解释已记录的执行结果，不要重复执行。",
     "newConversation": "新建会话",
     "collaborativeTerminal": "当前主机：{{host}}。AI 使用独立 SSH 通道，你可继续操作终端；命令不共享 shell 状态。",
-    "chatWelcome": "可直接对话，输入 @ 选择主机或代码片段，在上方选择模型。工具执行后会继续解释结果。",
+    "chatWelcome": "可直接对话，或输入 @ 引用主机。模型可按需读取最近终端输出；模型、执行与审批选项统一在聊天设置中调整。",
     "attachTerminalOutput": "附加终端输出",
     "terminalWorkspace": "SSH AI 对话窗口",
     "statusFailed": "执行失败",
@@ -140,7 +140,13 @@
     "boundTerminal": "当前主机：{{host}}",
     "sharedExecutionHint": "指令和输出显示在左侧 SSH，结果自动交回 AI。需处于空闲 Bash/zsh 提示符；执行中按 Ctrl+C 接管。AI 脚本继承当前目录和环境，但不改变父 Shell 状态。",
     "isolatedExecutionHint": "使用独立 SSH 执行通道，不向左侧手动终端写入指令。",
-    "jumpToLatest": "查看最新回复"
+    "jumpToLatest": "查看最新回复",
+    "chatSettings": "聊天设置",
+    "sessionSettings": "模型与执行",
+    "autoModeCompact": "免审批",
+    "terminalContextAutomatic": "模型可按需读取当前 SSH 会话或 @ 主机的最近终端输出，无需手动粘贴或附加。",
+    "composerHint": "输入 @ 引用主机、代码片段或自动化流程，终端输出由模型按需读取。",
+    "readingTerminalOutput": "正在读取终端输出"
   },
   "nav": {
     "ai": "AI"

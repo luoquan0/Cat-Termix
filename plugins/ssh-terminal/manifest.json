@@ -40,6 +40,11 @@
       "service": "terminal.commands",
       "version": "1.0.0",
       "permission": "ssh-terminal.sessions"
+    },
+    {
+      "service": "terminal.context",
+      "version": "1.0.0",
+      "permission": "ssh-terminal.sessions"
     }
   ],
   "requires": [

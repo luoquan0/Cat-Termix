@@ -71,6 +71,7 @@ export function useAiStream() {
       approvalMode?: "review" | "auto";
       executionMode?: "isolated" | "shared";
       terminalSessionId?: string | null;
+      terminalContext?: { hostId: number; tabInstanceId?: string };
       resolvedProposalId?: number;
       /**
        * Called however the run ends, with its steps, which are then cleared
@@ -131,7 +132,8 @@ export function useAiStream() {
             hostId: input.hostId,
             approvalMode: input.approvalMode ?? "review",
             executionMode: input.executionMode ?? "isolated",
-            terminalSessionId: input.terminalSessionId ?? undefined,
+            terminalSessionId: input.terminalSessionId,
+            terminalContext: input.terminalContext,
             resolvedProposalId: input.resolvedProposalId,
           }),
         });

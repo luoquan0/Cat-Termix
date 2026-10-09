@@ -36,7 +36,11 @@ export function AiToolCall({
         ) : (
           <Wrench size={12} />
         )}
-        <span className="truncate">{toolLabel(tool.name)}</span>
+        <span className="truncate">
+          {tool.name === "get_terminal_output"
+            ? t("ai.readingTerminalOutput")
+            : toolLabel(tool.name)}
+        </span>
         {pending && (
           <span className="text-muted-foreground">{t("ai.running")}</span>
         )}

@@ -25,6 +25,7 @@ import { isAiProviderType } from "./providers/types.js";
 import type { AiRepository } from "./repository.js";
 import { serviceAvailable } from "./services.js";
 import { availableTools } from "./tools/catalog.js";
+import { mentionedHostIds } from "./tools/terminal-output.js";
 import { applyProposal } from "./tools/executor.js";
 import type { ToolDeps } from "./tools/types.js";
 import { redactToJson } from "./redaction.js";
@@ -758,13 +759,37 @@ export function registerAiRoutes(
         approvalMode = "review",
         executionMode = "isolated",
         terminalSessionId,
+        terminalContext,
         resolvedProposalId,
       } = req.body ?? {};
       let { message } = req.body ?? {};
 
+      if (
+        terminalContext !== undefined &&
+        (!terminalContext ||
+          typeof terminalContext !== "object" ||
+          Array.isArray(terminalContext) ||
+          !Number.isSafeInteger(terminalContext.hostId) ||
+          terminalContext.hostId <= 0 ||
+          (terminalContext.tabInstanceId !== undefined &&
+            (typeof terminalContext.tabInstanceId !== "string" ||
+              !terminalContext.tabInstanceId.trim() ||
+              terminalContext.tabInstanceId.length > 128)))
+      )
+        return res
+          .status(400)
+          .json({ error: "Invalid terminal context target" });
       if (executionMode !== "isolated" && executionMode !== "shared") {
         return res.status(400).json({ error: "Invalid execution mode" });
       }
+      if (
+        terminalSessionId !== undefined &&
+        terminalSessionId !== null &&
+        (typeof terminalSessionId !== "string" ||
+          !terminalSessionId.trim() ||
+          terminalSessionId.length > 128)
+      )
+        return res.status(400).json({ error: "Invalid terminal session id" });
       if (approvalMode !== "review" && approvalMode !== "auto") {
         return res.status(400).json({ error: "Invalid approval mode" });
       }
@@ -880,6 +905,19 @@ export function registerAiRoutes(
           req as Request & { aiAccess?: { allowReadOnlyCommands: boolean } }
         ).aiAccess ?? { allowReadOnlyCommands: false };
         const hosts = await ctx.hosts.list();
+        // Follow-up questions retain the most recent explicit @host scope.
+        // Names are resolved against this actor's inventory, never trusted
+        // as permissions supplied by a browser or model.
+        const references =
+          [
+            message,
+            ...history
+              .filter((row) => row.role === "user")
+              .map((row) => row.content)
+              .reverse(),
+          ]
+            .map((text) => mentionedHostIds(text, hosts))
+            .find((ids) => ids.length > 0) ?? [];
         const config = await providerConfig(provider);
         const tools = availableTools(
           (service) => serviceAvailable(ctx.services, service),
@@ -933,6 +971,8 @@ export function registerAiRoutes(
               approvalMode,
               hostId,
               executionMode,
+              mentionedHostIds: references,
+              terminalHostId: hostId ?? terminalContext?.hostId,
             }),
             history: chatHistory,
             context: {
@@ -941,6 +981,18 @@ export function registerAiRoutes(
               allowReadOnlyCommands: access.allowReadOnlyCommands,
               deps: requestDeps,
               hostId,
+              terminalSessionId:
+                typeof terminalSessionId === "string"
+                  ? terminalSessionId
+                  : terminalSessionId === null
+                    ? null
+                    : undefined,
+              mentionedHostIds: references,
+              terminalHostId: hostId ?? terminalContext?.hostId,
+              terminalTabInstanceId:
+                hostId === undefined
+                  ? terminalContext?.tabInstanceId
+                  : undefined,
               signal: abort.signal,
             },
             tools: resolvedProposalId !== undefined ? [] : tools,

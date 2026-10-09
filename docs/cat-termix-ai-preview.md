@@ -91,3 +91,12 @@ AI scripts run as foreground subshells in that same PTY, inheriting the current 
 Approval cards now stay next to their originating command and collapse after resolution, instead of being appended below every later answer. New output follows the bottom even after card/viewport resizing; scrolling up keeps the reader's position and shows a **Jump to latest reply** button.
 
 The regression suite includes a real local Bash PTY check covering human `cd`, multiline AI commands, nonzero `exit`, interruption, and reuse of the same connection. This supplements, but does not replace, testing against your SSH server and model provider.
+
+
+## AI Preview 3: clean composer and on-demand terminal context
+
+The settings button immediately to the right of Chat history now contains provider/model selection, model refresh, isolated/shared execution and approval mode. Provider management and future chat options belong in the same collapsible panel. Settings are collapsed by default, but remain mounted so model discovery and the selected model continue to work. Automatic mode retains a small visible status badge.
+
+Opening or resetting a chat leaves the composer empty. No terminal output is copied on launch, and there is no Attach terminal output button. The read-only `get_terminal_output` tool obtains recent server-side scrollback for the exact current SSH session or a host referenced with @. It works in both execution modes, does not execute commands, and sends results through the existing redaction and untrusted-data handling. Reads are visible in the conversation. Merely opening the chat does not transmit scrollback to a provider.
+
+A read is limited to the authenticated user's own connected sessions and rechecks host connect access. It does not read another user's sessions or create a connection. A stale explicit session never falls back to a different tab. If @ identifies a host with multiple sessions, the tool returns session choices rather than merging outputs. Missing sessions, empty buffers and truncated recent output are reported explicitly. This is bounded live scrollback, not unlimited historical recordings. Mentioning another host allows reading its output, not redirecting execution away from a bound shared terminal.

@@ -1,5 +1,6 @@
 import { proposeTools } from "./propose-tools.js";
 import { readTools } from "./read-tools.js";
+import { terminalOutputTool } from "./terminal-output.js";
 import type { AiTool, ToolDefinitionShape } from "./types.js";
 
 /**
@@ -13,7 +14,11 @@ import type { AiTool, ToolDefinitionShape } from "./types.js";
  * Anything touching credentials, vaults, RBAC, users, identity, certificates,
  * SSO or instance settings is deliberately absent and must stay absent.
  */
-export const AI_TOOLS: AiTool[] = [...readTools, ...proposeTools];
+export const AI_TOOLS: AiTool[] = [
+  ...readTools,
+  terminalOutputTool,
+  ...proposeTools,
+];
 
 const BY_NAME = new Map(AI_TOOLS.map((tool) => [tool.name, tool]));
 

@@ -17,6 +17,7 @@ const TOOL_LABELS: Record<string, string> = {
   list_notification_channels: "Reading notification channels",
   list_homepage_items: "Reading homepage items",
   get_command_history: "Reading command history",
+  get_terminal_output: "Reading terminal output",
   get_network_topology: "Reading network topology",
   propose_create_host: "Add host",
   propose_update_host: "Update host",

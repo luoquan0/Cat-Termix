@@ -13,6 +13,7 @@ export const SERVICE = {
   workspaces: "workspaces.saved",
   topology: "network-topology.graph",
   history: "terminal.history",
+  terminalContext: "terminal.context",
   homepage: "homepage.items",
 } as const;
 
@@ -125,6 +126,29 @@ export interface HomepageItems {
   >;
 }
 
+export interface TerminalContext {
+  read: (input: {
+    hostId: number;
+    sessionId?: string;
+    tabInstanceId?: string;
+    maxChars?: number;
+  }) => Promise<{
+    status: "available" | "unavailable" | "ambiguous";
+    reason?: string;
+    source?: string;
+    sessionId?: string;
+    hostId?: number;
+    output?: string;
+    truncated?: boolean;
+    sessions?: Array<{
+      sessionId: string;
+      hostId: number;
+      createdAt: number;
+      attached: boolean;
+    }>;
+  }>;
+}
+
 interface ServiceTypes {
   "snippets.access": SnippetsAccess;
   "fleets.access": FleetsAccess;
@@ -132,6 +156,7 @@ interface ServiceTypes {
   "workspaces.saved": SavedWorkspaces;
   "network-topology.graph": NetworkTopologyGraph;
   "terminal.history": TerminalHistory;
+  "terminal.context": TerminalContext;
   "homepage.items": HomepageItems;
 }
 

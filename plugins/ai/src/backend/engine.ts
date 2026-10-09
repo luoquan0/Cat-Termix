@@ -231,7 +231,11 @@ async function runTool(
   if (
     context.hostId !== undefined &&
     call.arguments?.hostId !== undefined &&
-    Number(call.arguments.hostId) !== context.hostId
+    Number(call.arguments.hostId) !== context.hostId &&
+    !(
+      call.name === "get_terminal_output" &&
+      context.mentionedHostIds?.includes(Number(call.arguments.hostId))
+    )
   ) {
     return {
       error: `This terminal conversation is bound to host ${context.hostId}. Open a standalone chat to work on another host.`,

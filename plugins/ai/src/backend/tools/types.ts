@@ -23,6 +23,13 @@ export interface ToolContext {
   deps: ToolDeps;
   /** A terminal chat stays on this host; a standalone chat can use @ mentions. */
   hostId?: number;
+  /** Current tab id is metadata, never terminal output supplied by a browser. */
+  terminalSessionId?: string | null;
+  /** A sidebar read target, not an execution binding. */
+  terminalHostId?: number;
+  terminalTabInstanceId?: string;
+  /** Host references resolved against the actor's accessible host inventory. */
+  mentionedHostIds?: readonly number[];
   signal?: AbortSignal;
 }
 

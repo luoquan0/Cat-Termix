@@ -76,6 +76,11 @@
       "service": "terminal.commands",
       "versionRange": "^1.0.0",
       "optional": true
+    },
+    {
+      "service": "terminal.context",
+      "versionRange": "^1.0.0",
+      "optional": true
     }
   ],
   "providesSecret": [
