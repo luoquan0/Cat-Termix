@@ -1,36 +1,45 @@
-# Cat-Termix AI 测试版
+# Cat-Termix AI Preview 3 测试版
 
-开发分支：`Cat-Termix`，基于仓库原有的 2.9.2。此分支不改变 `main`，测试镜像使用 `ghcr.io/luoquan0/cat-termix:ai-dev`，不覆盖 `latest`。只有校验、构建和容器启动检查通过后，发布流程才更新 `ai-dev`；每次构建也保留对应的 `sha-<完整提交 SHA>` 镜像。
+开发分支：`Cat-Termix`，基于仓库原有的 2.9.2。本分支不改变 `main`，测试镜像使用 `ghcr.io/luoquan0/cat-termix:ai-dev`，不覆盖 `latest`。只有校验、构建和容器启动检查通过后，发布流程才更新 `ai-dev`；每次发布也保留对应的 `sha-<完整提交 SHA>` 镜像。镜像版本标签为 `2.9.2-ai-preview.3`。
 
-## 功能入口
+## 聊天入口与集中设置
 
-独立 AI 页面与 SSH 内聊天使用同一个完整聊天组件：按当前 SSH 主机隔离的聊天历史（打开、切换、删除），提供商选择、自动读取上游模型列表/下拉选择/刷新和自定义模型 ID、`@` 主机及资源提及、流式回复、命令结果、自然语言总结、新对话和停止按钮。
+独立 AI 页面和 SSH 悬浮聊天共用同一套聊天组件，支持 `@` 主机及资源提及、流式回复、工具结果、自然语言总结、聊天历史、恢复和删除、新对话以及停止按钮。
 
-先在设置中启用 AI 插件及管理员 AI 总开关，然后配置自己的提供商地址、API Key 和默认模型。用户仍需拥有 AI 使用权限。SSH 中不再要求逐台开启主机 AI 开关：只要管理员总开关和用户个人开关已启用、有权连接该主机，就会出现 SSH 内的「AI 助手」入口（底部工具栏，或使用 Ctrl+Shift+A）。打开终端后点击带文字的 AI 助手入口；窗口可拖动、缩放，不会锁住终端。
+先启用 AI 插件、管理员 AI 总开关和用户个人开关，配置自己的提供商地址与 API Key。用户仍需拥有相应 AI 权限。已连接且有权访问的 SSH 主机无需再逐台开启主机 AI 开关：点击终端底部的 AI 助手入口，或按 Ctrl+Shift+A，即可打开可拖动、缩放的聊天窗口。
 
-`@` 提及用于告诉模型要查找哪个有权限访问的资源，不自动上传凭据或资源全部内容。SSH 聊天绑定当前主机；跨主机工作及修改 Termix 主机列表等操作请使用独立聊天。
+顶部入口顺序为 **助手 → 新对话 → 聊天历史 → 聊天设置**。设置按钮紧挨聊天历史右侧，默认收起；首次尚未配置提供商时会打开设置帮助完成配置。提供商、上游模型下拉、刷新模型列表、自定义模型 ID、执行模式、审批模式和提供商管理统一归入此面板。后续聊天配置应继续放在这一入口下，而不是增加常驻工具栏。关闭设置不会清空已选模型，也不会停止模型列表加载。启用免审批后，标题栏仍保留一个小状态标记。
 
-## 执行模式与总结
+## 空白输入框与按需读取终端
 
-默认是“逐次审批”。点击切换按钮并确认风险提示后，当前对话进入“免逐次审批”模式；模型调用受支持的操作工具时直接执行，然后将真实结果交回模型总结。新建对话、关闭并重新打开聊天会恢复默认审批模式。这不是绕过模型提供商自身内容政策的功能。
+打开窗口和新建对话均不再把终端内容粘贴到输入框；“附加终端输出”按钮已移除。打开聊天本身不会把终端回显发送给模型。
 
-免逐次审批仍检查登录身份、AI 开关、`apply_proposals` 权限、主机访问权限和工具参数，并保留服务端执行记录。命令以该主机配置的 SSH 账号权限运行，因此可能修改或删除数据。先在非生产主机测试，保持备份，不要给 AI 提供不需要的权限。
+模型获得只读工具 `get_terminal_output`，用于在用户询问终端输出或报错时读取当前 SSH 会话，或读取 `@` 引用主机的最近终端输出。侧栏聊天能够指定当前聚焦的 SSH 标签页；SSH 悬浮聊天使用当前会话 ID。读取在“独立执行”和“共用当前 SSH 终端”模式下均可使用，不执行命令、不另开 SSH 连接、不把终端内容伪装成用户消息。读取过程显示在聊天中；工具结果经过现有敏感内容脱敏，并作为不可信数据交给模型分析。
 
-手动审批后也会自动续接总结；审批完成时仍有流式回复，会先排队，避免丢失结果。失败的命令记录为失败，不再当成成功。总结使用服务端保存的结果，且总结请求不提供执行工具，避免为了解释结果重复运行命令。
+读取仅限登录用户自己的已连接会话，同时重新检查主机连接权限。明确指定的会话已失效时不会偷偷改读另一标签页。`@` 主机存在多个会话时返回可选会话，而不是混合输出。没有可读连接、缓冲区为空和内容截断都应如实说明。该工具读取的是有长度限制的最近回显，不是无限历史记录，也不能看到连接建立前未被本应用记录的内容。其他主机的 `@` 读取权限不会改变当前共用终端的命令执行目标。
 
-## 与手动终端并行
+示例：在终端运行一个命令后，直接询问“解释当前终端刚才的报错”；或在独立聊天中输入 `@主机名称` 并询问该主机的终端输出，无需粘贴。
 
-AI 自动执行默认使用同一主机的独立非交互式 SSH exec 通道，执行过程和输出显示在聊天中。Preview 2 新增「共用当前 SSH 终端」执行模式；指令和输出出现在同一个 SSH 窗口，结果和退出码自动交回模型，支持逐次审批和免逐次审批。详见本文末尾说明。独立执行模式下，用户可同时操作原来的交互终端。共用模式下，AI 执行期间保留键盘输入，按 Ctrl+C 可以接管；不会往尚未输入完的命令行或 `vim`/`top` 会话注入指令。
+## 两种执行模式与审批
 
-两个通道不共享 `cd`、shell 变量或交互程序状态。涉及目录时应使用绝对路径，或在一条命令中明确执行 `cd /path && ...`。需要模型分析当前终端画面时，使用“附加终端输出”按钮，检查输入框内容后发送。它不会持续暗中同步终端输出。
+在聊天设置中选择：
 
-输入通道独立不代表主机资源隔离：两边仍操作同一台主机上的文件、进程和服务，避免同时修改同一文件或执行互相冲突的维护任务。
+- **独立执行（仅聊天内显示）**：使用独立非交互式 SSH exec 通道，指令不写入手动终端，用户可继续操作原终端。不同命令不共享 `cd` 或 Shell 变量，需使用绝对路径或组合命令。
+- **共用当前 SSH 终端（显示指令与输出）**：指令由服务端发到当前可见 SSH PTY，左侧显示可读指令与实际输出，退出状态和有界输出自动交回模型总结。支持多行脚本，以及逐次审批、免逐次审批两种方式。
 
-“停止”或关闭聊天会取消当前流式 AI 请求及其自动执行通道，不关闭用户的 SSH 连接。通过审批卡片单独发起的执行请求不由聊天停止按钮取消，需要等待执行结果或在主机上核查。已经执行的修改不会回滚，已自行后台化的远程进程也不保证随通道关闭而结束。执行设有超时、输出长度上限和模型步数上限；最后一步只允许总结，未完成时应明确报告。
+共用模式要求该会话属于当前用户、仍连接且处于可确认空闲的 Bash/zsh 提示符。它会拒绝尚未输入完成的命令行、前台交互程序、断线会话和并发 AI 命令，不会静默退回独立通道。AI 执行期间暂时保留终端输入，按 Ctrl+C 可中断并接管。若无法确认提示符状态，请先退出前台程序，在提示符处按 Enter，或改用独立模式。
 
-## 独立部署测试
+为避免 AI 脚本中的 `exit`、`exec` 或 `set -e` 退出用户连接，共用模式在同一个 PTY 的前台子 Shell 中运行脚本，继承父 Shell 当前目录和环境。脚本内部的 `cd`、`export` 不会永久改变父 Shell；依赖这些状态的操作应放进同一个脚本。
 
-在任意空目录保存仓库根目录的 `docker-compose.ai-test.yml`，执行：
+默认使用逐次审批。在设置中确认风险后，当前对话可以免逐次审批；新建或重新打开对话会恢复默认审批。两种模式均继续检查身份、AI 开关、操作权限和主机访问权限，并保留执行记录。这不是绕过上游模型内容政策的开关。命令以配置的 SSH 账号权限运行，可能修改或删除数据，应先在测试主机验证并保持备份。
+
+手动审批和自动执行均将记录的实际结果交回模型解释。失败记录为失败，解释结果时不会重复运行同一动作。审批卡片保留在对应命令旁，处理后折叠；新回复和窗口尺寸变化时正确跟随底部，向上阅读历史时保留位置并显示“查看最新回复”。
+
+停止或超时不会回滚已完成的修改，也不保证终止已自行后台化的进程。独立通道和手动终端仍操作同一主机的文件与服务，不代表资源隔离，避免并行执行互相冲突的维护操作。
+
+## Docker 部署与更新
+
+在现有测试部署目录使用仓库根目录的 `docker-compose.ai-test.yml`，保留原端口、环境变量及数据卷配置：
 
 ```sh
 docker compose -f docker-compose.ai-test.yml pull
@@ -38,65 +47,22 @@ docker compose -f docker-compose.ai-test.yml up -d
 docker compose -f docker-compose.ai-test.yml ps
 ```
 
-访问 `http://127.0.0.1:9080`。配置默认只绑定本机回环地址，使用独立数据卷，不复用现有实例数据库。SSH 与 AI 测试不需要 guacd；此简化配置未包含 RDP/VNC 所需的 guacd 服务。
+默认访问 `http://127.0.0.1:9080`，默认仅绑定本机回环地址。首次测试使用独立数据卷，不复用生产数据库。需要在可信局域网访问时，保存 `CAT_TERMIX_BIND=0.0.0.0` 到原有部署环境，使用服务器地址访问 9080 端口，并限制网络访问。对外使用 HTTPS 反向代理和适当访问控制。
 
-在 NAS 或另一台服务器部署、需要从可信局域网访问时：
-
-```sh
-CAT_TERMIX_BIND=0.0.0.0 docker compose -f docker-compose.ai-test.yml up -d
-```
-
-随后访问该服务器的 9080 端口。不要直接暴露到互联网；对外使用 HTTPS 反向代理和适当访问控制。
-
-若拉取 GHCR 返回 `denied`，需要用有该包读取权限的 GitHub 账号登录 GHCR，或由仓库所有者在包设置中将包设为公开；不要把 Token 填入聊天或 Compose 文件。
+固定发布版本进行复现时：
 
 ```sh
-docker login ghcr.io -u luoquan0
+export CAT_TERMIX_IMAGE=ghcr.io/luoquan0/cat-termix:sha-<完整提交SHA>
 docker compose -f docker-compose.ai-test.yml pull
+docker compose -f docker-compose.ai-test.yml up -d
 ```
 
-提供商运行在 Docker 宿主机上时，可使用 `host.docker.internal`；私有地址必须在 AI 管理员设置的允许列表中显式允许。容器中的 `localhost` 指容器自身，不是宿主机。
+更新后强制刷新网页并重新打开 SSH 标签页，使新前端和会话读取服务生效。重新连接后才产生的回显由新会话记录。停止测试保留数据时使用 `docker compose -f docker-compose.ai-test.yml down`；不要使用 `down -v`，除非确实要删除测试数据。
 
-升级测试版：重复 `pull` 和 `up -d`。复现某个版本时，用构建摘要中的完整提交 SHA 固定镜像：
+若 GHCR 拉取返回 `denied`，使用有包读取权限的账号登录 GHCR，或由所有者把包设为公开；不要把 Token 填入聊天或 Compose 文件。提供商位于 Docker 宿主机时，可使用 `host.docker.internal`，私有地址仍需加入管理员 AI 允许列表。容器中的 `localhost` 指容器自身。
 
-```sh
-CAT_TERMIX_IMAGE=ghcr.io/luoquan0/cat-termix:sha-<完整提交SHA> docker compose -f docker-compose.ai-test.yml up -d
-```
+## 验证范围
 
-停止测试但保留数据：
+回归包含真实组件的默认空白输入框、设置隐藏与恢复、收起后发送、当前会话与 `@` 主机只读查询、侧栏精确标签页定位、多会话歧义、权限撤销、敏感文本脱敏和断线处理。已有真实本地 Bash PTY 测试继续覆盖多行命令、退出码、中断和连接复用。发布流程另外运行全部核心测试及 AMD64/ARM64 容器启动检查。
 
-```sh
-docker compose -f docker-compose.ai-test.yml down
-```
-
-不要使用 `down -v`，除非确实要删除测试实例的数据。不要把旧版本直接连接到已经被新版迁移的生产数据库。
-
-## 验收建议
-
-先在独立聊天进行普通问答，验证上游模型下拉和刷新；发几条消息并刷新页面，确认会话可恢复和删除；输入 `@` 确认资源建议正常。再在测试主机打开 SSH 聊天，要求执行只读检查，确认审批后的回复包含结论而不只是原始数据。开启免逐次审批后重复检查，确认无需逐条点击且聊天显示真实输出；同时在用户终端执行自己的命令，确认输入互不干扰。最后测试故意失败的命令、停止 AI、新建对话恢复审批模式。
-
-自动化回归使用受控提供商响应与 SSH 通道替身来检查权限、结果反馈、失败记录、重复执行防护和取消行为；它不能替代对你自己的模型服务、真实 SSH 主机及代理网络的部署验收。
-
-## AI Preview 2: shared PTY and conversation scrolling
-
-In the SSH floating chat, the new **Command execution mode** selector offers:
-
-- **Isolated execution**: the existing independent SSH exec channel, with results in chat only.
-- **Shared SSH terminal**: commands are sent server-side to the SSH PTY already visible in the terminal. The terminal displays the readable command and its live output. Verified exit status and bounded output return to the agent automatically, in both per-command approval and automatic modes. There is no need to use Attach terminal output for AI-run commands in shared mode.
-
-Shared mode requires an attached session owned by the signed-in user, access to its host, and an idle Bash/zsh prompt with Readline-style bracketed-paste signaling. It refuses partially typed input, foreground applications/alternate-screen programs, disconnected sessions, and concurrent AI runs. If readiness cannot be confirmed, finish the foreground program and press Enter at the shell prompt, or use isolated mode. It never silently falls back to a separate SSH connection.
-
-AI scripts run as foreground subshells in that same PTY, inheriting the current shell's directory and environment. This deliberately prevents `exit`, `exec`, or `set -e` in an AI script from logging the user out; `cd`/`export` changes inside an AI script do not persist into the parent shell. Use absolute paths or a combined script for dependent commands. Multiline scripts are supported. Human command input is reserved while an AI command is active; **Ctrl+C** interrupts and takes over. Stop/timeout cancels the command without closing the SSH session. Completed changes and background processes are not rolled back.
-
-Approval cards now stay next to their originating command and collapse after resolution, instead of being appended below every later answer. New output follows the bottom even after card/viewport resizing; scrolling up keeps the reader's position and shows a **Jump to latest reply** button.
-
-The regression suite includes a real local Bash PTY check covering human `cd`, multiline AI commands, nonzero `exit`, interruption, and reuse of the same connection. This supplements, but does not replace, testing against your SSH server and model provider.
-
-
-## AI Preview 3: clean composer and on-demand terminal context
-
-The settings button immediately to the right of Chat history now contains provider/model selection, model refresh, isolated/shared execution and approval mode. Provider management and future chat options belong in the same collapsible panel. Settings are collapsed by default, but remain mounted so model discovery and the selected model continue to work. Automatic mode retains a small visible status badge.
-
-Opening or resetting a chat leaves the composer empty. No terminal output is copied on launch, and there is no Attach terminal output button. The read-only `get_terminal_output` tool obtains recent server-side scrollback for the exact current SSH session or a host referenced with @. It works in both execution modes, does not execute commands, and sends results through the existing redaction and untrusted-data handling. Reads are visible in the conversation. Merely opening the chat does not transmit scrollback to a provider.
-
-A read is limited to the authenticated user's own connected sessions and rechecks host connect access. It does not read another user's sessions or create a connection. A stale explicit session never falls back to a different tab. If @ identifies a host with multiple sessions, the tool returns session choices rather than merging outputs. Missing sessions, empty buffers and truncated recent output are reported explicitly. This is bounded live scrollback, not unlimited historical recordings. Mentioning another host allows reading its output, not redirecting execution away from a bound shared terminal.
+这些自动测试不等于已连接到你的实际 SSH 主机或使用了你的上游模型。部署后仍需用自己的模型、SSH 和代理网络验证；模型是否调用工具及其解释质量也取决于上游模型能力。
