@@ -86,7 +86,7 @@
     "readOnlyCommandsDescription": "助手可能会在不每次都询问的情况下运行一些安全命令，例如 `df` 和 `uptime`。任何会更改服务器的操作都会优先被提出。",
     "modelDetectFailed": "无法联系到提供商，所以这里提供的是通用列表。您可以输入任何模型名称。",
     "modelCustom": "请输入模型名称",
-    "modelRefresh": "刷新列表",
+    "modelRefresh": "重新获取上游模型",
     "modelPlaceholder": "选择或输入模型 ID",
     "attachHint": "输入 @ 符号可引用主机、代码片段或自动化流程。系统会提出更改建议，供您批准。",
     "runCommandTitle": "运行命令",
@@ -125,7 +125,8 @@
     "historyConfirmDelete": "确认删除",
     "historyLoadFailed": "加载聊天记录失败",
     "historyDeleteFailed": "删除对话失败",
-    "historyHostMismatch": "此对话属于另一台终端"
+    "historyHostMismatch": "此对话属于另一台终端",
+    "modelCustomInput": "自定义模型 ID"
   },
   "nav": {
     "ai": "AI"

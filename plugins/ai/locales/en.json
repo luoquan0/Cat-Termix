@@ -86,7 +86,7 @@
     "readOnlyCommandsDescription": "The assistant may run a short list of safe commands like df and uptime without asking each time. Anything that changes a server is always proposed first.",
     "modelDetectFailed": "Could not reach the provider, so this is a general list. You can type any model name.",
     "modelCustom": "Enter a model name",
-    "modelRefresh": "Refresh list",
+    "modelRefresh": "Refresh models",
     "modelPlaceholder": "Select or enter a model ID",
     "attachHint": "Type @ to reference a host, snippet or automation. Changes are proposed for you to approve.",
     "runCommandTitle": "Run command",
@@ -125,7 +125,8 @@
     "historyConfirmDelete": "Delete",
     "historyLoadFailed": "Could not load chat history",
     "historyDeleteFailed": "Could not delete chat",
-    "historyHostMismatch": "This conversation belongs to another terminal"
+    "historyHostMismatch": "This conversation belongs to another terminal",
+    "modelCustomInput": "Custom model ID"
   },
   "nav": {
     "ai": "AI"

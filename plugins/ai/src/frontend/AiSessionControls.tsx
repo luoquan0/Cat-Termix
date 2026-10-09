@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "@termix/plugin-sdk/frontend";
 import {
   Button,
@@ -9,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@termix/plugin-sdk/ui";
-import { ShieldAlert, ShieldCheck } from "lucide-react";
+import { RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { getAiProviderModels, type AiProvider } from "./ai-api";
 
 export type ApprovalMode = "review" | "auto";
@@ -25,7 +25,7 @@ interface Props {
   disabled: boolean;
 }
 
-/** The same provider/model and execution controls in standalone and SSH chat. */
+/** Visible provider/model picker, with upstream discovery and a custom ID escape hatch. */
 export function AiSessionControls({
   providers,
   providerId,
@@ -37,40 +37,61 @@ export function AiSessionControls({
   disabled,
 }: Props) {
   const { t } = useTranslation();
-  const listId = useId();
   const [models, setModels] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
   const [modelError, setModelError] = useState(false);
+  const [customModel, setCustomModel] = useState(false);
+  const [refreshIndex, setRefreshIndex] = useState(0);
   const [confirmAuto, setConfirmAuto] = useState(false);
+  const modelRef = useRef(model);
+  modelRef.current = model;
+
   const provider = providers.find((item) => item.id === providerId);
   const defaultModel = provider?.defaultModel ?? "";
 
   useEffect(() => {
     let cancelled = false;
-    setModels(defaultModel ? [defaultModel] : []);
     setModelError(false);
-    onModelChange(defaultModel);
+    setModels(defaultModel ? [defaultModel] : []);
+    setLoadingModels(Boolean(providerId));
+    if (!modelRef.current.trim() && defaultModel) onModelChange(defaultModel);
     if (!providerId) return;
+
     getAiProviderModels(providerId)
-      .then((list) => {
+      .then((upstream) => {
         if (cancelled) return;
-        const choices = [...new Set([defaultModel, ...list].filter(Boolean))];
+        const choices = [...new Set([defaultModel, ...upstream].filter(Boolean))];
         setModels(choices);
-        // Do not overwrite a model the user typed while discovery was in flight.
+        if (!modelRef.current.trim() && choices.length) {
+          // A typed/custom model is never overwritten by slow discovery.
+          onModelChange(choices[0]);
+        }
+        setModelError(upstream.length === 0);
       })
       .catch(() => {
         if (!cancelled) setModelError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingModels(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [providerId, defaultModel, onModelChange]);
+  }, [providerId, defaultModel, onModelChange, refreshIndex]);
+
+  const useCustomInput = customModel ||
+    (Boolean(model) && !models.includes(model));
 
   return (
     <div className="space-y-2 px-3 pb-3">
       <div className="flex flex-wrap items-center gap-2">
         <Select
           value={providerId ? String(providerId) : undefined}
-          onValueChange={(value) => onProviderChange(Number(value))}
+          onValueChange={(value) => {
+            setCustomModel(false);
+            onModelChange("");
+            onProviderChange(Number(value));
+          }}
           disabled={disabled}
         >
           <SelectTrigger
@@ -87,21 +108,60 @@ export function AiSessionControls({
             ))}
           </SelectContent>
         </Select>
-        <Input
-          className="h-8 min-w-0 flex-1 rounded-none text-xs"
-          list={listId}
-          value={model}
-          onChange={(event) => onModelChange(event.target.value)}
-          placeholder={t("ai.modelPlaceholder")}
-          aria-label={t("ai.modelPicker")}
-          disabled={disabled || !providerId}
-          autoComplete="off"
-        />
-        <datalist id={listId}>
-          {models.map((name) => (
-            <option key={name} value={name} />
-          ))}
-        </datalist>
+        {models.length > 0 ? (
+          <Select
+            value={useCustomInput ? "__custom__" : model || undefined}
+            onValueChange={(value) => {
+              if (value === "__custom__") {
+                setCustomModel(true);
+                if (models.includes(model)) onModelChange("");
+              } else {
+                setCustomModel(false);
+                onModelChange(value);
+              }
+            }}
+            disabled={disabled || !providerId}
+          >
+            <SelectTrigger
+              className="h-8 min-w-0 flex-1 rounded-none text-xs"
+              aria-label={t("ai.modelPicker")}
+            >
+              <SelectValue placeholder={t("ai.modelPlaceholder")} />
+            </SelectTrigger>
+            <SelectContent className="z-[200]">
+              {models.map((name) => (
+                <SelectItem key={name} value={name}>{name}</SelectItem>
+              ))}
+              <SelectItem value="__custom__">{t("ai.modelCustom")}</SelectItem>
+            </SelectContent>
+          </Select>
+        ) : null}
+        {(!models.length || useCustomInput) && (
+          <Input
+            className="h-8 min-w-0 flex-1 rounded-none text-xs"
+            value={model}
+            onChange={(event) => {
+              setCustomModel(true);
+              onModelChange(event.target.value);
+            }}
+            placeholder={t("ai.modelPlaceholder")}
+            aria-label={models.length ? t("ai.modelCustomInput") : t("ai.modelPicker")}
+            disabled={disabled || !providerId}
+            autoComplete="off"
+          />
+        )}
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-8 shrink-0"
+          title={t("ai.modelRefresh")}
+          aria-label={t("ai.modelRefresh")}
+          disabled={disabled || !providerId || loadingModels}
+          onClick={() => setRefreshIndex((index) => index + 1)}
+        >
+          <RefreshCw size={14} className={loadingModels ? "animate-spin" : ""} />
+        </Button>
       </div>
       {modelError && (
         <p className="text-[11px] text-muted-foreground">

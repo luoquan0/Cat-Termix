@@ -11,7 +11,13 @@ import { AiProviderError } from "./types.js";
 const OPENAI_DEFAULT_BASE = "https://api.openai.com/v1";
 
 function baseFor(config: ProviderConfig): string {
-  if (config.baseUrl?.trim()) return config.baseUrl.trim();
+  if (config.baseUrl?.trim()) {
+    // Some proxy UIs tell users to paste the full completions endpoint.
+    // Normalize it once for both chat/completions and models.
+    return config.baseUrl.trim()
+      .replace(/\\/(?:chat\\/completions|responses|models)\\/?$/i, "")
+      .replace(/\\/+$/, "");
+  }
   if (config.providerType === "openai") return OPENAI_DEFAULT_BASE;
   throw new AiProviderError("This provider needs a base URL");
 }
