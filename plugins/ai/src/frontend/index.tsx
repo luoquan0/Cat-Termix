@@ -41,6 +41,7 @@ function TerminalSidePanel({
   panelProps,
   onClose,
   getTerminalContext,
+  onRunInTerminal,
 }: TerminalSidePanelProps) {
   if (!hostId) return null;
   return (
@@ -53,6 +54,7 @@ function TerminalSidePanel({
       }
       onClose={onClose}
       getTerminalContext={getTerminalContext}
+      onRunInTerminal={onRunInTerminal}
     />
   );
 }
@@ -103,14 +105,10 @@ export function activate(app: TermixApp): void {
       }),
     );
 
-    // The per-host switch is this plugin's host setting.
+    // Every connected host may open the workspace after admin/user opt-in.
+    // Command execution still checks host permissions on the backend.
     const offeredOnHost = (context: Record<string, unknown>) =>
-      userEnabled &&
-      (
-        context.host as
-          | { pluginSettings?: { ai?: { enableAiAssistant?: boolean } } }
-          | undefined
-      )?.pluginSettings?.ai?.enableAiAssistant === true;
+      userEnabled && Boolean(context.host);
 
     surface.push(
       app.registerSlotContribution("terminal.toolbar", {

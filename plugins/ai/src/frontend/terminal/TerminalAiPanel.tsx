@@ -16,6 +16,7 @@ interface TerminalAiPanelProps {
   activeTab?: string | null;
   initialContext?: string;
   getTerminalContext?: () => string;
+  onRunInTerminal?: (command: string) => boolean;
   onClose: () => void;
 }
 
@@ -26,6 +27,7 @@ export function TerminalAiPanel({
   activeTab,
   initialContext,
   getTerminalContext,
+  onRunInTerminal,
   onClose,
 }: TerminalAiPanelProps) {
   const { t } = useTranslation();
@@ -156,6 +158,7 @@ export function TerminalAiPanel({
           activeTab={activeTab}
           initialContext={initialContext}
           getTerminalContext={getTerminalContext}
+          onRunInTerminal={onRunInTerminal}
         />
       </div>
     </div>

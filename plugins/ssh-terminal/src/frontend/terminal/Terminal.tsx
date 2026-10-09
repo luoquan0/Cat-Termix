@@ -753,9 +753,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         const trimmedCommand = command.trim();
         if (
           !trimmedCommand ||
+          /[\r\n\0]/.test(trimmedCommand) ||
           webSocketRef.current?.readyState !== WebSocket.OPEN
         ) {
-          return;
+          return false;
         }
 
         clearAutosuggestion();
@@ -764,6 +765,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           JSON.stringify({ type: "input", data: `${trimmedCommand}\r` }),
         );
         setTimeout(() => terminal?.focus(), 50);
+        return true;
       },
       [clearAutosuggestion, terminal, trackInput],
     );
