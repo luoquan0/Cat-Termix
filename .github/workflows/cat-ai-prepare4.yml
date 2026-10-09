@@ -1,4 +1,4 @@
-name: Prepare AI Preview 4
+name: Prepare AI Preview 4 Formatting
 on:
   push:
     branches: [cat-termix/prepare-ai-preview4]
@@ -12,127 +12,57 @@ defaults:
   run:
     shell: bash
 env:
-  BASE_SHA: 4daf8c64d071f9f21832b4c2b7e88b5dab641160
+  BASE_SHA: 07d1001cd7d55f60ecfafacda983c9d73d8edff4
   ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
   HUSKY: '0'
 jobs:
-  prepare:
+  format:
     if: github.repository == 'luoquan0/Cat-Termix'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: 07d1001cd7d55f60ecfafacda983c9d73d8edff4
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 26
           cache: npm
-      - name: Apply the hash-checked reviewed source plan
+      - run: npm ci
+      - name: Stabilize formatting without changing source behavior
         run: |
-          mkdir -p /tmp/cat-ai-prepared4
-          python3 - <<'PY'
-          import hashlib,json
-          from pathlib import Path
-          parts=sorted(Path('.github/preview4').glob('*.part'))
-          assert len(parts)==14, 'Missing source plan fragments'
-          raw=b''.join(p.read_bytes() for p in parts)
-          assert hashlib.sha256(raw).hexdigest()=='1ced38506932cb3795df36552512298f6d020f5eb589984a91a55fa294391cdc', 'Source plan checksum mismatch'
-          plan=json.loads(raw)
-          for c in plan:
-              p=Path(c['path'])
-              assert not p.is_absolute() and '..' not in p.parts
-              assert str(p).startswith(('plugins/ai/','docker/','src/backend/tests/fixtures/upgrade/')) or str(p) in ['docs/cat-termix-ai-preview.md','docker-compose.ai-updates.yml','.github/workflows/cat-termix-preview.yml']
-              old=p.read_bytes() if p.exists() else b''
-              assert hashlib.sha256(old).hexdigest()==c['sha256'], 'Unexpected base: '+str(p)
-              lines=old.decode().splitlines(keepends=True)
-              for start,end,text in reversed(c['edits']): lines[start:end]=[text]
-              p.parent.mkdir(parents=True,exist_ok=True)
-              p.write_text(''.join(lines))
-          Path('/tmp/cat-ai-prepared4/paths.json').write_text(json.dumps([c['path'] for c in plan]))
-          PY
-          python3 .github/preview4/repair.py
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          name='src/backend/tests/plugins/permissions-rbac.test.ts'
-          p=Path(name);text=p.read_text()
-          before='      "ai.secrets.share",\n'
-          assert text.count(before)==1
-          p.write_text(text.replace(before,before+'      "ai.manage_updates",\n'))
-          p=Path('/tmp/cat-ai-prepared4/paths.json')
-          names=json.loads(p.read_text());names.append(name);p.write_text(json.dumps(names))
-          PY
-          git add -N .
-      - name: Install locked dependencies
-        run: npm ci
-      - name: Format reviewed code
-        run: |
-          git diff --diff-filter=ACM --name-only -z "$BASE_SHA" -- '*.ts' '*.tsx' '*.json' '*.mjs' | xargs -0 -r npx prettier --write
-      - name: Type checks
-        id: types
-        run: |
-          npm run type-check
-          npm run typecheck --workspace @termix-plugin/ai
-          npm run typecheck --workspace @termix-plugin/ssh-terminal
-      - name: Build application and bundled plugins
-        id: build
-        run: npm run build 2>&1 | tee /tmp/cat-ai-prepared4/build.log
-      - name: AI regression tests
-        if: ${{ !cancelled() && steps.types.outcome == 'success' }}
-        run: npm test --workspace @termix-plugin/ai 2>&1 | tee /tmp/cat-ai-prepared4/ai-tests.log
-      - name: SSH regression tests
-        if: ${{ !cancelled() && steps.types.outcome == 'success' }}
-        run: npm test --workspace @termix-plugin/ssh-terminal 2>&1 | tee /tmp/cat-ai-prepared4/ssh-tests.log
-      - name: Update helper tests and real Docker rollback smoke
-        if: ${{ !cancelled() && steps.types.outcome == 'success' }}
-        run: |
-          node --test docker/updater/updater.test.mjs
-          node docker/updater/smoke.mjs
-          docker compose -f docker-compose.ai-test.yml -f docker-compose.ai-updates.yml config --quiet
-      - name: Core regressions
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: npm test 2>&1 | tee /tmp/cat-ai-prepared4/core-tests.log
-      - name: Lint changed source
-        if: ${{ !cancelled() && steps.types.outcome == 'success' }}
-        run: git diff --diff-filter=ACM --name-only -z "$BASE_SHA" -- '*.ts' '*.tsx' | xargs -0 -r npx eslint
-      - name: Store validated blobs for review without updating any ref
+          mkdir -p /tmp/cat-ai-format4
+          npx prettier --write plugins/ai/src/backend/routes.ts plugins/ai/src/backend/update-settings.ts
+          npx prettier --check plugins/ai/src/backend/routes.ts plugins/ai/src/backend/update-settings.ts
+          git diff --check
+          git diff > /tmp/cat-ai-format4/format.patch
+      - name: Store the two formatted blobs for review without updating refs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           node --input-type=module <<'JS'
           import fs from 'node:fs';
-          const repo=process.env.GITHUB_REPOSITORY;
-          if(repo!=='luoquan0/Cat-Termix')throw new Error('Unexpected repository');
-          const paths=JSON.parse(fs.readFileSync('/tmp/cat-ai-prepared4/paths.json','utf8'));
+          import { execFileSync } from 'node:child_process';
+          const paths=['plugins/ai/src/backend/routes.ts','plugins/ai/src/backend/update-settings.ts'];
           const entries=[];
           for(const path of paths){
-            const response=await fetch(`https://api.github.com/repos/${repo}/git/blobs`,{
+            const before=execFileSync('git',['show',`${process.env.BASE_SHA}:${path}`],{encoding:'utf8'});
+            const content=fs.readFileSync(path,'utf8');
+            if(before.replace(/\s/g,'')!==content.replace(/\s/g,''))throw new Error('Unexpected non-whitespace change');
+            const response=await fetch('https://api.github.com/repos/luoquan0/Cat-Termix/git/blobs',{
               method:'POST',headers:{Authorization:`Bearer ${process.env.GH_TOKEN}`,Accept:'application/vnd.github+json','Content-Type':'application/json'},
-              body:JSON.stringify({content:fs.readFileSync(path,'utf8'),encoding:'utf-8'})
+              body:JSON.stringify({content,encoding:'utf-8'})
             });
-            if(!response.ok)throw new Error(`Blob upload: ${response.status}`);
-            const blob=await response.json();entries.push({path,mode:'100644',type:'blob',sha:blob.sha});
+            if(!response.ok)throw new Error(`Blob upload failed: ${response.status}`);
+            const {sha}=await response.json();entries.push({path,mode:'100644',type:'blob',sha});
+            fs.writeFileSync('/tmp/cat-ai-format4/'+path.split('/').at(-1),content);
           }
-          fs.writeFileSync('/tmp/cat-ai-prepared4/metadata.json',JSON.stringify({base:process.env.BASE_SHA,entries},null,2));
+          fs.writeFileSync('/tmp/cat-ai-format4/metadata.json',JSON.stringify({base:process.env.BASE_SHA,entries},null,2));
           JS
-      - name: Archive all reviewed source and reports
-        if: always()
-        run: |
-          mkdir -p /tmp/cat-ai-prepared4
-          git diff "$BASE_SHA" -- . ':!.github/preview4' ':!.github/workflows/cat-ai-prepare4.yml' > /tmp/cat-ai-prepared4/prepared.patch
-          python3 - <<'PY'
-          import json,tarfile
-          from pathlib import Path
-          p=Path('/tmp/cat-ai-prepared4/paths.json')
-          if p.exists():
-              with tarfile.open('/tmp/cat-ai-prepared4/changed-source.tar.gz','w:gz') as t:
-                  for name in json.loads(p.read_text()):t.add(name)
-          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: cat-ai-prepared4-${{ github.run_id }}
-          path: /tmp/cat-ai-prepared4
+          name: cat-ai-format4-${{ github.run_id }}
+          path: /tmp/cat-ai-format4
           retention-days: 7
