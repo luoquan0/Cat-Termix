@@ -210,6 +210,7 @@ describe("explicit automatic execution", () => {
         providerId,
         message: "client-claimed-output",
         conversationId: proposal.conversation_id,
+        hostId: 1,
         resolvedProposalId: proposal.id,
       },
     });
@@ -248,6 +249,54 @@ describe("explicit automatic execution", () => {
         })
       ).status,
     ).toBe(400);
+  });
+
+  it("filters history per SSH host and rejects cross-host resumptions", async () => {
+    server = await startServer({
+      fetch: vi.fn().mockResolvedValue(response({ content: "checked" })),
+    });
+    const providerId = await provider();
+    const first = await server.request("POST", "/chat/stream", {
+      body: { providerId, message: "host check", hostId: 1 },
+    });
+    expect(first.status).toBe(200);
+
+    const onHost = await server.request("GET", "/conversations?hostId=1");
+    expect(onHost.body.conversations).toHaveLength(1);
+    const id = onHost.body.conversations[0].id as number;
+    const standalone = await server.request("GET", "/conversations");
+    expect(standalone.body.conversations).toHaveLength(0);
+    const crossHost = await server.request("POST", "/chat/stream", {
+      body: { providerId, message: "continue", conversationId: id },
+    });
+    expect(crossHost.status).toBe(409);
+  });
+
+  it("records live terminal submission without pretending it succeeded", async () => {
+    const client = ssh();
+    server = await startServer({
+      sshClient: client,
+      fetch: vi.fn().mockResolvedValueOnce(response(call))
+        .mockResolvedValueOnce(response({ content: "Awaiting approval" })),
+    });
+    const providerId = await provider();
+    const stream = await server.request("POST", "/chat/stream", {
+      body: { providerId, message: "check", hostId: 1 },
+    });
+    expect(stream.status).toBe(200);
+    const id = (server.db.sqlite
+      .prepare("SELECT id FROM p_ai_proposals")
+      .get() as { id: number }).id;
+    const result = await server.request("POST", `/proposals/${id}/mark-run-in-terminal`, {
+      body: { hostId: 1, summary: "Submitted; result not verified" },
+    });
+    expect(result.status).toBe(200);
+    expect(result.body.status).toBe("submitted");
+    expect(server.db.sqlite
+      .prepare("SELECT status FROM p_ai_proposals")
+      .get()).toEqual({ status: "submitted" });
+    expect(client.exec).not.toHaveBeenCalled();
+    expect((await server.request("POST", `/proposals/${id}/apply`, {body: {}})).status).toBe(400);
   });
 
   it("prevents concurrent approval from running the command twice", async () => {
