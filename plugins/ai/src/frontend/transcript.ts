@@ -70,15 +70,57 @@ export function buildTimeline(
     });
   }
 
-  for (const proposal of proposals) {
-    timeline.push({
+  const remaining = new Map(
+    proposals.map((proposal) => [proposal.id, proposal]),
+  );
+  const ordered: TimelineItem[] = [];
+  for (const item of timeline) {
+    ordered.push(item);
+    if (item.kind !== "tool") continue;
+    const result = item.tool.result as { proposalId?: number } | undefined;
+    const linkedId = item.tool.proposalId ?? result?.proposalId;
+    const proposal =
+      linkedId !== undefined
+        ? remaining.get(linkedId)
+        : [...remaining.values()].find((candidate) => {
+            if (candidate.kind !== item.tool.name) return false;
+            try {
+              const payload = JSON.parse(candidate.payload) as Record<
+                string,
+                unknown
+              >;
+              return Object.entries(item.tool.arguments).every(
+                ([key, value]) =>
+                  JSON.stringify(payload[key]) === JSON.stringify(value),
+              );
+            } catch {
+              return false;
+            }
+          });
+    if (proposal) {
+      ordered.push({
+        kind: "proposal",
+        key: `proposal-${proposal.id}`,
+        proposal,
+      });
+      remaining.delete(proposal.id);
+    }
+  }
+  // Legacy rows may lack tool linkage. Still keep them above the latest answer.
+  const lastReply = ordered.findLastIndex(
+    (item) => item.kind === "message" && item.role === "assistant",
+  );
+  ordered.splice(
+    lastReply < 0 ? ordered.length : lastReply,
+    0,
+    ...[...remaining.values()].map((proposal): TimelineItem => ({
       kind: "proposal",
       key: `proposal-${proposal.id}`,
       proposal,
-    });
-  }
+    })),
+  );
 
-  return timeline;
+  return ordered;
 }
 
 /**

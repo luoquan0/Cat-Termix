@@ -225,7 +225,7 @@ export function createTerminalSocket(deps: TerminalSocketDeps) {
         case "input": {
           if (typeof data !== "string") break;
           const inputData = data;
-          sessionManager.bufferInput(currentSessionId, inputData);
+          if (!sessionManager.bufferInput(currentSessionId, inputData)) break;
           const inputStream = liveSession?.sshStream;
           if (inputStream) {
             try {
@@ -734,9 +734,11 @@ export function createTerminalSocket(deps: TerminalSocketDeps) {
             case "input": {
               if (typeof data !== "string") break;
               const inputData = data;
-              if (currentSessionId) {
-                sessionManager.bufferInput(currentSessionId, inputData);
-              }
+              if (
+                currentSessionId &&
+                !sessionManager.bufferInput(currentSessionId, inputData)
+              )
+                break;
               const inputStream =
                 sessionManager.getSession(currentSessionId)?.sshStream ??
                 sshStream;
@@ -2068,7 +2070,10 @@ export function createTerminalSocket(deps: TerminalSocketDeps) {
 
               stream.on("data", (data: Buffer) => {
                 try {
-                  const utf8String = decoder.write(data);
+                  const utf8String = sessionManager.sharedCommands.filterOutput(
+                    boundSessionId!,
+                    decoder.write(data),
+                  );
 
                   if (!utf8String) return;
 
@@ -2086,7 +2091,10 @@ export function createTerminalSocket(deps: TerminalSocketDeps) {
                     hostId: id,
                     dataLength: data.length,
                   });
-                  const fallback = data.toString("latin1");
+                  const fallback = sessionManager.sharedCommands.filterOutput(
+                    boundSessionId!,
+                    data.toString("latin1"),
+                  );
                   const session = sessionManager.getSession(boundSessionId);
                   if (session) {
                     sessionManager.bufferOutput(boundSessionId!, fallback);

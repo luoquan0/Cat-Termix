@@ -75,6 +75,94 @@ function ssh(code = 0) {
 }
 
 describe("explicit automatic execution", () => {
+  it.each([0, 9])(
+    "executes on the selected live PTY and returns the real outcome (code %s)",
+    async (code) => {
+      const client = ssh();
+      const execute = vi.fn().mockResolvedValue({
+        output: "visible terminal output",
+        code,
+        ...(code ? { error: "Exited with code 9" } : {}),
+      });
+      const bodies: { messages: unknown }[] = [];
+      let turn = 0;
+      server = await startServer({
+        sshClient: client,
+        services: { "terminal.commands": { execute } },
+        fetch: async (_url, init) => {
+          bodies.push(JSON.parse((init as { body: string }).body));
+          return response(
+            turn++ === 0
+              ? call
+              : { content: "Real terminal outcome summarized" },
+          );
+        },
+      });
+      const providerId = await provider();
+      const reply = await server.request("POST", "/chat/stream", {
+        body: {
+          providerId,
+          hostId: 1,
+          message: "check",
+          approvalMode: "auto",
+          executionMode: "shared",
+          terminalSessionId: "my-live-pty",
+        },
+      });
+      expect(reply.status).toBe(200);
+      expect(execute).toHaveBeenCalledOnce();
+      expect(execute.mock.calls[0][0]).toMatchObject({
+        hostId: 1,
+        sessionId: "my-live-pty",
+        command: "printf 'healthy'",
+      });
+      expect(client.exec).not.toHaveBeenCalled();
+      expect(JSON.stringify(bodies[1].messages)).toContain(
+        code ? "Exited with code 9" : "visible terminal output",
+      );
+      expect(reply.body).toContain("outcome summarized");
+      expect(
+        server.db.sqlite.prepare("SELECT status FROM p_ai_proposals").get(),
+      ).toEqual({ status: code ? "failed" : "applied" });
+    },
+  );
+
+  it("uses the shared transport after manual approval and never a fallback independent channel", async () => {
+    const client = ssh();
+    const execute = vi
+      .fn()
+      .mockResolvedValue({ output: "manual PTY result", code: 0 });
+    server = await startServer({
+      sshClient: client,
+      services: { "terminal.commands": { execute } },
+      fetch: vi
+        .fn()
+        .mockResolvedValueOnce(response(call))
+        .mockResolvedValueOnce(response({ content: "Please approve" })),
+    });
+    const providerId = await provider();
+    await server.request("POST", "/chat/stream", {
+      body: {
+        providerId,
+        hostId: 1,
+        message: "check",
+        executionMode: "shared",
+        terminalSessionId: "live",
+      },
+    });
+    expect(execute).not.toHaveBeenCalled();
+    const { id } = server.db.sqlite
+      .prepare("SELECT id FROM p_ai_proposals")
+      .get() as { id: number };
+    const applied = await server.request("POST", `/proposals/${id}/apply`, {
+      body: { executionMode: "shared", terminalSessionId: "live" },
+    });
+    expect(applied.status).toBe(200);
+    expect(applied.body.summary).toBe("manual PTY result");
+    expect(execute).toHaveBeenCalledOnce();
+    expect(client.exec).not.toHaveBeenCalled();
+  });
+
   it("rejects invalid modes and requires the apply permission", async () => {
     server = await startServer({
       permissions: ALL_PERMISSIONS.filter((p) => p !== "ai.apply_proposals"),

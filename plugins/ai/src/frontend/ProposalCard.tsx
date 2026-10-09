@@ -1,22 +1,25 @@
 import { getErrorMessage } from "./errors";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "@termix/plugin-sdk/frontend";
 import { toast } from "sonner";
-import { Check, Loader2, Terminal, TriangleAlert, X } from "lucide-react";
-import { Button } from "@termix/plugin-sdk/ui";
 import {
-  applyAiProposal,
-  claimAiProposalRunInTerminal,
-  markAiProposalRunInTerminal,
-  rejectAiProposal,
-  type AiProposal,
-} from "./ai-api";
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  TriangleAlert,
+  X,
+} from "lucide-react";
+import { Button } from "@termix/plugin-sdk/ui";
+import { applyAiProposal, rejectAiProposal, type AiProposal } from "./ai-api";
 import { fieldLabel, toolLabel } from "./labels";
 
 interface ProposalCardProps {
   proposal: AiProposal;
-  hostId?: number;
-  onRunInTerminal?: (command: string) => boolean;
+  executionMode?: "isolated" | "shared";
+  getTerminalSessionId?: () => string | null;
+  onExecuting?: (active: boolean) => void;
+  disabled?: boolean;
   onResolved: (
     id: number,
     status: "applied" | "submitted" | "rejected" | "failed",
@@ -67,16 +70,18 @@ function asText(value: unknown): string | null {
 
 export function ProposalCard({
   proposal,
-  hostId,
-  onRunInTerminal,
+  executionMode = "isolated",
+  getTerminalSessionId,
+  onExecuting,
+  disabled = false,
   onResolved,
 }: ProposalCardProps) {
   const { t } = useTranslation();
-  const [busy, setBusy] = useState<"apply" | "reject" | "terminal" | null>(
-    null,
-  );
-  const [confirmTerminal, setConfirmTerminal] = useState(false);
-  const [submittedLocally, setSubmittedLocally] = useState(false);
+  const [busy, setBusy] = useState<"apply" | "reject" | null>(null);
+  const [expanded, setExpanded] = useState(proposal.status === "pending");
+  useEffect(() => {
+    setExpanded(proposal.status === "pending");
+  }, [proposal.status]);
 
   let payload: Record<string, unknown> = {};
   try {
@@ -101,8 +106,12 @@ export function ProposalCard({
 
   async function handleApply() {
     setBusy("apply");
+    onExecuting?.(true);
     try {
-      const result = await applyAiProposal(proposal.id);
+      const result = await applyAiProposal(proposal.id, {
+        executionMode,
+        terminalSessionId: getTerminalSessionId?.(),
+      });
       // The result goes into the card, not a toast: command output can be
       // hundreds of lines, which covered the screen.
       onResolved(
@@ -114,43 +123,7 @@ export function ProposalCard({
       toast.error(getErrorMessage(error, t("ai.proposalApplyFailed")));
     } finally {
       setBusy(null);
-    }
-  }
-
-  async function handleSubmitToTerminal() {
-    if (!command || !hostId || !onRunInTerminal) return;
-    setConfirmTerminal(false);
-    setBusy("terminal");
-    try {
-      // Check permission and claim this proposal before sending to the
-      // interactive PTY. Never send the same command twice from two tabs.
-      await claimAiProposalRunInTerminal(proposal.id, hostId);
-      setSubmittedLocally(true);
-      if (!onRunInTerminal(command)) {
-        const failed = await markAiProposalRunInTerminal(
-          proposal.id,
-          hostId,
-          t("ai.terminalSendUnavailable"),
-          true,
-        );
-        onResolved(proposal.id, "failed", failed.summary);
-        toast.error(t("ai.terminalSendUnavailable"));
-        return;
-      }
-      const result = await markAiProposalRunInTerminal(
-        proposal.id,
-        hostId,
-        t("ai.terminalSubmittedUnverified"),
-      );
-      onResolved(proposal.id, "submitted", result.summary);
-    } catch (error) {
-      toast.error(
-        t("ai.terminalSubmitRecordFailed") +
-          " " +
-          getErrorMessage(error, t("ai.terminalSubmitRecordFailed")),
-      );
-    } finally {
-      setBusy(null);
+      onExecuting?.(false);
     }
   }
 
@@ -168,7 +141,13 @@ export function ProposalCard({
 
   return (
     <div className="rounded-none border border-border bg-muted p-2.5">
-      <div className="flex items-center gap-1.5">
+      <button
+        type="button"
+        className="flex w-full items-center gap-1.5 text-left"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((open) => !open)}
+      >
+        {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         {destructive && (
           <TriangleAlert size={13} className="shrink-0 text-destructive" />
         )}
@@ -190,130 +169,86 @@ export function ProposalCard({
                       : t("ai.statusRejected")}
           </span>
         )}
-      </div>
-
-      {/*
+      </button>
+      {expanded && (
+        <div>
+          {/*
         A command is the payload, not a field of it, so it gets its own block
         rather than a label column. In the sidebar a fixed label gutter left
         barely any room for the command itself.
       */}
-      {command && (
-        <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all border border-border bg-background px-2 py-1.5 font-mono text-[11px] leading-snug">
-          {command}
-        </pre>
-      )}
-
-      {explanation && (
-        <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
-          {explanation}
-        </p>
-      )}
-
-      {rows.length > 0 && (
-        <div className="mt-2 space-y-1.5 border-t border-border pt-2">
-          {rows.map(([key, value]) => (
-            // Stacked, not a two-column row: the value is what matters and it
-            // needs the full width to stay readable.
-            <div key={key} className="min-w-0">
-              <span className="text-[10px] text-muted-foreground">
-                {fieldLabel(key)}
-              </span>
-              <div className="break-all font-mono text-[11px] leading-snug">
-                {value}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {proposal.resultSummary && (
-        // Command output comes back here, so it keeps the monospace treatment.
-        <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all border border-border bg-background px-2 py-1.5 font-mono text-[11px] leading-snug text-muted-foreground">
-          {proposal.resultSummary}
-        </pre>
-      )}
-
-      {!resolved && confirmTerminal && (
-        <div
-          role="alert"
-          className="mt-2 space-y-2 border border-border bg-background p-2 text-xs"
-        >
-          <p>{t("ai.terminalSharedWarning")}</p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="destructive"
-              onClick={() => void handleSubmitToTerminal()}
-            >
-              {t("ai.terminalConfirmSend")}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => setConfirmTerminal(false)}
-            >
-              {t("common.cancel")}
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {!resolved && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          <Button
-            size="sm"
-            className={`h-7 flex-1 text-xs ${
-              destructive
-                ? ""
-                : "border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand"
-            }`}
-            variant={destructive ? "destructive" : "outline"}
-            disabled={busy !== null || submittedLocally}
-            onClick={handleApply}
-          >
-            {busy === "apply" ? (
-              <Loader2 size={13} className="animate-spin" />
-            ) : (
-              <Check size={13} />
-            )}
-            {t("ai.approve")}
-          </Button>
-          {command && hostId && onRunInTerminal && (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-7 flex-1 text-xs"
-              disabled={busy !== null || submittedLocally}
-              onClick={() => setConfirmTerminal(true)}
-              title={t("ai.terminalSharedWarning")}
-            >
-              {busy === "terminal" ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : (
-                <Terminal size={13} />
-              )}
-              {submittedLocally
-                ? t("ai.terminalSubmitted")
-                : t("ai.terminalRunHere")}
-            </Button>
+          {command && (
+            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all border border-border bg-background px-2 py-1.5 font-mono text-[11px] leading-snug">
+              {command}
+            </pre>
           )}
-          <Button
-            size="sm"
-            className="h-7 flex-1 text-xs"
-            variant="outline"
-            disabled={busy !== null || submittedLocally}
-            onClick={handleReject}
-          >
-            {busy === "reject" ? (
-              <Loader2 size={13} className="animate-spin" />
-            ) : (
-              <X size={13} />
-            )}
-            {t("ai.reject")}
-          </Button>
+
+          {explanation && (
+            <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+              {explanation}
+            </p>
+          )}
+
+          {rows.length > 0 && (
+            <div className="mt-2 space-y-1.5 border-t border-border pt-2">
+              {rows.map(([key, value]) => (
+                // Stacked, not a two-column row: the value is what matters and it
+                // needs the full width to stay readable.
+                <div key={key} className="min-w-0">
+                  <span className="text-[10px] text-muted-foreground">
+                    {fieldLabel(key)}
+                  </span>
+                  <div className="break-all font-mono text-[11px] leading-snug">
+                    {value}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {proposal.resultSummary && (
+            // Command output comes back here, so it keeps the monospace treatment.
+            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all border border-border bg-background px-2 py-1.5 font-mono text-[11px] leading-snug text-muted-foreground">
+              {proposal.resultSummary}
+            </pre>
+          )}
+
+          {!resolved && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <Button
+                size="sm"
+                className={`h-7 flex-1 text-xs ${
+                  destructive
+                    ? ""
+                    : "border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand"
+                }`}
+                variant={destructive ? "destructive" : "outline"}
+                disabled={busy !== null || disabled}
+                onClick={handleApply}
+              >
+                {busy === "apply" ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <Check size={13} />
+                )}
+                {t("ai.approve")}
+              </Button>
+              <Button
+                size="sm"
+                className="h-7 flex-1 text-xs"
+                variant="outline"
+                disabled={busy !== null || disabled}
+                onClick={handleReject}
+              >
+                {busy === "reject" ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <X size={13} />
+                )}
+                {t("ai.reject")}
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>

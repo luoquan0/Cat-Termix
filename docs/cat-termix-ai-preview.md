@@ -20,7 +20,7 @@
 
 ## 与手动终端并行
 
-AI 自动执行默认使用同一主机的独立非交互式 SSH exec 通道，执行过程和输出显示在聊天中。SSH 悬浮窗中的单行命令提案也可点击「在当前终端执行」，经过一次明确确认后把命令输入用户正在看的交互式 PTY。此模式不自动验证退出码或是否执行成功，会标记为「已发送（待核实）」；需要用户附加终端输出再由模型分析。免逐次审批仍走独立 exec，不会自动注入当前 PTY。用户继续使用原来的交互终端，AI 不向用户正在输入的命令行或 `vim`/`top` 会话注入按键。
+AI 自动执行默认使用同一主机的独立非交互式 SSH exec 通道，执行过程和输出显示在聊天中。Preview 2 新增「共用当前 SSH 终端」执行模式；指令和输出出现在同一个 SSH 窗口，结果和退出码自动交回模型，支持逐次审批和免逐次审批。详见本文末尾说明。独立执行模式下，用户可同时操作原来的交互终端。共用模式下，AI 执行期间保留键盘输入，按 Ctrl+C 可以接管；不会往尚未输入完的命令行或 `vim`/`top` 会话注入指令。
 
 两个通道不共享 `cd`、shell 变量或交互程序状态。涉及目录时应使用绝对路径，或在一条命令中明确执行 `cd /path && ...`。需要模型分析当前终端画面时，使用“附加终端输出”按钮，检查输入框内容后发送。它不会持续暗中同步终端输出。
 
@@ -76,3 +76,18 @@ docker compose -f docker-compose.ai-test.yml down
 先在独立聊天进行普通问答，验证上游模型下拉和刷新；发几条消息并刷新页面，确认会话可恢复和删除；输入 `@` 确认资源建议正常。再在测试主机打开 SSH 聊天，要求执行只读检查，确认审批后的回复包含结论而不只是原始数据。开启免逐次审批后重复检查，确认无需逐条点击且聊天显示真实输出；同时在用户终端执行自己的命令，确认输入互不干扰。最后测试故意失败的命令、停止 AI、新建对话恢复审批模式。
 
 自动化回归使用受控提供商响应与 SSH 通道替身来检查权限、结果反馈、失败记录、重复执行防护和取消行为；它不能替代对你自己的模型服务、真实 SSH 主机及代理网络的部署验收。
+
+## AI Preview 2: shared PTY and conversation scrolling
+
+In the SSH floating chat, the new **Command execution mode** selector offers:
+
+- **Isolated execution**: the existing independent SSH exec channel, with results in chat only.
+- **Shared SSH terminal**: commands are sent server-side to the SSH PTY already visible in the terminal. The terminal displays the readable command and its live output. Verified exit status and bounded output return to the agent automatically, in both per-command approval and automatic modes. There is no need to use Attach terminal output for AI-run commands in shared mode.
+
+Shared mode requires an attached session owned by the signed-in user, access to its host, and an idle Bash/zsh prompt with Readline-style bracketed-paste signaling. It refuses partially typed input, foreground applications/alternate-screen programs, disconnected sessions, and concurrent AI runs. If readiness cannot be confirmed, finish the foreground program and press Enter at the shell prompt, or use isolated mode. It never silently falls back to a separate SSH connection.
+
+AI scripts run as foreground subshells in that same PTY, inheriting the current shell's directory and environment. This deliberately prevents `exit`, `exec`, or `set -e` in an AI script from logging the user out; `cd`/`export` changes inside an AI script do not persist into the parent shell. Use absolute paths or a combined script for dependent commands. Multiline scripts are supported. Human command input is reserved while an AI command is active; **Ctrl+C** interrupts and takes over. Stop/timeout cancels the command without closing the SSH session. Completed changes and background processes are not rolled back.
+
+Approval cards now stay next to their originating command and collapse after resolution, instead of being appended below every later answer. New output follows the bottom even after card/viewport resizing; scrolling up keeps the reader's position and shows a **Jump to latest reply** button.
+
+The regression suite includes a real local Bash PTY check covering human `cd`, multiline AI commands, nonzero `exit`, interruption, and reuse of the same connection. This supplements, but does not replace, testing against your SSH server and model provider.

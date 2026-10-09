@@ -41,6 +41,7 @@ function TerminalSidePanel({
   panelProps,
   onClose,
   getTerminalContext,
+  getTerminalSessionId,
   onRunInTerminal,
 }: TerminalSidePanelProps) {
   if (!hostId) return null;
@@ -54,6 +55,7 @@ function TerminalSidePanel({
       }
       onClose={onClose}
       getTerminalContext={getTerminalContext}
+      getTerminalSessionId={getTerminalSessionId}
       onRunInTerminal={onRunInTerminal}
     />
   );

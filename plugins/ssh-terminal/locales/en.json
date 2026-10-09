@@ -110,7 +110,8 @@
     "showToolbar": "Expand toolbar",
     "upload": "Upload image",
     "uploadImage": "Upload an image to the host",
-    "uploadingImage": "Uploading..."
+    "uploadingImage": "Uploading...",
+    "aiCommandActive": "AI is using this terminal. Ctrl+C interrupts and returns control."
   },
   "history": {
     "noTerminalSelected": "No terminal selected",

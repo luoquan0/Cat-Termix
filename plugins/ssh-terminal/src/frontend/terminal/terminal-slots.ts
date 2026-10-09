@@ -58,6 +58,7 @@ export interface TerminalSidePanelProps {
   onClose: () => void;
   /** Visible output, captured only when the user explicitly attaches it. */
   getTerminalContext?: () => string;
+  getTerminalSessionId?: () => string | null;
   onRunInTerminal: (command: string) => boolean;
 }
 

@@ -16,6 +16,7 @@ interface TerminalAiPanelProps {
   activeTab?: string | null;
   initialContext?: string;
   getTerminalContext?: () => string;
+  getTerminalSessionId?: () => string | null;
   onRunInTerminal?: (command: string) => boolean;
   onClose: () => void;
 }
@@ -27,6 +28,7 @@ export function TerminalAiPanel({
   activeTab,
   initialContext,
   getTerminalContext,
+  getTerminalSessionId,
   onRunInTerminal,
   onClose,
 }: TerminalAiPanelProps) {
@@ -158,6 +160,7 @@ export function TerminalAiPanel({
           activeTab={activeTab}
           initialContext={initialContext}
           getTerminalContext={getTerminalContext}
+          getTerminalSessionId={getTerminalSessionId}
           onRunInTerminal={onRunInTerminal}
         />
       </div>

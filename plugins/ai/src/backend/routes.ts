@@ -60,6 +60,43 @@ export function registerAiRoutes(
     audit: ctx.audit,
   };
 
+  function executionDeps(
+    mode: unknown,
+    sessionId: unknown,
+    hostId: number | undefined,
+  ): ToolDeps {
+    if (mode === undefined || mode === "isolated") return toolDeps;
+    if (
+      mode !== "shared" ||
+      !Number.isSafeInteger(hostId) ||
+      !hostId ||
+      typeof sessionId !== "string" ||
+      !sessionId ||
+      sessionId.length > 200
+    )
+      throw new Error(
+        "Shared execution requires this host's active terminal session",
+      );
+    const terminal = ctx.services.get<{
+      execute(input: {
+        sessionId: string;
+        hostId: number;
+        command: string;
+        signal?: AbortSignal;
+      }): Promise<{ output: string; error?: string; code: number | null }>;
+    }>("terminal.commands");
+    if (!("execute" in terminal))
+      throw new Error("Shared terminal execution is unavailable");
+    return {
+      ...toolDeps,
+      runCommand: async (target, command, signal) => {
+        if (target !== hostId)
+          throw new Error("Shared command targets another host");
+        return terminal.execute({ sessionId, hostId, command, signal });
+      },
+    };
+  }
+
   const logError = (message: string, error: unknown) =>
     ctx.log.error(
       message,
@@ -719,10 +756,15 @@ export function registerAiRoutes(
         activeTab,
         hostId,
         approvalMode = "review",
+        executionMode = "isolated",
+        terminalSessionId,
         resolvedProposalId,
       } = req.body ?? {};
       let { message } = req.body ?? {};
 
+      if (executionMode !== "isolated" && executionMode !== "shared") {
+        return res.status(400).json({ error: "Invalid execution mode" });
+      }
       if (approvalMode !== "review" && approvalMode !== "auto") {
         return res.status(400).json({ error: "Invalid approval mode" });
       }
@@ -743,6 +785,11 @@ export function registerAiRoutes(
       }
 
       try {
+        const requestDeps = executionDeps(
+          executionMode,
+          terminalSessionId,
+          hostId,
+        );
         if (
           approvalMode === "auto" &&
           !(await ctx.rbac.has("apply_proposals"))
@@ -885,13 +932,14 @@ export function registerAiRoutes(
               allowReadOnlyCommands: access.allowReadOnlyCommands,
               approvalMode,
               hostId,
+              executionMode,
             }),
             history: chatHistory,
             context: {
               userId,
               conversationId: conversation.id,
               allowReadOnlyCommands: access.allowReadOnlyCommands,
-              deps: toolDeps,
+              deps: requestDeps,
               hostId,
               signal: abort.signal,
             },
@@ -949,7 +997,7 @@ export function registerAiRoutes(
                       const result = await applyProposal(
                         draft.kind,
                         draft.payload,
-                        toolDeps,
+                        requestDeps,
                         abort.signal,
                       );
                       const summary = JSON.parse(
@@ -1112,6 +1160,15 @@ export function registerAiRoutes(
             .json({ error: "The proposal payload is invalid" });
         }
 
+        const conversation = await repository.findConversation(
+          stored.conversationId,
+          userId,
+        );
+        const requestDeps = executionDeps(
+          req.body?.executionMode,
+          req.body?.terminalSessionId,
+          conversation?.hostId ?? undefined,
+        );
         if (!(await repository.setProposalStatus(id, userId, "running"))) {
           return res
             .status(409)
@@ -1121,7 +1178,21 @@ export function registerAiRoutes(
         // retry a possibly partial change. The model must explain it.
         let result: { ok: boolean; summary: string };
         try {
-          result = await applyProposal(stored.kind, payload, toolDeps);
+          const abort = new AbortController();
+          const onClose = () => {
+            if (!res.writableFinished) abort.abort();
+          };
+          res.on("close", onClose);
+          try {
+            result = await applyProposal(
+              stored.kind,
+              payload,
+              requestDeps,
+              abort.signal,
+            );
+          } finally {
+            res.removeListener("close", onClose);
+          }
         } catch (error) {
           result = {
             ok: false,

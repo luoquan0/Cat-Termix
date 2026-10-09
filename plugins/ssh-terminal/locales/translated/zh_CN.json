@@ -110,7 +110,8 @@
     "showToolbar": "展开工具栏",
     "upload": "上传图片",
     "uploadImage": "将图片上传到主机",
-    "uploadingImage": "上传中..."
+    "uploadingImage": "上传中...",
+    "aiCommandActive": "AI 正在使用此终端，按 Ctrl+C 中断并接管。"
   },
   "history": {
     "noTerminalSelected": "未选择终端",

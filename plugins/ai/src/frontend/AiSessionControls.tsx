@@ -13,6 +13,7 @@ import { RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { getAiProviderModels, type AiProvider } from "./ai-api";
 
 export type ApprovalMode = "review" | "auto";
+export type ExecutionMode = "isolated" | "shared";
 
 interface Props {
   providers: AiProvider[];
@@ -23,6 +24,8 @@ interface Props {
   approvalMode: ApprovalMode;
   onApprovalModeChange: (mode: ApprovalMode) => void;
   disabled: boolean;
+  executionMode?: ExecutionMode;
+  onExecutionModeChange?: (mode: ExecutionMode) => void;
 }
 
 /** Visible provider/model picker, with upstream discovery and a custom ID escape hatch. */
@@ -35,6 +38,8 @@ export function AiSessionControls({
   approvalMode,
   onApprovalModeChange,
   disabled,
+  executionMode = "isolated",
+  onExecutionModeChange,
 }: Props) {
   const { t } = useTranslation();
   const [models, setModels] = useState<string[]>([]);
@@ -172,6 +177,37 @@ export function AiSessionControls({
           />
         </Button>
       </div>
+      {onExecutionModeChange && (
+        <div className="space-y-1">
+          <Select
+            value={executionMode}
+            disabled={disabled}
+            onValueChange={(value) =>
+              onExecutionModeChange(value as ExecutionMode)
+            }
+          >
+            <SelectTrigger
+              className="h-8 w-full text-xs"
+              aria-label={t("ai.executionMode")}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="z-[200]">
+              <SelectItem value="isolated">
+                {t("ai.executionIsolated")}
+              </SelectItem>
+              <SelectItem value="shared">{t("ai.executionShared")}</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] text-muted-foreground">
+            {t(
+              executionMode === "shared"
+                ? "ai.sharedExecutionHint"
+                : "ai.isolatedExecutionHint",
+            )}
+          </p>
+        </div>
+      )}
       {modelError && (
         <p className="text-[11px] text-muted-foreground">
           {t("ai.modelDiscoveryFallback")}

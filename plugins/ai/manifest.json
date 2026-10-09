@@ -71,6 +71,11 @@
       "service": "homepage.items",
       "versionRange": "^1.0.0",
       "optional": true
+    },
+    {
+      "service": "terminal.commands",
+      "versionRange": "^1.0.0",
+      "optional": true
     }
   ],
   "providesSecret": [

@@ -51,7 +51,7 @@ function fakeSessions(permissionLevel: "read-only" | "read-write") {
     removeParticipant: (_id: string, ws: unknown) => {
       participants.delete(ws);
     },
-    bufferInput: () => {},
+    bufferInput: () => true,
   };
   return { manager, written };
 }

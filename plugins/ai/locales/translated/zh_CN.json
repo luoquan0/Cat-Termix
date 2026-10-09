@@ -133,7 +133,14 @@
     "terminalSubmitted": "已发送（待核实）",
     "terminalSubmittedUnverified": "已发送到当前 SSH 终端，尚未验证是否执行完成或成功。分析结果前请用户附加终端输出。",
     "terminalSendUnavailable": "终端已断开或命令包含多行内容，未发送",
-    "terminalSubmitRecordFailed": "命令可能已发送，但状态记录失败。请检查终端，不要盲目再次运行。"
+    "terminalSubmitRecordFailed": "命令可能已发送，但状态记录失败。请检查终端，不要盲目再次运行。",
+    "executionMode": "命令执行模式",
+    "executionIsolated": "独立执行（仅聊天内显示）",
+    "executionShared": "共用当前 SSH 终端（显示指令与输出）",
+    "boundTerminal": "当前主机：{{host}}",
+    "sharedExecutionHint": "指令和输出显示在左侧 SSH，结果自动交回 AI。需处于空闲 Bash/zsh 提示符；执行中按 Ctrl+C 接管。AI 脚本继承当前目录和环境，但不改变父 Shell 状态。",
+    "isolatedExecutionHint": "使用独立 SSH 执行通道，不向左侧手动终端写入指令。",
+    "jumpToLatest": "查看最新回复"
   },
   "nav": {
     "ai": "AI"

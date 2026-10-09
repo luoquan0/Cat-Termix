@@ -133,7 +133,14 @@
     "terminalSubmitted": "Sent (unverified)",
     "terminalSubmittedUnverified": "Sent to the visible SSH terminal; execution result and exit status are not verified. Ask the user to attach terminal output before reporting success.",
     "terminalSendUnavailable": "Terminal disconnected or command has multiple lines; not sent",
-    "terminalSubmitRecordFailed": "Command may have been sent, but recording failed. Check the terminal; do not run it again blindly."
+    "terminalSubmitRecordFailed": "Command may have been sent, but recording failed. Check the terminal; do not run it again blindly.",
+    "executionMode": "Command execution mode",
+    "executionIsolated": "Isolated execution (chat only)",
+    "executionShared": "Shared SSH terminal (visible commands + output)",
+    "boundTerminal": "Current host: {{host}}",
+    "sharedExecutionHint": "Commands and output appear in this SSH terminal and results return automatically. Use an idle Bash/zsh prompt. Ctrl+C takes over. AI scripts inherit cwd/environment but cannot change the parent shell state.",
+    "isolatedExecutionHint": "Separate SSH exec channel; commands do not appear in the manual terminal.",
+    "jumpToLatest": "Jump to latest reply"
   },
   "nav": {
     "ai": "AI"

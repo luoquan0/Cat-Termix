@@ -15,6 +15,7 @@ export interface ToolActivity {
   name: string;
   arguments: Record<string, unknown>;
   result?: unknown;
+  proposalId?: number;
 }
 
 export interface StreamState {
@@ -68,6 +69,8 @@ export function useAiStream() {
       activeTab?: string | null;
       hostId?: number;
       approvalMode?: "review" | "auto";
+      executionMode?: "isolated" | "shared";
+      terminalSessionId?: string | null;
       resolvedProposalId?: number;
       /**
        * Called however the run ends, with its steps, which are then cleared
@@ -127,6 +130,8 @@ export function useAiStream() {
             activeTab: input.activeTab ?? undefined,
             hostId: input.hostId,
             approvalMode: input.approvalMode ?? "review",
+            executionMode: input.executionMode ?? "isolated",
+            terminalSessionId: input.terminalSessionId ?? undefined,
             resolvedProposalId: input.resolvedProposalId,
           }),
         });
@@ -238,8 +243,24 @@ export function useAiStream() {
                 return { ...prev, tools };
               });
             } else if (event.type === "proposal") {
+              const index = runTools.findLastIndex(
+                (tool) =>
+                  tool.name === event.proposal.kind &&
+                  tool.proposalId === undefined,
+              );
+              const id = index < 0 ? null : runTools[index].id;
+              if (index >= 0)
+                runTools[index] = {
+                  ...runTools[index],
+                  proposalId: event.proposal.id,
+                };
               setState((prev) => ({
                 ...prev,
+                tools: prev.tools.map((tool) =>
+                  tool.id === id
+                    ? { ...tool, proposalId: event.proposal.id }
+                    : tool,
+                ),
                 proposals: [...prev.proposals, event.proposal],
               }));
             } else if (event.type === "error") {

@@ -291,6 +291,8 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const pongReceivedRef = useRef(true);
     const pongTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const [isConnected, setIsConnected] = useState(false);
+    const [aiCommandActive, setAiCommandActive] = useState(false);
+    const aiCommandActiveRef = useRef(false);
 
     const [isSavingQuickConnect, setIsSavingQuickConnect] = useState(false);
     const [isQuickConnectSaved, setIsQuickConnectSaved] = useState(false);
@@ -1813,6 +1815,14 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         );
         terminalInputDisposableRef.current = terminal.onData((data) => {
           if (ws.readyState !== WebSocket.OPEN) return;
+          if (aiCommandActiveRef.current) {
+            if (data.includes("\x03")) {
+              ws.send(JSON.stringify({ type: "input", data: "\x03" }));
+            } else if (/^\x1b\[[?\d;]*[Rcn]$/.test(data)) {
+              ws.send(JSON.stringify({ type: "input", data }));
+            }
+            return;
+          }
           if (data === "\r" || data === "\n") {
             const currentCmd = getCurrentCommand().trim();
             const termixMatch = currentCmd.match(/^termix\s+(.+)$/);
@@ -1898,6 +1908,13 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           }
           if (msg.type === "resized") {
             applySharedSize(msg);
+          } else if (msg.type === "ai_command_state") {
+            aiCommandActiveRef.current = Boolean(msg.active);
+            setAiCommandActive(aiCommandActiveRef.current);
+            if (aiCommandActiveRef.current) {
+              localEchoRef.current?.reset();
+              clearAutosuggestion();
+            }
           } else if (msg.type === "data") {
             if (typeof msg.data === "string") {
               outputListenersRef.current.forEach((listener) =>
@@ -1979,6 +1996,8 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             updateConnectionError(errorMessage);
             setIsConnecting(false);
           } else if (msg.type === "connected") {
+            aiCommandActiveRef.current = false;
+            setAiCommandActive(false);
             if (keepScrollbackRef.current) {
               keepScrollbackRef.current = false;
               reconnectAttempts.current = 0;
@@ -2075,6 +2094,8 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               onClose();
             }
           } else if (msg.type === "disconnected") {
+            aiCommandActiveRef.current = false;
+            setAiCommandActive(false);
             wasDisconnectedBySSH.current = true;
             shouldNotReconnectRef.current = true;
             setIsConnected(false);
@@ -2359,6 +2380,8 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
         terminalInputDisposableRef.current?.dispose();
         terminalInputDisposableRef.current = null;
+        aiCommandActiveRef.current = false;
+        setAiCommandActive(false);
 
         setIsConnected(false);
         isConnectingRef.current = false;
@@ -3670,6 +3693,15 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           }}
         />
 
+        {isConnected && aiCommandActive && (
+          <div
+            role="status"
+            className="absolute left-2 top-2 z-[110] border border-border bg-background/95 px-3 py-2 text-xs"
+          >
+            {t("terminalToolbar.aiCommandActive")}
+          </div>
+        )}
+
         {isConnected && host && !showToolbar && (
           <div className="absolute right-2 top-2 z-[110] flex max-w-[calc(100%-1rem)] flex-wrap justify-end gap-2">
             {dockContributions.map((contribution, index) => {
@@ -3740,6 +3772,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
                 panelProps={dock.props}
                 onClose={closeDock}
                 getTerminalContext={() => getTerminalBufferText(terminal)}
+                getTerminalSessionId={() => sessionIdRef.current}
                 onRunInTerminal={handleRunCommandInTerminal}
               />
             );

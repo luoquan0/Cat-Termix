@@ -65,3 +65,41 @@ describe("buildTimeline", () => {
     );
   });
 });
+
+it("anchors approval cards before later summaries instead of pinning old cards to the bottom", () => {
+  const proposal = {
+    id: 7,
+    conversationId: 1,
+    kind: "propose_run_command",
+    summary: "Check",
+    payload: JSON.stringify({ hostId: 1, command: "df -h" }),
+    status: "applied" as const,
+    resultSummary: "Healthy",
+    createdAt: "",
+  };
+  const history = [
+    userEntry("check"),
+    ...finishedRunEntries(
+      0,
+      [
+        {
+          id: "t1",
+          name: "propose_run_command",
+          arguments: { hostId: 1, command: "df -h" },
+          proposalId: 7,
+        },
+      ],
+      "Waiting",
+    ),
+    userEntry("summarize"),
+    ...finishedRunEntries(1, [], "The disk is healthy"),
+  ];
+  const timeline = buildTimeline(history, { tools: [], assistantText: "" }, [
+    proposal,
+  ]);
+  expect(timeline.findIndex((x) => x.kind === "proposal")).toBe(2);
+  expect(timeline.at(-1)).toMatchObject({
+    kind: "message",
+    content: "The disk is healthy",
+  });
+});

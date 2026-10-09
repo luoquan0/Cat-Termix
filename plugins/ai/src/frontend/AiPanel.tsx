@@ -41,7 +41,12 @@ import {
   type MentionItem,
 } from "./useMentions";
 import { mentionLabel } from "./labels";
-import { AiSessionControls, type ApprovalMode } from "./AiSessionControls";
+import {
+  AiSessionControls,
+  type ApprovalMode,
+  type ExecutionMode,
+} from "./AiSessionControls";
+import { useChatScroll } from "./use-chat-scroll";
 
 interface AiPanelProps {
   activeTab?: string | null;
@@ -49,6 +54,7 @@ interface AiPanelProps {
   hostLabel?: string;
   initialContext?: string;
   getTerminalContext?: () => string;
+  getTerminalSessionId?: () => string | null;
   onRunInTerminal?: (command: string) => boolean;
 }
 
@@ -58,7 +64,7 @@ export function AiPanel({
   hostLabel,
   initialContext,
   getTerminalContext,
-  onRunInTerminal,
+  getTerminalSessionId,
 }: AiPanelProps) {
   const { t } = useTranslation();
   const { state, send, stop, reset, setState } = useAiStream();
@@ -67,6 +73,10 @@ export function AiPanel({
   const [providerId, setProviderId] = useState<number | null>(null);
   const [model, setModel] = useState("");
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>("review");
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>("isolated");
+  const [executingProposalId, setExecutingProposalId] = useState<number | null>(
+    null,
+  );
   const [pendingResolutions, setPendingResolutions] = useState<number[]>([]);
   const [setupError, setSetupError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -94,7 +104,9 @@ export function AiPanel({
   >({});
   const runCountRef = useRef(0);
   const historyOperationRef = useRef(0);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const chatScroll = useChatScroll(!loading);
+  const { jumpToLatest } = chatScroll;
+  const executing = state.streaming || executingProposalId !== null;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [mention, setMention] = useState<{
@@ -121,6 +133,8 @@ export function AiPanel({
     setResolvedProposals({});
     setPendingResolutions([]);
     setApprovalMode("review");
+    setExecutionMode("isolated");
+    jumpToLatest();
     setInput("");
     setMention(null);
     setShowHistory(false);
@@ -195,7 +209,7 @@ export function AiPanel({
   }, [hostId, t]);
 
   const openConversation = async (id: number) => {
-    if (state.streaming || loadingConversationId !== null) return;
+    if (executing || loadingConversationId !== null) return;
     const operation = ++historyOperationRef.current;
     setLoadingConversationId(id);
     setHistoryError(null);
@@ -210,6 +224,8 @@ export function AiPanel({
       setResolvedProposals({});
       setPendingResolutions([]);
       setApprovalMode("review");
+      setExecutionMode("isolated");
+      jumpToLatest();
       setInput("");
       setMention(null);
       setConfirmDeleteId(null);
@@ -246,7 +262,7 @@ export function AiPanel({
   };
 
   const removeConversation = async (id: number) => {
-    if (state.streaming || deletingConversationId !== null) return;
+    if (executing || deletingConversationId !== null) return;
     setDeletingConversationId(id);
     setHistoryError(null);
     try {
@@ -297,13 +313,6 @@ export function AiPanel({
     };
   }, [loadProviders, refreshConversations, t]);
 
-  useEffect(() => {
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [state.assistantText, state.tools.length, history.length]);
-
   // The run's steps stay in the transcript, so the next message does not wipe
   // what the assistant already looked at.
   const keepRun = useCallback(
@@ -324,11 +333,12 @@ export function AiPanel({
       !message ||
       !providerId ||
       !model.trim() ||
-      state.streaming ||
+      executing ||
       loadingConversationId !== null
     )
       return;
 
+    jumpToLatest();
     setInput("");
     setHistory((prev) => [...prev, userEntry(message)]);
 
@@ -337,6 +347,8 @@ export function AiPanel({
       providerId,
       model: model.trim(),
       approvalMode,
+      executionMode,
+      terminalSessionId: getTerminalSessionId?.(),
       hostId,
       conversationId: state.conversationId,
       activeTab,
@@ -356,6 +368,7 @@ export function AiPanel({
     status: "applied" | "submitted" | "rejected" | "failed",
     resultSummary?: string,
   ) {
+    jumpToLatest();
     setResolvedProposals((prev) => ({
       ...prev,
       [id]: { status, resultSummary },
@@ -383,6 +396,8 @@ export function AiPanel({
       providerId,
       model: model.trim(),
       approvalMode,
+      executionMode,
+      terminalSessionId: getTerminalSessionId?.(),
       hostId,
       conversationId: state.conversationId,
       activeTab,
@@ -396,6 +411,8 @@ export function AiPanel({
     providerId,
     model,
     approvalMode,
+    executionMode,
+    getTerminalSessionId,
     hostId,
     activeTab,
     keepRun,
@@ -437,7 +454,7 @@ export function AiPanel({
             type="button"
             size="sm"
             variant="ghost"
-            disabled={state.streaming || loadingConversationId !== null}
+            disabled={executing || loadingConversationId !== null}
             onClick={newConversation}
             aria-label={t("ai.newConversation")}
             title={t("ai.newConversation")}
@@ -448,7 +465,7 @@ export function AiPanel({
             type="button"
             size="sm"
             variant="ghost"
-            disabled={state.streaming}
+            disabled={executing}
             onClick={() => {
               setShowHistory((open) => !open);
               if (!showHistory) void refreshConversations();
@@ -480,7 +497,7 @@ export function AiPanel({
 
         {hostId && (
           <p className="px-3 pb-2 text-[11px] text-muted-foreground">
-            {t("ai.collaborativeTerminal", {
+            {t("ai.boundTerminal", {
               host: hostLabel ?? String(hostId),
             })}
           </p>
@@ -494,7 +511,16 @@ export function AiPanel({
             onModelChange={setModel}
             approvalMode={approvalMode}
             onApprovalModeChange={setApprovalMode}
-            disabled={state.streaming}
+            disabled={executing}
+            executionMode={executionMode}
+            onExecutionModeChange={
+              getTerminalSessionId
+                ? (mode) => {
+                    setExecutionMode(mode);
+                    jumpToLatest();
+                  }
+                : undefined
+            }
           />
         )}
       </div>
@@ -587,57 +613,82 @@ export function AiPanel({
       )}
 
       <div
-        ref={scrollRef}
-        className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3"
+        ref={chatScroll.viewportRef}
+        onScroll={chatScroll.onScroll}
+        onWheel={chatScroll.onWheel}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3"
+        style={{ overflowAnchor: "none" }}
         role="log"
         aria-label={t("ai.title")}
       >
-        {timeline.length === 0 && (
-          <p className="text-sm text-muted-foreground">{t("ai.chatWelcome")}</p>
-        )}
-        {setupError && (
-          <p role="alert" className="text-sm text-destructive">
-            {setupError}
-          </p>
-        )}
-        {timeline.map((item) => {
-          if (item.kind === "message") {
+        <div ref={chatScroll.contentRef} className="space-y-3">
+          {timeline.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              {t("ai.chatWelcome")}
+            </p>
+          )}
+          {setupError && (
+            <p role="alert" className="text-sm text-destructive">
+              {setupError}
+            </p>
+          )}
+          {timeline.map((item) => {
+            if (item.kind === "message") {
+              return (
+                <AiMessage
+                  key={item.key}
+                  role={item.role}
+                  content={item.content}
+                />
+              );
+            }
+            if (item.kind === "tool") {
+              return (
+                <AiToolCall
+                  key={item.key}
+                  tool={item.tool}
+                  streaming={item.live && state.streaming}
+                />
+              );
+            }
             return (
-              <AiMessage
+              <ProposalCard
                 key={item.key}
-                role={item.role}
-                content={item.content}
+                proposal={item.proposal}
+                onResolved={handleProposalResolved}
+                executionMode={executionMode}
+                getTerminalSessionId={getTerminalSessionId}
+                onExecuting={(active) =>
+                  setExecutingProposalId(active ? item.proposal.id : null)
+                }
+                disabled={
+                  executingProposalId !== null &&
+                  executingProposalId !== item.proposal.id
+                }
               />
             );
-          }
-          if (item.kind === "tool") {
-            return (
-              <AiToolCall
-                key={item.key}
-                tool={item.tool}
-                streaming={item.live && state.streaming}
-              />
-            );
-          }
-          return (
-            <ProposalCard
-              key={item.key}
-              proposal={item.proposal}
-              onResolved={handleProposalResolved}
-              hostId={hostId}
-              onRunInTerminal={onRunInTerminal}
-            />
-          );
-        })}
+          })}
 
-        {state.error && (
-          <div className="rounded-none border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {state.error}
-          </div>
-        )}
+          {state.error && (
+            <div className="rounded-none border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {state.error}
+            </div>
+          )}
+        </div>
       </div>
+      {!chatScroll.following && (
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          className="mx-auto my-1 shrink-0"
+          onClick={jumpToLatest}
+        >
+          {t("ai.jumpToLatest")}
+        </Button>
+      )}
 
-      <div className="relative border-t border-border p-3">
+      <div className="relative shrink-0 border-t border-border p-3">
         {mentionMatches.length > 0 && (
           <div className="absolute bottom-full left-3 right-3 z-10 max-h-56 overflow-y-auto border border-border bg-popover shadow-md">
             {mentionMatches.map((item, index) => (
@@ -722,13 +773,13 @@ export function AiPanel({
           {t("ai.attachHint")}
         </p>
         <div className="mt-1.5 flex flex-wrap items-center justify-end gap-2">
-          {getTerminalContext && (
+          {getTerminalContext && executionMode === "isolated" && (
             <Button
               type="button"
               size="sm"
               variant="ghost"
               className="mr-auto"
-              disabled={state.streaming}
+              disabled={executing}
               onClick={() => {
                 const output = getTerminalContext();
                 if (output)
@@ -752,7 +803,9 @@ export function AiPanel({
               size="sm"
               variant="outline"
               className="border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand"
-              disabled={!input.trim() || !providerId || !model.trim()}
+              disabled={
+                executing || !input.trim() || !providerId || !model.trim()
+              }
               onClick={() => void handleSend()}
             >
               <Send size={14} />

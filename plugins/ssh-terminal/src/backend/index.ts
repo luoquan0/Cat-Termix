@@ -155,7 +155,7 @@ export async function activate(ctx: PluginContext) {
     write: (sessionId, data) => {
       const session = sessionManager.getSession(sessionId);
       if (!session?.sshStream || session.sshStream.destroyed) return false;
-      sessionManager.bufferInput(sessionId, data);
+      if (!sessionManager.bufferInput(sessionId, data)) return false;
       session.sshStream.write(data);
       return true;
     },
@@ -163,6 +163,47 @@ export async function activate(ctx: PluginContext) {
   };
   // sessions.live is keyed by session type; remote desktop provides the others.
   ctx.services.provide("sessions.live", liveSessions, { name: "ssh" });
+
+  ctx.services.provide("terminal.commands", {
+    execute: async (input: {
+      sessionId: string;
+      hostId: number;
+      command: string;
+      signal?: AbortSignal;
+    }) => {
+      const userId = ctx.currentActor();
+      const session = sessionManager.getSession(input.sessionId);
+      if (
+        !userId ||
+        !session ||
+        session.userId !== userId ||
+        session.hostId !== input.hostId ||
+        !Array.from(session.participants.values()).some(
+          (p) => p.isOwner && p.userId === userId && p.ws.readyState === 1,
+        ) ||
+        !(await ctx.hosts.checkAccess(input.hostId, "connect")).hasAccess
+      )
+        throw new Error("Shared terminal not found or not owned by this user");
+      // Recheck attachment after the asynchronous access check.
+      if (
+        sessionManager.getSession(input.sessionId) !== session ||
+        !Array.from(session.participants.values()).some(
+          (p) => p.isOwner && p.userId === userId && p.ws.readyState === 1,
+        )
+      )
+        throw new Error("The shared terminal was detached");
+      return sessionManager.sharedCommands.execute(
+        session,
+        input.command,
+        input.signal,
+        (active) =>
+          sessionManager.broadcast(session.id, {
+            type: "ai_command_state",
+            active,
+          }),
+      );
+    },
+  });
 
   const terminalHistory: TerminalHistoryV1 = {
     list: async (hostId, limit = 200) => {

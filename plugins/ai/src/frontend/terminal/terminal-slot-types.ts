@@ -28,5 +28,6 @@ export interface TerminalSidePanelProps {
   panelProps: Record<string, unknown>;
   onClose: () => void;
   getTerminalContext?: () => string;
+  getTerminalSessionId?: () => string | null;
   onRunInTerminal: (command: string) => boolean;
 }

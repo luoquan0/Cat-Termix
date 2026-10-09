@@ -6,7 +6,13 @@ export type ToolCategory = "read" | "propose";
 export type ToolDeps = Pick<
   PluginContext,
   "hosts" | "services" | "notify" | "rbac" | "ssh" | "audit"
->;
+> & {
+  runCommand?: (
+    hostId: number,
+    command: string,
+    signal?: AbortSignal,
+  ) => Promise<{ output?: string; error?: string }>;
+};
 
 export interface ToolContext {
   /** Always the request's authenticated user, never from model input. */

@@ -35,6 +35,11 @@
       "service": "terminal.history",
       "version": "1.0.0",
       "permission": "ssh-terminal.history"
+    },
+    {
+      "service": "terminal.commands",
+      "version": "1.0.0",
+      "permission": "ssh-terminal.sessions"
     }
   ],
   "requires": [

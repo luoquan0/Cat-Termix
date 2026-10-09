@@ -206,9 +206,13 @@ export async function deleteAiConversation(id: number): Promise<void> {
 
 export async function applyAiProposal(
   id: number,
+  execution?: {
+    executionMode: "isolated" | "shared";
+    terminalSessionId?: string | null;
+  },
 ): Promise<{ success: boolean; summary: string }> {
   try {
-    return (await api().post(`/proposals/${id}/apply`)).data;
+    return (await api().post(`/proposals/${id}/apply`, execution)).data;
   } catch (error) {
     throw apiError(error, "apply AI proposal");
   }

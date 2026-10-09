@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { SharedTerminalRunner } from "./shared-terminal.js";
 import { type Client, type ClientChannel } from "ssh2";
 import { WebSocket } from "ws";
 import type { TerminalLogger } from "./helpers.js";
@@ -101,6 +102,7 @@ export interface SessionManagerDeps {
 }
 
 export class TerminalSessionManager {
+  readonly sharedCommands = new SharedTerminalRunner();
   private sessions = new Map<string, TerminalSession>();
   private healthCheckTimer: NodeJS.Timeout | null = null;
   private readonly log: TerminalLogger;
@@ -645,6 +647,7 @@ export class TerminalSessionManager {
   }
 
   detachWs(sessionId: string): void {
+    this.sharedCommands.cancel(sessionId, "Terminal owner detached");
     const session = this.sessions.get(sessionId);
     if (!session) return;
 
@@ -683,6 +686,7 @@ export class TerminalSessionManager {
   }
 
   destroySession(sessionId: string): void {
+    this.sharedCommands.forget(sessionId);
     const session = this.sessions.get(sessionId);
     if (!session) return;
 
@@ -845,10 +849,11 @@ export class TerminalSessionManager {
     this.recordSessionEvent(session, "o", data);
   }
 
-  bufferInput(sessionId: string, data: string): void {
+  bufferInput(sessionId: string, data: string): boolean {
     const session = this.sessions.get(sessionId);
-    if (!session) return;
+    if (!session || !this.sharedCommands.input(sessionId, data)) return false;
     this.recordSessionEvent(session, "i", data);
+    return true;
   }
 
   resizeSession(sessionId: string, cols: number, rows: number): void {

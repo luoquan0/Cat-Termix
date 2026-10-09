@@ -258,6 +258,7 @@ export async function runCommandOnHost(
 ): Promise<{ output?: string; error?: string }> {
   try {
     if (signal?.aborted) throw new Error("The user stopped this run");
+    if (deps.runCommand) return await deps.runCommand(hostId, command, signal);
     const result = await deps.ssh.withConnection<
       Awaited<ReturnType<typeof execCommand>>,
       Client
