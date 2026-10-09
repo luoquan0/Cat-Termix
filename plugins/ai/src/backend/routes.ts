@@ -1284,11 +1284,16 @@ export function registerAiRoutes(
             "running",
           ))
         ) {
-          return res.status(409).json({ error: "Proposal is already resolved" });
+          return res
+            .status(409)
+            .json({ error: "Proposal is already resolved" });
         }
 
         await audit({
-          action: failed === true ? "ai_proposal_terminal_send_failed" : "ai_proposal_submitted",
+          action:
+            failed === true
+              ? "ai_proposal_terminal_send_failed"
+              : "ai_proposal_submitted",
           resourceType: "ai_proposal",
           resourceId: String(id),
           resourceName: stored.kind,
