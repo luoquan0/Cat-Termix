@@ -276,7 +276,9 @@ describe("explicit automatic execution", () => {
     const client = ssh();
     server = await startServer({
       sshClient: client,
-      fetch: vi.fn().mockResolvedValueOnce(response(call))
+      fetch: vi
+        .fn()
+        .mockResolvedValueOnce(response(call))
         .mockResolvedValueOnce(response({ content: "Awaiting approval" })),
     });
     const providerId = await provider();
@@ -284,9 +286,11 @@ describe("explicit automatic execution", () => {
       body: { providerId, message: "check", hostId: 1 },
     });
     expect(stream.status).toBe(200);
-    const id = (server.db.sqlite
-      .prepare("SELECT id FROM p_ai_proposals")
-      .get() as { id: number }).id;
+    const id = (
+      server.db.sqlite.prepare("SELECT id FROM p_ai_proposals").get() as {
+        id: number;
+      }
+    ).id;
     const endpoint = `/proposals/${id}/mark-run-in-terminal`;
     const preclaim = await server.request("POST", endpoint, {
       body: { hostId: 1, summary: "forged" },
@@ -306,11 +310,14 @@ describe("explicit automatic execution", () => {
     });
     expect(result.status).toBe(200);
     expect(result.body.status).toBe("submitted");
-    expect(server.db.sqlite
-      .prepare("SELECT status FROM p_ai_proposals")
-      .get()).toEqual({ status: "submitted" });
+    expect(
+      server.db.sqlite.prepare("SELECT status FROM p_ai_proposals").get(),
+    ).toEqual({ status: "submitted" });
     expect(client.exec).not.toHaveBeenCalled();
-    expect((await server.request("POST", `/proposals/${id}/apply`, {body: {}})).status).toBe(400);
+    expect(
+      (await server.request("POST", `/proposals/${id}/apply`, { body: {} }))
+        .status,
+    ).toBe(400);
   });
 
   it("prevents concurrent approval from running the command twice", async () => {
