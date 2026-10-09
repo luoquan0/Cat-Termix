@@ -14,7 +14,7 @@ describe("saved AI transcript", () => {
       row(3, "tool", '{"free":42}', JSON.stringify([{ id: "call1", name: "read_host" }])),
       row(4, "assistant", "42 GB free"),
     ]);
-    expect(entries).toHaveLength(4);
+    expect(entries).toHaveLength(3);
     expect(entries[0]).toMatchObject({ kind: "message", role: "user" });
     expect(entries[1]).toMatchObject({ kind: "tool", tool: { name: "read_host", result: { free: 42 } } });
     expect(entries[2]).toMatchObject({ kind: "message", content: "42 GB free" });

@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "@termix/plugin-sdk/frontend";
 import {
   Clipboard,
+  History,
   Loader2,
   Plus,
+  Trash2,
   Send,
   Settings2,
   Sparkles,
@@ -11,9 +13,13 @@ import {
 } from "lucide-react";
 import { Button, Textarea } from "@termix/plugin-sdk/ui";
 import {
+  deleteAiConversation,
+  getAiConversation,
+  getAiConversations,
   getAiProviders,
   getAiStatus,
   setAiOptIn,
+  type AiConversation,
   type AiProposal,
   type AiProvider,
 } from "./ai-api";
@@ -24,6 +30,7 @@ import { ProposalCard } from "./ProposalCard";
 import {
   buildTimeline,
   finishedRunEntries,
+  savedConversationEntries,
   userEntry,
   type HistoryEntry,
 } from "./transcript";
@@ -52,7 +59,7 @@ export function AiPanel({
   getTerminalContext,
 }: AiPanelProps) {
   const { t } = useTranslation();
-  const { state, send, stop, reset } = useAiStream();
+  const { state, send, stop, reset, setState } = useAiStream();
 
   const [providers, setProviders] = useState<AiProvider[]>([]);
   const [providerId, setProviderId] = useState<number | null>(null);
@@ -64,6 +71,12 @@ export function AiPanel({
   const [showSettings, setShowSettings] = useState(false);
   const [input, setInput] = useState("");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [conversations, setConversations] = useState<AiConversation[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [loadingConversationId, setLoadingConversationId] = useState<number | null>(null);
+  const [deletingConversationId, setDeletingConversationId] = useState<number | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [resolvedProposals, setResolvedProposals] = useState<
     Record<
       number,
@@ -71,6 +84,7 @@ export function AiPanel({
     >
   >({});
   const runCountRef = useRef(0);
+  const historyOperationRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -92,6 +106,7 @@ export function AiPanel({
   }, [initialContext, t]);
 
   function newConversation() {
+    historyOperationRef.current += 1;
     reset();
     setHistory([]);
     setResolvedProposals({});
@@ -99,6 +114,10 @@ export function AiPanel({
     setApprovalMode("review");
     setInput("");
     setMention(null);
+    setShowHistory(false);
+    setConfirmDeleteId(null);
+    setLoadingConversationId(null);
+    setHistoryError(null);
     runCountRef.current = 0;
   }
 
@@ -154,6 +173,87 @@ export function AiPanel({
     }
   }, []);
 
+  const refreshConversations = useCallback(async () => {
+    try {
+      const records = await getAiConversations(hostId);
+      setConversations(records);
+      setHistoryError(null);
+    } catch (error) {
+      setHistoryError(
+        error instanceof Error ? error.message : t("ai.historyLoadFailed"),
+      );
+    }
+  }, [hostId, t]);
+
+  const openConversation = async (id: number) => {
+    if (state.streaming || loadingConversationId !== null) return;
+    const operation = ++historyOperationRef.current;
+    setLoadingConversationId(id);
+    setHistoryError(null);
+    try {
+      const saved = await getAiConversation(id);
+      if (historyOperationRef.current !== operation) return;
+      if ((saved.conversation.hostId ?? null) !== (hostId ?? null)) {
+        throw new Error(t("ai.historyHostMismatch"));
+      }
+      reset();
+      setHistory(savedConversationEntries(saved.messages));
+      setResolvedProposals({});
+      setPendingResolutions([]);
+      setApprovalMode("review");
+      setInput("");
+      setMention(null);
+      setConfirmDeleteId(null);
+      runCountRef.current = saved.messages.length;
+      if (
+        saved.conversation.providerId &&
+        providers.some(
+          (item) => item.id === saved.conversation.providerId && item.enabled,
+        )
+      ) {
+        setProviderId(saved.conversation.providerId);
+        setModel(saved.conversation.model ?? "");
+      }
+      setState((prev) => ({
+        ...prev,
+        conversationId: saved.conversation.id,
+        streaming: false,
+        assistantText: "",
+        tools: [],
+        error: null,
+        proposals: [...saved.proposals].reverse(),
+      }));
+      setShowHistory(false);
+    } catch (error) {
+      if (historyOperationRef.current === operation) {
+        setHistoryError(
+          error instanceof Error ? error.message : t("ai.historyLoadFailed"),
+        );
+      }
+    } finally {
+      if (historyOperationRef.current === operation)
+        setLoadingConversationId(null);
+    }
+  };
+
+  const removeConversation = async (id: number) => {
+    if (state.streaming || deletingConversationId !== null) return;
+    setDeletingConversationId(id);
+    setHistoryError(null);
+    try {
+      await deleteAiConversation(id);
+      if (state.conversationId === id) newConversation();
+      setConversations((previous) => previous.filter((item) => item.id !== id));
+      setConfirmDeleteId(null);
+    } catch (error) {
+      setHistoryError(
+        error instanceof Error ? error.message : t("ai.historyDeleteFailed"),
+      );
+    } finally {
+      setDeletingConversationId(null);
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -170,6 +270,7 @@ export function AiPanel({
         if (!status.globallyEnabled) return;
 
         const list = await loadProviders();
+        if (!cancelled) void refreshConversations();
         // With nothing configured there is nothing to chat with, so go
         // straight to the form instead of showing a card that just vanishes.
         if (!cancelled && list.length === 0) setShowSettings(true);
@@ -185,7 +286,7 @@ export function AiPanel({
     return () => {
       cancelled = true;
     };
-  }, [loadProviders, t]);
+  }, [loadProviders, refreshConversations, t]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -203,13 +304,20 @@ export function AiPanel({
         ...prev,
         ...finishedRunEntries(runId, tools, reply),
       ]);
+      void refreshConversations();
     },
-    [],
+    [refreshConversations],
   );
 
   async function handleSend() {
     const message = input.trim();
-    if (!message || !providerId || !model.trim() || state.streaming) return;
+    if (
+      !message ||
+      !providerId ||
+      !model.trim() ||
+      state.streaming ||
+      loadingConversationId !== null
+    ) return;
 
     setInput("");
     setHistory((prev) => [...prev, userEntry(message)]);
@@ -319,12 +427,27 @@ export function AiPanel({
             type="button"
             size="sm"
             variant="ghost"
-            disabled={state.streaming}
+            disabled={state.streaming || loadingConversationId !== null}
             onClick={newConversation}
             aria-label={t("ai.newConversation")}
             title={t("ai.newConversation")}
           >
             <Plus size={14} />
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={state.streaming}
+            onClick={() => {
+              setShowHistory((open) => !open);
+              if (!showHistory) void refreshConversations();
+            }}
+            aria-label={t("ai.history")}
+            title={t("ai.history")}
+            aria-expanded={showHistory}
+          >
+            <History size={14} />
           </Button>
           <a
             href="https://docs.termix.site/features/ai/overview"
@@ -365,6 +488,66 @@ export function AiPanel({
           />
         )}
       </div>
+
+      {showHistory && (
+        <div className="max-h-52 overflow-y-auto border-b border-border p-2" aria-label={t("ai.history")}>
+          {conversations.length === 0 && (
+            <p className="p-2 text-xs text-muted-foreground">{t("ai.historyEmpty")}</p>
+          )}
+          {historyError && (
+            <p role="alert" className="p-2 text-xs text-destructive">{historyError}</p>
+          )}
+          {conversations.map((conversation) => (
+            <div key={conversation.id} className="flex items-center gap-1">
+              <button
+                type="button"
+                className="min-w-0 flex-1 truncate rounded-sm px-2 py-1.5 text-left text-xs hover:bg-muted disabled:opacity-50"
+                aria-current={state.conversationId === conversation.id ? "true" : undefined}
+                disabled={state.streaming || loadingConversationId !== null || deletingConversationId !== null}
+                onClick={() => void openConversation(conversation.id)}
+                title={conversation.title ?? t("ai.historyUntitled")}
+              >
+                {loadingConversationId === conversation.id && <Loader2 size={12} className="mr-1 inline animate-spin" />}
+                {conversation.title || t("ai.historyUntitled")}
+              </button>
+              {confirmDeleteId === conversation.id ? (
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    disabled={deletingConversationId !== null}
+                    onClick={() => void removeConversation(conversation.id)}
+                    aria-label={t("ai.historyConfirmDelete")}
+                  >
+                    {t("ai.historyConfirmDelete")}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setConfirmDeleteId(null)}
+                  >
+                    {t("common.cancel")}
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={state.streaming || deletingConversationId !== null}
+                  onClick={() => setConfirmDeleteId(conversation.id)}
+                  aria-label={t("ai.historyDelete")}
+                  title={t("ai.historyDelete")}
+                >
+                  <Trash2 size={13} />
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {showSettings && (
         <div className="border-b border-border p-3">
@@ -501,7 +684,7 @@ export function AiPanel({
             }
           }}
           placeholder={t("ai.inputPlaceholder")}
-          disabled={!providerId}
+          disabled={!providerId || loadingConversationId !== null}
         />
         {/*
           The hint gets its own line and wraps: sharing a row with the send

@@ -51,6 +51,7 @@ export interface AiConversation {
   title: string | null;
   providerId: number | null;
   model: string | null;
+  hostId: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -165,9 +166,12 @@ export async function getAiProviderModels(id: number): Promise<string[]> {
   }
 }
 
-export async function getAiConversations(): Promise<AiConversation[]> {
+export async function getAiConversations(
+  hostId?: number,
+): Promise<AiConversation[]> {
   try {
-    return (await api().get("/conversations")).data.conversations;
+    const path = hostId ? `/conversations?hostId=${hostId}` : "/conversations";
+    return (await api().get(path)).data.conversations;
   } catch (error) {
     throw apiError(error, "list AI conversations");
   }

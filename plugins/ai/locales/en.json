@@ -117,7 +117,15 @@
     "terminalWorkspace": "SSH AI chat workspace",
     "statusFailed": "Failed",
     "statusRunning": "Running",
-    "statusExpired": "Expired"
+    "statusExpired": "Expired",
+    "history": "Chat history",
+    "historyEmpty": "No saved chats yet",
+    "historyUntitled": "Untitled conversation",
+    "historyDelete": "Delete chat",
+    "historyConfirmDelete": "Delete",
+    "historyLoadFailed": "Could not load chat history",
+    "historyDeleteFailed": "Could not delete chat",
+    "historyHostMismatch": "This conversation belongs to another terminal"
   },
   "nav": {
     "ai": "AI"

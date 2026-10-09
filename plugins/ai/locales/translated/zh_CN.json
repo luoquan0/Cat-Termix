@@ -117,7 +117,15 @@
     "terminalWorkspace": "SSH AI 对话窗口",
     "statusFailed": "执行失败",
     "statusRunning": "正在执行",
-    "statusExpired": "已过期"
+    "statusExpired": "已过期",
+    "history": "聊天记录",
+    "historyEmpty": "暂无历史对话",
+    "historyUntitled": "未命名对话",
+    "historyDelete": "删除对话",
+    "historyConfirmDelete": "确认删除",
+    "historyLoadFailed": "加载聊天记录失败",
+    "historyDeleteFailed": "删除对话失败",
+    "historyHostMismatch": "此对话属于另一台终端"
   },
   "nav": {
     "ai": "AI"
