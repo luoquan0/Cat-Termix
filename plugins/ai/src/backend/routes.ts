@@ -695,12 +695,10 @@ export function registerAiRoutes(
 
       try {
         if (activeConversations.has(id))
-          return res
-            .status(409)
-            .json({
-              error:
-                "Stop the running response before deleting this conversation",
-            });
+          return res.status(409).json({
+            error:
+              "Stop the running response before deleting this conversation",
+          });
         const deleted = await repository.deleteConversation(id, actor(ctx));
         if (!deleted) {
           return res.status(404).json({ error: "Conversation not found" });
@@ -763,11 +761,9 @@ export function registerAiRoutes(
       activeAiRequests.add(activeRequest);
       try {
         if (await maintenance(ctx))
-          return res
-            .status(503)
-            .json({
-              error: "Application update in progress. Retry after restart.",
-            });
+          return res.status(503).json({
+            error: "Application update in progress. Retry after restart.",
+          });
         const userId = actor(ctx);
         const {
           conversationId,
@@ -786,11 +782,9 @@ export function registerAiRoutes(
         try {
           selectedContextPolicy = contextPolicy(req.body?.contextPolicy);
         } catch (error) {
-          return res
-            .status(400)
-            .json({
-              error: getErrorMessage(error, "Invalid context settings"),
-            });
+          return res.status(400).json({
+            error: getErrorMessage(error, "Invalid context settings"),
+          });
         }
 
         if (
@@ -924,11 +918,9 @@ export function registerAiRoutes(
           }
 
           if (activeConversations.has(conversation.id)) {
-            return res
-              .status(409)
-              .json({
-                error: "This conversation already has a running response",
-              });
+            return res.status(409).json({
+              error: "This conversation already has a running response",
+            });
           }
           activeConversations.add(conversation.id);
           // Do not release on response close until the aborted agent actually stops.
@@ -1264,11 +1256,9 @@ export function registerAiRoutes(
       activeAiRequests.add(activeRequest);
       try {
         if (await maintenance(ctx))
-          return res
-            .status(503)
-            .json({
-              error: "Application update in progress. Retry after restart.",
-            });
+          return res.status(503).json({
+            error: "Application update in progress. Retry after restart.",
+          });
         const userId = actor(ctx);
         const id = parseId(req.params.id);
         if (!id) return res.status(400).json({ error: "Invalid proposal id" });

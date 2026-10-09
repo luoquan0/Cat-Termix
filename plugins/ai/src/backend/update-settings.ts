@@ -107,11 +107,9 @@ export function registerUpdateSettings(router: Router, ctx: PluginContext) {
         });
         res.json({ success: true });
       } catch {
-        res
-          .status(400)
-          .json({
-            error: "Invalid update settings or settings could not be saved",
-          });
+        res.status(400).json({
+          error: "Invalid update settings or settings could not be saved",
+        });
       }
     },
   );
