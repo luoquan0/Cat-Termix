@@ -402,7 +402,8 @@ export async function createAiRepository(
     async setProposalStatus(
       id: number,
       userId: string,
-      status: "running" | "applied" | "submitted" | "rejected" | "expired" | "failed",
+      status:
+        "running" | "applied" | "submitted" | "rejected" | "expired" | "failed",
       resultSummary?: string | null,
       expectedStatus = "pending",
     ): Promise<boolean> {
@@ -410,7 +411,8 @@ export async function createAiRepository(
         .update(proposals)
         .set({
           status,
-          appliedAt: status === "applied" || status === "submitted" ? now() : null,
+          appliedAt:
+            status === "applied" || status === "submitted" ? now() : null,
           resultSummary: resultSummary ?? null,
         })
         .where(
