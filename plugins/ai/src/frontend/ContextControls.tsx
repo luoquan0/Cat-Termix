@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "@termix/plugin-sdk/frontend";
 import { Button, Input } from "@termix/plugin-sdk/ui";
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
+import type { AiModelContext } from "./ai-api";
 import {
   estimateTextTokens,
   type ContextPolicy,
@@ -54,18 +55,101 @@ export function ContextControls({
   value,
   onChange,
   disabled,
+  modelSelected,
+  modelInfo,
+  modelLoading,
+  modelError,
+  onOverride,
+  onRefresh,
 }: {
   value: ContextPolicy;
   onChange: (value: ContextPolicy) => void;
   disabled: boolean;
+  modelSelected: boolean;
+  modelInfo: AiModelContext | null;
+  modelLoading: boolean;
+  modelError: string | null;
+  onOverride: (capacity: number | null) => Promise<void>;
+  onRefresh: () => void;
 }) {
   const { t } = useTranslation();
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const source = modelInfo?.source ?? "unknown";
+  const sourceKey = source === "upstream" ? "ai.contextSourceUpstream" :
+    source === "catalog" ? "ai.contextSourceCatalog" :
+    source === "manual" ? "ai.contextSourceManual" : "ai.contextSourceUnknown";
+  const saveCapacity = async (capacity: number | null) => {
+    if (!modelSelected) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await onOverride(capacity);
+    } catch (error) {
+      setSaveError(
+        error instanceof Error ? error.message : t("ai.contextSaveFailed"),
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
   return (
     <section
       className="space-y-3 border-t border-border p-3"
       aria-label={t("ai.contextSettings")}
     >
       <h3 className="text-xs font-medium">{t("ai.contextSettings")}</h3>
+      <div className="rounded-sm border border-border p-2 space-y-1 text-xs">
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-medium">{t("ai.contextModelCapacity")}</span>
+          <div className="flex items-center gap-1">
+            {modelLoading && <Loader2 size={13} className="animate-spin" />}
+            {saving && <Loader2 size={13} className="animate-spin" />}
+            <Button
+              type="button" size="sm" variant="ghost" className="h-7"
+              disabled={disabled || !modelSelected || modelLoading || saving}
+              onClick={onRefresh}
+              aria-label={t("ai.contextDetectRefresh")}
+              title={t("ai.contextDetectRefresh")}
+            >
+              <RefreshCw size={13} />
+            </Button>
+          </div>
+        </div>
+        <p className="text-muted-foreground" role="status">
+          {modelSelected ? t(sourceKey) : t("ai.contextChooseModel")}
+          {modelSelected && !modelLoading ? " · " + value.contextWindow.toLocaleString() + " Token" : null}
+        </p>
+        {source === "unknown" && modelSelected && !modelLoading && (
+          <p className="text-[11px] text-muted-foreground">
+            {t("ai.contextUnknownWarning")}
+          </p>
+        )}
+        {modelInfo?.detail && (
+          <p className="text-[11px] text-muted-foreground">{modelInfo.detail}</p>
+        )}
+        {modelInfo?.referenceUrl && (
+          <a
+            href={modelInfo.referenceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[11px] text-accent-brand hover:underline"
+          >
+            {t("ai.contextOfficialReference")}
+          </a>
+        )}
+        {source === "manual" && modelSelected && (
+          <Button
+            type="button" size="sm" variant="outline" className="h-7"
+            disabled={disabled || saving}
+            onClick={() => void saveCapacity(null)}
+          >
+            {t("ai.contextResetAutomatic")}
+          </Button>
+        )}
+        {modelError && <p role="alert" className="text-destructive">{modelError}</p>}
+        {saveError && <p role="alert" className="text-destructive">{saveError}</p>}
+      </div>
       <label className="flex items-center gap-2 text-xs">
         <input
           type="checkbox"
@@ -100,7 +184,7 @@ export function ContextControls({
               min={min}
               max={max}
               step={step}
-              disabled={disabled}
+              disabled={disabled || (key === "contextWindow" && (!modelSelected || saving))}
               onChange={(n) => {
                 const next = {
                   ...value,
@@ -111,6 +195,10 @@ export function ContextControls({
                   Math.floor(next.contextWindow / 2),
                 );
                 onChange(next);
+                if (key === "contextWindow") {
+                  // Editing this field explicitly creates a per-model override.
+                  void saveCapacity(next.contextWindow);
+                }
               }}
             />
           </label>
@@ -118,6 +206,7 @@ export function ContextControls({
       </div>
       <p className="text-[11px] text-muted-foreground">
         {t("ai.contextExplanation")}
+        {" "}{t("ai.contextOverrideHint")}
       </p>
     </section>
   );
