@@ -145,7 +145,6 @@ export async function activate(ctx: PluginContext) {
   const currentPolicy = async () =>
     resolveTransportPolicy((await store.read()).transport, process.env);
 
-
   // Signed paths accept exact old /agent/v1 URLs. Everything is parsed as raw
   // bytes before comparing the SHA-256 included in the Ed25519 signature.
   router.use("/v1", (req, res, next) => {
