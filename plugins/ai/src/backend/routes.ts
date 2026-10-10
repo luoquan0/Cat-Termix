@@ -590,7 +590,7 @@ export function registerAiRoutes(
           typeof rawModel !== "string" ||
           !rawModel.trim() ||
           rawModel.length > 200 ||
-          /[\\x00-\\x1F]/.test(rawModel))
+          /[\x00-\x1F]/.test(rawModel))
         return res.status(400).json({ error: "Invalid provider or model" });
       const model = rawModel.trim();
       try {
@@ -631,7 +631,7 @@ export function registerAiRoutes(
           typeof model !== "string" ||
           !model.trim() ||
           model.length > 200 ||
-          /[\\x00-\\x1F]/.test(model) ||
+          /[\x00-\x1F]/.test(model) ||
           (rawWindow !== null && capacityNumber(rawWindow) !== rawWindow))
         return res.status(400).json({ error: "Invalid model context override" });
       try {
