@@ -128,7 +128,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=2.9.2-ai-preview.4
+            org.opencontainers.image.version=2.9.2-ai-preview.5
             org.opencontainers.image.title=Cat-Termix AI Preview
       - name: Start the exact image and check health, web and bundled AI
         env:

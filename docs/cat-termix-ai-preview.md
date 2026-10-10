@@ -1,6 +1,6 @@
-# Cat-Termix AI Preview 4 测试版
+# Cat-Termix AI Preview 5 测试版
 
-开发分支 `Cat-Termix`，基于 2.9.2，不修改 `main`，也不覆盖 `latest`。测试镜像固定使用 `ghcr.io/luoquan0/cat-termix:ai-dev`；发布流水线在全部回归、AMD64/ARM64 构建和启动检查成功后才更新该标签。每次发布保留 `sha-<完整提交 SHA>`，镜像版本标签为 `2.9.2-ai-preview.4`。
+开发分支 `Cat-Termix`，基于 2.9.2，不修改 `main`，也不覆盖 `latest`。测试镜像固定使用 `ghcr.io/luoquan0/cat-termix:ai-dev`；发布流水线在全部回归、AMD64/ARM64 构建和启动检查成功后才更新该标签。每次发布保留 `sha-<完整提交 SHA>`，镜像版本标签为 `2.9.2-ai-preview.5`。
 
 ## 独立聊天设置悬浮窗
 
