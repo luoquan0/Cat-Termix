@@ -109,13 +109,29 @@ async function fromUpstream(config: ProviderConfig, model: string): Promise<Dete
 }
 /** Live metadata wins. Catalog is exact first-party only. */
 export async function detectModelContext(config: ProviderConfig, model: string): Promise<DetectedContext> {
+  const controller = new AbortController();
+  // Model discovery is optional; never block the chat UI for the provider's
+  // 10-minute generation timeout when only model metadata is requested.
+  const timer = setTimeout(() => controller.abort(), 7000);
   try {
-    const live = await fromUpstream(config, model);
+    const probe: ProviderConfig = {
+      ...config,
+      fetch: (url, init) => config.fetch(url, { ...init, signal: controller.signal }),
+    };
+    const live = await fromUpstream(probe, model);
     if (live) return live;
   } catch {
     // Best-effort: a broken metadata endpoint should not break chat.
+  } finally {
+    clearTimeout(timer);
   }
-  const official = VERIFIED_MODELS[config.providerType]?.[model];
+  const configured = config.baseUrl?.trim().replace(/\/+$/, "");
+  const firstParty =
+    (config.providerType === "openai" &&
+      (!configured || configured === "https://api.openai.com/v1")) ||
+    (config.providerType === "gemini" &&
+      (!configured || configured === "https://generativelanguage.googleapis.com/v1beta"));
+  const official = firstParty ? VERIFIED_MODELS[config.providerType]?.[model] : undefined;
   if (official) return {
     contextWindow: official.contextWindow, maxOutputTokens: official.maxOutputTokens ?? null,
     source: "catalog", referenceUrl: official.referenceUrl,

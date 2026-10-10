@@ -596,17 +596,28 @@ export function registerAiRoutes(
       try {
         const provider = await repository.findProviderWithSecret(providerId, userId);
         if (!provider) return res.status(404).json({ error: "Provider not found" });
-        const [detected, override] = await Promise.all([
-          detectModelContext(await providerConfig(provider), model),
-          repository.getModelContextOverride(userId, providerId, model),
-        ]);
+        const override = await repository.getModelContextOverride(
+          userId, providerId, model,
+        );
+        if (override !== null) {
+          // Saved values work immediately even when the gateway is offline.
+          return res.json({
+            providerId, model, contextWindow: override,
+            detectedWindow: null, source: "manual", detectedSource: "unknown",
+            manualOverride: override, maxOutputTokens: null,
+            referenceUrl: null, detail: null,
+          });
+        }
+        const detected = await detectModelContext(
+          await providerConfig(provider), model,
+        );
         res.json({
           providerId, model,
-          contextWindow: override ?? detected.contextWindow ?? 32768,
+          contextWindow: detected.contextWindow ?? 32768,
           detectedWindow: detected.contextWindow,
-          source: override !== null ? "manual" : detected.source,
+          source: detected.source,
           detectedSource: detected.source,
-          manualOverride: override,
+          manualOverride: null,
           maxOutputTokens: detected.maxOutputTokens,
           referenceUrl: detected.referenceUrl,
           detail: detected.detail,
