@@ -39,9 +39,7 @@ export function UpdateSettings() {
   const [confirm, setConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pollError, setPollError] = useState(false);
-  const [recoveryPhase, setRecoveryPhase] = useState(
-    getUpdateRecoveryPhase,
-  );
+  const [recoveryPhase, setRecoveryPhase] = useState(getUpdateRecoveryPhase);
 
   useEffect(() => subscribeUpdateRecovery(setRecoveryPhase), []);
 

@@ -147,17 +147,22 @@ export function isVerifiedReplacement(
 }
 
 function displayMessage(kind: Notice, english: string, chinese: string): void {
-  const message = typeof navigator !== "undefined" &&
+  const message =
+    typeof navigator !== "undefined" &&
     navigator.language.toLowerCase().startsWith("zh")
-    ? chinese
-    : english;
+      ? chinese
+      : english;
   if (kind === "success") toast.success(message);
   else if (kind === "error") toast.error(message);
   else toast.info(message);
 }
 const defaultNotify = (kind: Notice, message: string) => {
   if (kind === "success")
-    displayMessage(kind, "Cat-Termix updated successfully. The page was refreshed.", "Cat-Termix 更新成功，页面已自动刷新。");
+    displayMessage(
+      kind,
+      "Cat-Termix updated successfully. The page was refreshed.",
+      "Cat-Termix 更新成功，页面已自动刷新。",
+    );
   else if (kind === "error")
     displayMessage(kind, message, "更新未完成，请检查更新器状态。");
   else displayMessage(kind, message, "Cat-Termix 已是最新版本或更新已延后。");
@@ -176,7 +181,10 @@ export function consumeUpdateSuccessNotification(
       Number.isFinite(saved.completedAt) &&
       Date.now() - saved.completedAt < MAX_WAIT_MS
     ) {
-      notify("success", "Cat-Termix updated successfully. The page was refreshed.");
+      notify(
+        "success",
+        "Cat-Termix updated successfully. The page was refreshed.",
+      );
     }
   } catch {
     // Ignore invalid session storage.
