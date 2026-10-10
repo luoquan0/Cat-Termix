@@ -1,4 +1,5 @@
 name: Cat-Termix One-Shot Formatter
+# Second and final formatting pass for device-idempotency and route updates.
 
 on:
   push:

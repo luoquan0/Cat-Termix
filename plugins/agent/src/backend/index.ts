@@ -286,7 +286,10 @@ export async function activate(ctx: PluginContext) {
       const id = getString(req.params.projectId, "项目");
       if (!(await operations.projectsFor(device)).some((p) => p.id === id))
         fail(403, "PROJECT_DENIED", "项目未授权");
-      const creds = await ctx.credentials.listSshKeys();
+      if (!device.scopes.includes("servers:create") &&
+      !device.scopes.includes("quick-connections:create"))
+      fail(403, "SCOPE_DENIED", "设备无权读取保存的凭据元数据");
+    const creds = await ctx.credentials.listSshKeys();
       res.json({
         credentials: creds.map((key) => ({
           id: String(key.id),

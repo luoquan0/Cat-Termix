@@ -57,7 +57,7 @@ export type AgentState = {
   devices: Device[];
   requests: DeviceRequest[];
   nonces: Record<string, number>;
-  idempotency: Record<string, { hash: string; data: unknown; until: number }>;
+  idempotency: Record<string, { hash: string; data: unknown; until: number; pending?: boolean }>;
   transport: TransportPolicy;
 };
 
@@ -410,35 +410,45 @@ export class AgentStore {
     if (!key)
       return fail(400, "IDEMPOTENCY_KEY_REQUIRED", "写操作必须指定幂等键");
     const cacheKey = deviceId + ":" + key;
-    const saved = (await this.read()).idempotency[cacheKey];
-    if (saved) {
-      if (saved.hash !== hash)
-        return fail(409, "IDEMPOTENCY_CONFLICT", "幂等键与请求内容不一致");
-      return saved.data as T;
-    }
-    // An in-flight duplicate must never trigger an extra remote side effect.
-    if (this.inflight.has(cacheKey))
-      return fail(
-        409,
-        "IDEMPOTENCY_OUTCOME_UNKNOWN",
-        "操作可能正在执行，先查询其状态",
-      );
-    this.inflight.add(cacheKey);
-    try {
-      const result = await op();
-      await this.update((data) => {
-        data.idempotency[cacheKey] = {
-          hash,
-          data: result,
-          until: Date.now() + 7 * 86_400_000,
-        };
-      });
-      return result;
-    } finally {
-      this.inflight.delete(cacheKey);
-    }
+    const reservation = await this.update((data) => {
+      const saved = data.idempotency[cacheKey];
+      if (saved) {
+        if (saved.hash !== hash)
+          return fail(409, "IDEMPOTENCY_CONFLICT", "幂等键与请求内容不一致");
+        if (saved.pending)
+          return fail(
+            409,
+            "IDEMPOTENCY_OUTCOME_UNKNOWN",
+            "上次操作的结果尚未确认，请查询远程状态，不要自动重复执行",
+          );
+        return { cached: true as const, value: saved.data };
+      }
+      if (Object.keys(data.idempotency).length >= 1024)
+        return fail(429, "IDEMPOTENCY_STORAGE_FULL", "幂等记录已满");
+      // Save an in-progress marker BEFORE launching any SSH or file side effect.
+      // If the process crashes, replays fail closed rather than running twice.
+      data.idempotency[cacheKey] = {
+        hash,
+        data: null,
+        pending: true,
+        until: Date.now() + 7 * 86_400_000,
+      };
+      return { cached: false as const };
+    });
+    if (reservation.cached) return reservation.value as T;
+    const result = await op();
+    await this.update((data) => {
+      const entry = data.idempotency[cacheKey];
+      if (!entry || entry.hash !== hash || !entry.pending)
+        return fail(409, "IDEMPOTENCY_CONFLICT", "幂等记录不一致");
+      data.idempotency[cacheKey] = {
+        hash,
+        data: result,
+        until: Date.now() + 7 * 86_400_000,
+      };
+    });
+    return result;
   }
-  private inflight = new Set<string>();
 }
 function consumeNonce(
   data: AgentState,
