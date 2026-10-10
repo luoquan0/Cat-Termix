@@ -145,6 +145,8 @@ describe("ai routes", () => {
     ["DELETE", "/providers/1", "ai.manage_providers"],
     ["POST", "/probe-models", "ai.manage_providers"],
     ["GET", "/providers/1/models", "ai.use"],
+    ["GET", "/providers/1/model-context?model=test", "ai.use"],
+    ["PUT", "/providers/1/model-context", "ai.use"],
     ["GET", "/conversations", "ai.use"],
     ["GET", "/conversations/1", "ai.use"],
     ["DELETE", "/conversations/1", "ai.use"],
