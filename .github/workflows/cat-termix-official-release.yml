@@ -106,8 +106,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # Creating the lightweight tag separately avoids relying on GitHub
+          # Releases' implicit tag creation path. Never force-move an existing tag.
+          if ! gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" > /dev/null 2>&1; then
+            echo "Creating immutable tag refs/tags/$RELEASE_TAG at verified source $SOURCE_SHA"
+            gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$SOURCE_SHA" \
+              --jq '.ref'
+          fi
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq .object.sha)" = "$SOURCE_SHA"
           if ! gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" \
+            gh release create "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --verify-tag \
               --target "$SOURCE_SHA" \
               --title "Cat-Termix 2.9.2 - AI + Local Agent" \
               --notes-file docs/releases/v2.9.2-cat-termix.9.md \
