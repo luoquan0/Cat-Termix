@@ -167,9 +167,15 @@ const upload = multer({
   },
 });
 
-// Skipped for /plugin-api: a plugin router brings its own parsers with its own
-// limit (see plugins/http.ts), and parsing here first would consume the body
-// and silently cap every plugin at this limit instead.
+// Plugin API and the signed /agent/v1 legacy route own their body parsers.
+// Parsing signed Agent requests here would destroy the original bytes needed
+// for Ed25519 SHA-256 verification (and prematurely impose the 2 MiB limit).
+// Match only this explicit legacy route to avoid changing core API parsing.
+function usesPluginBodyParser(path: string): boolean {
+  return path.startsWith("/plugin-api/") ||
+    path === "/agent/v1" ||
+    path.startsWith("/agent/v1/");
+}
 const coreJsonParser = bodyParser.json({ limit: "2mb" });
 const coreUrlencodedParser = bodyParser.urlencoded({
   limit: "2mb",
@@ -177,11 +183,11 @@ const coreUrlencodedParser = bodyParser.urlencoded({
 });
 
 app.use((req, res, next) => {
-  if (req.path.startsWith("/plugin-api/")) return next();
+  if (usesPluginBodyParser(req.path)) return next();
   coreJsonParser(req, res, next);
 });
 app.use((req, res, next) => {
-  if (req.path.startsWith("/plugin-api/")) return next();
+  if (usesPluginBodyParser(req.path)) return next();
   coreUrlencodedParser(req, res, next);
 });
 app.use(cookieParser());
