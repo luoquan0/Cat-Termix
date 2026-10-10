@@ -172,9 +172,11 @@ const upload = multer({
 // for Ed25519 SHA-256 verification (and prematurely impose the 2 MiB limit).
 // Match only this explicit legacy route to avoid changing core API parsing.
 function usesPluginBodyParser(path: string): boolean {
-  return path.startsWith("/plugin-api/") ||
+  return (
+    path.startsWith("/plugin-api/") ||
     path === "/agent/v1" ||
-    path.startsWith("/agent/v1/");
+    path.startsWith("/agent/v1/")
+  );
 }
 const coreJsonParser = bodyParser.json({ limit: "2mb" });
 const coreUrlencodedParser = bodyParser.urlencoded({
