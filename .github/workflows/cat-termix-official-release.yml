@@ -60,8 +60,27 @@ jobs:
       - name: Promote verified AMD64 image and inspect rolling tag
         run: |
           set -euo pipefail
+          # GHCR may briefly return an empty response; log the actual registry
+          # failure rather than letting a silent pipe exit 255 abort this release.
+          docker buildx version
           index_digest() {
-            docker buildx imagetools inspect "$1" | awk '$1 == "Digest:" { print $2; exit }'
+            local ref="$1" attempt body digest
+            for attempt in 1 2 3 4; do
+              echo "Inspecting registry manifest: $ref (attempt $attempt)" >&2
+              if body="$(docker buildx imagetools inspect "$ref" 2>&1)"; then
+                digest="$(printf '%s\n' "$body" | awk '$1 == "Digest:" { print $2; exit }')"
+                if [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                  echo "Digest for $ref: $digest" >&2
+                  printf '%s\n' "$digest"
+                  return 0
+                fi
+                echo "Unrecognized image manifest output: $body" >&2
+              else
+                echo "Image inspect failed: $body" >&2
+              fi
+              sleep 4
+            done
+            return 1
           }
           tested="$(index_digest "$IMAGE:sha-$SOURCE_SHA")"
           previous="$(index_digest "$IMAGE:ai-dev")"
