@@ -8,6 +8,7 @@ import {
   consumeUpdateSuccessNotification,
   getUpdateRecoveryPhase,
   isVerifiedReplacement,
+  isObservedAutomaticReplacement,
   pollUpdateRestartOnce,
   readUpdateRestartIntent,
   startUpdateRestartMonitor,
@@ -227,6 +228,50 @@ describe("Docker replacement browser recovery", () => {
       { now: () => now + 10000, reload, notify: vi.fn() },
     );
     expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it("detects an unattended update without opening the system settings drawer", async () => {
+    const before = updaterInfo({
+      ...baseStatus,
+      phase: "current",
+      lastSuccessAt: "2026-10-09T13:00:00.000Z",
+    });
+    const after = updaterInfo({
+      ...baseStatus,
+      phase: "updated",
+      currentRevision: newRevision,
+      lastSuccessAt: "2026-10-10T03:40:00.000Z",
+    });
+    expect(isObservedAutomaticReplacement(before, after)).toBe(true);
+    expect(isObservedAutomaticReplacement(null, after)).toBe(false);
+    expect(isObservedAutomaticReplacement(after, after)).toBe(false);
+    expect(isObservedAutomaticReplacement(before, updaterInfo({
+      ...baseStatus, phase: "checking", currentRevision: newRevision,
+    }))).toBe(false);
+
+    let response = before;
+    let clock = now;
+    const reload = vi.fn();
+    const read = vi.fn(async () => response);
+    vi.useFakeTimers();
+    const stop = startUpdateRestartMonitor(read, {
+      now: () => clock,
+      reload,
+      notify: vi.fn(),
+    });
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(read).toHaveBeenCalled();
+      response = after;
+      clock += 12000;
+      await vi.advanceTimersByTimeAsync(2100);
+      expect(reload).toHaveBeenCalledOnce();
+      expect(window.sessionStorage.getItem(UPDATE_RESTART_SUCCESS_KEY))
+        .toContain(newRevision);
+    } finally {
+      stop();
+      vi.useRealTimers();
+    }
   });
 
   it("continues monitoring even if settings unmounts", async () => {
