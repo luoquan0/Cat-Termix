@@ -1,0 +1,49 @@
+{
+  "nav": {
+    "agent": "Local Agent"
+  },
+  "permissions": {
+    "manage": {
+      "title": "Manage local agent devices",
+      "description": "Approve and revoke devices permitted to use your SSH hosts."
+    },
+    "manage_http": {
+      "title": "Manage Agent HTTP policy",
+      "description": "Allow explicit private source IPs to connect by HTTP."
+    }
+  },
+  "agent": {
+    "title": "Local Agent Access",
+    "description": "Pair a local AI tool using Ed25519 device keys. No API token or SSH secret export is required.",
+    "code": "Pairing code",
+    "verify": "Look up device",
+    "approve": "Approve",
+    "deny": "Reject",
+    "scopes": "Permissions",
+    "projects": "Authorized host folders",
+    "all": "All my hosts",
+    "selected": "Selected folders",
+    "devices": "Authorized devices",
+    "revoke": "Revoke",
+    "none": "No devices paired",
+    "howto": "Install the CloudSSH Agent skill, then run this command on your local computer.",
+    "httpHelp": "HTTP works only for approved private source IPs; the client must explicitly use --allow-http.",
+    "httpTitle": "Agent LAN HTTP",
+    "httpToggle": "Permit HTTP from selected private IP ranges",
+    "cidrs": "Allowed source CIDRs (one per line)",
+    "save": "Save HTTP policy",
+    "refresh": "Refresh",
+    "locked": "Deployment settings lock this policy.",
+    "onlyPrivate": "Use HTTPS or a trusted private-network source to configure this policy.",
+    "status": "Current source IP",
+    "notice": "This does not weaken Ed25519 signatures or host permissions. Public connections require HTTPS.",
+    "failure": "Request failed",
+    "success": "Saved successfully",
+    "fingerprint": "Fingerprint",
+    "scopeWrite": "File write permissions should be granted only when needed.",
+    "expires": "Expiration (optional)",
+    "maxSessions": "Maximum concurrent sessions",
+    "confirmRevoke": "Revoke this device?",
+    "copy": "Copy"
+  }
+}

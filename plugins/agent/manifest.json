@@ -1,0 +1,74 @@
+{
+  "id": "agent",
+  "name": "Local Agent",
+  "version": "1.0.0",
+  "description": "Signed local AI agent device pairing, scoped host access, SSH jobs, persistent sessions and SFTP.",
+  "author": {
+    "name": "Cat-Termix"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/luoquan0/Cat-Termix",
+  "category": "Infrastructure",
+  "icon": "Bot",
+  "engine": {
+    "termix": ">=2.9.0",
+    "api": "1"
+  },
+  "capabilities": [
+    "hosts:read",
+    "hosts:write",
+    "credentials:use",
+    "ssh:connect",
+    "users:impersonate",
+    "network:serve",
+    "kv:own",
+    "ui:surface"
+  ],
+  "contributes": {
+    "tabs": [
+      {
+        "id": "agent",
+        "titleKey": "nav.agent",
+        "icon": "Bot",
+        "openFrom": [
+          "rail",
+          "palette"
+        ]
+      }
+    ],
+    "permissions": [
+      {
+        "name": "manage",
+        "titleKey": "permissions.manage.title",
+        "descriptionKey": "permissions.manage.description",
+        "defaultRoles": [
+          "admin",
+          "user"
+        ]
+      },
+      {
+        "name": "manage_http",
+        "titleKey": "permissions.manage_http.title",
+        "descriptionKey": "permissions.manage_http.description",
+        "defaultRoles": [
+          "admin"
+        ]
+      }
+    ],
+    "http": {
+      "legacyPaths": [
+        "/agent/v1"
+      ]
+    },
+    "uses": [
+      "system.adminSettings.sections"
+    ]
+  },
+  "locales": "locales",
+  "platforms": [
+    "linux",
+    "win32",
+    "darwin"
+  ],
+  "desktop": "server"
+}

@@ -1,0 +1,49 @@
+{
+  "nav": {
+    "agent": "本地 Agent 接入"
+  },
+  "permissions": {
+    "manage": {
+      "title": "管理本地 Agent 设备",
+      "description": "批准或撤销设备对本人 SSH 主机的访问授权。"
+    },
+    "manage_http": {
+      "title": "管理 Agent HTTP 策略",
+      "description": "允许指定可信内网来源使用 HTTP 连接。"
+    }
+  },
+  "agent": {
+    "title": "本地 Agent 接入",
+    "description": "使用 Ed25519 设备密钥接入本地 AI，无需平台 Token 或导出 SSH 凭据。",
+    "code": "设备配对码",
+    "verify": "查找设备",
+    "approve": "批准设备",
+    "deny": "拒绝",
+    "scopes": "授权范围",
+    "projects": "允许访问的主机分类",
+    "all": "我拥有的全部主机",
+    "selected": "指定分类",
+    "devices": "已授权设备",
+    "revoke": "撤销",
+    "none": "暂无已授权设备",
+    "howto": "在本地 AI 客户端安装 CloudSSH Agent Skill，然后运行：",
+    "httpHelp": "仅允许管理员配置的可信内网来源使用 HTTP，客户端仍须显式 --allow-http。",
+    "httpTitle": "Agent 内网 HTTP",
+    "httpToggle": "允许指定内网来源使用 HTTP",
+    "cidrs": "允许来源 CIDR（每行一个）",
+    "save": "保存 HTTP 设置",
+    "refresh": "刷新",
+    "locked": "部署环境已锁定 HTTP 设置。",
+    "onlyPrivate": "请通过 HTTPS 或可信内网管理来源配置。",
+    "status": "当前来源 IP",
+    "notice": "此配置不放宽设备签名及主机访问权限。公网使用 HTTPS。",
+    "failure": "请求失败",
+    "success": "已保存",
+    "fingerprint": "设备指纹",
+    "scopeWrite": "文件写入权限请按需单独授权。",
+    "expires": "到期时间（可选）",
+    "maxSessions": "最大并发会话数",
+    "confirmRevoke": "确认撤销此设备？",
+    "copy": "复制"
+  }
+}
