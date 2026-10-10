@@ -99,6 +99,18 @@
     "terminalContextPrefill": "以下是我的終端輸出：\n\n{{output}}\n\n",
     "secrets": {
       "shareApiKey": "允許其他功能使用您的 AI 提供者 API 金鑰發出各自的請求。該密鑰絕不會被複製，您可以隨時撤銷此授權。"
+    },
+    "configureModelChannels": "管理模型管道",
+    "defaultReasoningEffort": "此管道的預設思考程度",
+    "reasoningEffort": "思考程度",
+    "preferencesSaveFailed": "儲存聊天偏好失敗，請重試",
+    "reasoning": {
+      "auto": "自動",
+      "off": "關閉",
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "xhigh": "極高"
     }
   },
   "nav": {

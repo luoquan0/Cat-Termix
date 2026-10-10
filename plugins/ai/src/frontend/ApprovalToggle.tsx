@@ -3,7 +3,7 @@ import { useTranslation } from "@termix/plugin-sdk/frontend";
 import { Button } from "@termix/plugin-sdk/ui";
 import type { ApprovalMode } from "./AiSessionControls";
 
-/** An explicit, session-only one-click switch. RBAC and audit logging remain enabled. */
+/** Persistent user opt-in; RBAC, host scope and audit logging remain enabled. */
 export function ApprovalToggle({
   mode,
   onChange,

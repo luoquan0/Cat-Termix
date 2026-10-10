@@ -21,7 +21,9 @@ import {
   updateAiProvider,
   type AiProvider,
   type AiProviderType,
+  type ReasoningEffort,
 } from "./ai-api";
+import { REASONING_EFFORTS } from "../shared/reasoning";
 
 const PROVIDER_TYPES: Array<{
   value: AiProviderType;
@@ -82,6 +84,8 @@ function AiProviderEditForm({
   const { t } = useTranslation();
   const [label, setLabel] = useState(provider.label);
   const [defaultModel, setDefaultModel] = useState(provider.defaultModel ?? "");
+  const [defaultReasoningEffort, setDefaultReasoningEffort] =
+    useState<ReasoningEffort>(provider.defaultReasoningEffort ?? "auto");
   const [models, setModels] = useState<string[]>([]);
   const [customModel, setCustomModel] = useState(false);
   const [detecting, setDetecting] = useState(false);
@@ -122,6 +126,7 @@ function AiProviderEditForm({
       await updateAiProvider(provider.id, {
         label: label.trim(),
         defaultModel: defaultModel.trim() || null,
+        defaultReasoningEffort,
       });
       toast.success(t("ai.providerUpdated"));
       onSaved();
@@ -213,6 +218,29 @@ function AiProviderEditForm({
         )}
       </div>
 
+      <div className="space-y-1.5">
+        <Label htmlFor={`ai-provider-thinking-${provider.id}`}>
+          {t("ai.defaultReasoningEffort")}
+        </Label>
+        <Select
+          value={defaultReasoningEffort}
+          onValueChange={(value) =>
+            setDefaultReasoningEffort(value as ReasoningEffort)
+          }
+        >
+          <SelectTrigger id={`ai-provider-thinking-${provider.id}`}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="z-[300]">
+            {REASONING_EFFORTS.map((effort) => (
+              <SelectItem key={effort} value={effort}>
+                {t(`ai.reasoning.${effort}`)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       <div className="flex gap-2">
         <Button size="sm" disabled={saving} onClick={() => void handleSave()}>
           {saving && <Loader2 size={14} className="animate-spin" />}
@@ -245,6 +273,8 @@ export function AiProviderSettings({
   const [baseUrl, setBaseUrl] = useState("http://localhost:11434");
   const [apiKey, setApiKey] = useState("");
   const [defaultModel, setDefaultModel] = useState("");
+  const [defaultReasoningEffort, setDefaultReasoningEffort] =
+    useState<ReasoningEffort>("auto");
 
   const [models, setModels] = useState<string[]>([]);
   const [detecting, setDetecting] = useState(false);
@@ -258,6 +288,7 @@ export function AiProviderSettings({
     setApiKey("");
     setModels([]);
     setDefaultModel("");
+    setDefaultReasoningEffort("auto");
     setCustomModel(false);
     setDetectWarning(null);
   }, [providerType, spec.defaultBaseUrl]);
@@ -312,11 +343,13 @@ export function AiProviderSettings({
         baseUrl: baseUrl.trim() || null,
         apiKey: apiKey.trim() || null,
         defaultModel: defaultModel.trim() || null,
+        defaultReasoningEffort,
       });
       setAdding(false);
       setLabel("");
       setApiKey("");
       setDefaultModel("");
+      setDefaultReasoningEffort("auto");
       onChanged(created.id);
       onAdded?.();
     } catch (error) {
@@ -362,6 +395,9 @@ export function AiProviderSettings({
                 {provider.defaultModel && (
                   <span className="truncate">{provider.defaultModel}</span>
                 )}
+                <span className="truncate">
+                  {t(`ai.reasoning.${provider.defaultReasoningEffort ?? "auto"}`)}
+                </span>
                 {provider.baseUrl && (
                   <span className="truncate">{provider.baseUrl}</span>
                 )}
@@ -529,6 +565,27 @@ export function AiProviderSettings({
                 {detectWarning}
               </p>
             )}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>{t("ai.defaultReasoningEffort")}</Label>
+            <Select
+              value={defaultReasoningEffort}
+              onValueChange={(value) =>
+                setDefaultReasoningEffort(value as ReasoningEffort)
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="z-[300]">
+                {REASONING_EFFORTS.map((effort) => (
+                  <SelectItem key={effort} value={effort}>
+                    {t(`ai.reasoning.${effort}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex gap-2">
