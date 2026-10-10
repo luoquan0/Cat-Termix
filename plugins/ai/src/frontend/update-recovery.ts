@@ -121,6 +121,27 @@ export function armUpdateRestart(
 }
 
 /** Never refresh for checks, old "updated" statuses or unverified restarts. */
+/** Compare two authenticated app snapshots to catch scheduled auto-installs. */
+export function isObservedAutomaticReplacement(
+  before: UpdateInfo | null,
+  after: UpdateInfo,
+): boolean {
+  const previous = before?.status;
+  const latest = after.status;
+  return Boolean(
+    before?.canManage &&
+      before.installed &&
+      after.canManage &&
+      after.installed &&
+      previous?.currentRevision &&
+      latest?.currentRevision &&
+      previous.currentRevision !== latest.currentRevision &&
+      latest.phase === "updated" &&
+      latest.lastSuccessAt &&
+      previous.lastSuccessAt !== latest.lastSuccessAt,
+  );
+}
+
 export function isVerifiedReplacement(
   intent: UpdateRestartIntent,
   info: UpdateInfo,
@@ -268,11 +289,44 @@ export function startUpdateRestartMonitor(
   consumeUpdateSuccessNotification(options.notify);
   let polling = false;
   let stopped = false;
+  let lastIdlePoll = 0;
+  let previousInfo: UpdateInfo | null = null;
   const run = async () => {
-    if (stopped || polling || !readUpdateRestartIntent()) return;
+    if (stopped || polling) return;
+    const pending = readUpdateRestartIntent();
+    const now = options.now?.() ?? Date.now();
+    // Nothing is fetched every 2 seconds when idle. This low-rate baseline
+    // catches unattended auto-installs even with the settings drawer closed.
+    if (!pending && now - lastIdlePoll < 10000) return;
     polling = true;
     try {
-      await pollUpdateRestartOnce(getUpdateInfo, options);
+      if (pending) {
+        await pollUpdateRestartOnce(getUpdateInfo, options);
+        return;
+      }
+      lastIdlePoll = now;
+      let info: UpdateInfo;
+      try {
+        info = await getUpdateInfo();
+      } catch {
+        // A brief outage is expected while the updater stops the old app.
+        return;
+      }
+      if (!info.canManage || !info.installed || !info.status) {
+        previousInfo = null;
+        return;
+      }
+      if (isObservedAutomaticReplacement(previousInfo, info)) {
+        armUpdateRestart(previousInfo?.status, "automatic", null, now);
+        await pollUpdateRestartOnce(async () => info, options);
+      } else if (
+        info.status.phase === "downloading" ||
+        info.status.phase === "backing_up" ||
+        info.status.phase === "verifying"
+      ) {
+        armUpdateRestart(info.status, "automatic", null, now);
+      }
+      previousInfo = info;
     } finally {
       polling = false;
     }
