@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { generateKeyPairSync, randomBytes, sign, type KeyObject } from "node:crypto";
+import {
+  generateKeyPairSync,
+  randomBytes,
+  sign,
+  type KeyObject,
+} from "node:crypto";
 import type { Request } from "express";
 import type { PluginContext } from "@termix/plugin-sdk/backend";
 import {
@@ -17,7 +22,9 @@ function fakeContext(): PluginContext {
   return {
     kv: {
       get: async (key: string) => state.get(key),
-      set: async (key: string, value: unknown) => { state.set(key, structuredClone(value)); },
+      set: async (key: string, value: unknown) => {
+        state.set(key, structuredClone(value));
+      },
       delete: async (key: string) => state.delete(key),
       list: async () => [...state.keys()],
     },
@@ -33,10 +40,21 @@ function signedRequest(
   const timestamp = String(Date.now());
   const digest = sha256(body);
   const requestId = "test-" + randomBytes(6).toString("hex");
-  const signature = sign(null, Buffer.from(canonicalDeviceRequest({
-    method: "GET", pathAndQuery: publicPath, timestamp, nonce,
-    bodyHash: digest, idempotencyKey: "", requestId,
-  })), privateKey).toString("base64url");
+  const signature = sign(
+    null,
+    Buffer.from(
+      canonicalDeviceRequest({
+        method: "GET",
+        pathAndQuery: publicPath,
+        timestamp,
+        nonce,
+        bodyHash: digest,
+        idempotencyKey: "",
+        requestId,
+      }),
+    ),
+    privateKey,
+  ).toString("base64url");
   const headers = new Map([
     ["x-cloudssh-device-id", deviceId],
     ["x-cloudssh-timestamp", timestamp],
@@ -56,8 +74,13 @@ describe("Local Agent signed identity", () => {
   it("pairs an Ed25519 device, verifies signatures, and rejects nonce reuse", async () => {
     const store = new AgentStore(fakeContext());
     const keys = generateKeyPairSync("ed25519");
-    const publicKey = keys.publicKey.export({ format: "pem", type: "spki" }).toString();
-    const { code, requestId } = await store.createRequest("Laptop AI", publicKey);
+    const publicKey = keys.publicKey
+      .export({ format: "pem", type: "spki" })
+      .toString();
+    const { code, requestId } = await store.createRequest(
+      "Laptop AI",
+      publicKey,
+    );
     expect(code).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
     const device = await store.approve("u1", code, {
       scopes: ["jobs:execute", "files:read"],
@@ -67,49 +90,87 @@ describe("Local Agent signed identity", () => {
     });
     const url = "/agent/v1/servers";
     const req = signedRequest(url, keys.privateKey, device.id);
-    expect(await store.authenticate(req, Buffer.alloc(0))).toMatchObject({ id: device.id });
-    await expect(store.authenticate(req, Buffer.alloc(0))).rejects.toMatchObject({
+    expect(await store.authenticate(req, Buffer.alloc(0))).toMatchObject({
+      id: device.id,
+    });
+    await expect(
+      store.authenticate(req, Buffer.alloc(0)),
+    ).rejects.toMatchObject({
       code: "DEVICE_REQUEST_REPLAYED",
     });
     const registration = signedRequest(
       "/agent/v1/auth/device-requests/" + requestId,
-      keys.privateKey, "", Buffer.alloc(0),
+      keys.privateKey,
+      "",
+      Buffer.alloc(0),
     );
     registration.params = { requestId };
-    expect(await store.poll(registration)).toEqual({ status: "approved", deviceId: device.id });
+    expect(await store.poll(registration)).toEqual({
+      status: "approved",
+      deviceId: device.id,
+    });
     await store.revoke("u1", device.id);
     await expect(
-      store.authenticate(signedRequest(url, keys.privateKey, device.id), Buffer.alloc(0)),
+      store.authenticate(
+        signedRequest(url, keys.privateKey, device.id),
+        Buffer.alloc(0),
+      ),
     ).rejects.toMatchObject({ code: "DEVICE_NOT_AUTHORIZED" });
   });
   it("rejects a mismatching body without burning the signed nonce", async () => {
     const store = new AgentStore(fakeContext());
     const keys = generateKeyPairSync("ed25519");
-    const publicKey = keys.publicKey.export({ format: "pem", type: "spki" }).toString();
+    const publicKey = keys.publicKey
+      .export({ format: "pem", type: "spki" })
+      .toString();
     const { code } = await store.createRequest("Laptop AI", publicKey);
     const device = await store.approve("u1", code, {
-      scopes: ["jobs:execute"], accessMode: "all", projectIds: [], hostIds: [],
+      scopes: ["jobs:execute"],
+      accessMode: "all",
+      projectIds: [],
+      hostIds: [],
     });
     const req = signedRequest("/agent/v1/servers", keys.privateKey, device.id);
-    await expect(store.authenticate(req, Buffer.from("tampered"))).rejects.toMatchObject({
+    await expect(
+      store.authenticate(req, Buffer.from("tampered")),
+    ).rejects.toMatchObject({
       code: "DEVICE_BODY_TAMPERED",
     });
-    expect(await store.authenticate(req, Buffer.alloc(0))).toMatchObject({ id: device.id });
+    expect(await store.authenticate(req, Buffer.alloc(0))).toMatchObject({
+      id: device.id,
+    });
   });
 });
 describe("Local Agent HTTP and project scope", () => {
   it("disallows public networks and global CIDR, defaults HTTP off", () => {
-    for (const cidr of ["0.0.0.0/0", "203.0.113.10/32", "192.168.0.0/8", "192.168.1.5/24junk"]) {
-      expect(() => validateTransportPolicy({ allowHttp: true, allowedCidrs: [cidr] })).toThrow();
+    for (const cidr of [
+      "0.0.0.0/0",
+      "203.0.113.10/32",
+      "192.168.0.0/8",
+      "192.168.1.5/24junk",
+    ]) {
+      expect(() =>
+        validateTransportPolicy({ allowHttp: true, allowedCidrs: [cidr] }),
+      ).toThrow();
     }
-    expect(allowsTransport(false, "192.168.7.9", { allowHttp: false, allowedCidrs: [] })).toBe(false);
-    const policy = validateTransportPolicy({ allowHttp: true, allowedCidrs: ["192.168.7.9/32"] });
+    expect(
+      allowsTransport(false, "192.168.7.9", {
+        allowHttp: false,
+        allowedCidrs: [],
+      }),
+    ).toBe(false);
+    const policy = validateTransportPolicy({
+      allowHttp: true,
+      allowedCidrs: ["192.168.7.9/32"],
+    });
     expect(allowsTransport(false, "192.168.7.9", policy)).toBe(true);
     expect(allowsTransport(false, "192.168.7.10", policy)).toBe(false);
     expect(allowsTransport(true, "203.0.113.7", policy)).toBe(true);
   });
   it("keeps folders stable and rejects unknown IDs", () => {
-    expect(projectFolder(projectId("Production / Linux"))).toBe("Production / Linux");
+    expect(projectFolder(projectId("Production / Linux"))).toBe(
+      "Production / Linux",
+    );
     expect(projectFolder(projectId(null))).toBeNull();
     expect(() => projectFolder("unknown-project")).toThrow();
   });

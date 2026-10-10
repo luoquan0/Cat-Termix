@@ -30,10 +30,7 @@
         "id": "agent",
         "titleKey": "nav.agent",
         "icon": "Bot",
-        "openFrom": [
-          "rail",
-          "palette"
-        ]
+        "openFrom": ["rail", "palette"]
       }
     ],
     "permissions": [
@@ -41,34 +38,21 @@
         "name": "manage",
         "titleKey": "permissions.manage.title",
         "descriptionKey": "permissions.manage.description",
-        "defaultRoles": [
-          "admin",
-          "user"
-        ]
+        "defaultRoles": ["admin", "user"]
       },
       {
         "name": "manage_http",
         "titleKey": "permissions.manage_http.title",
         "descriptionKey": "permissions.manage_http.description",
-        "defaultRoles": [
-          "admin"
-        ]
+        "defaultRoles": ["admin"]
       }
     ],
     "http": {
-      "legacyPaths": [
-        "/agent/v1"
-      ]
+      "legacyPaths": ["/agent/v1"]
     },
-    "uses": [
-      "system.adminSettings.sections"
-    ]
+    "uses": ["system.adminSettings.sections"]
   },
   "locales": "locales",
-  "platforms": [
-    "linux",
-    "win32",
-    "darwin"
-  ],
+  "platforms": ["linux", "win32", "darwin"],
   "desktop": "server"
 }

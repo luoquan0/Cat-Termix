@@ -144,7 +144,11 @@ function headers(req: Request): SignedHeaders {
     !/^[A-Za-z0-9._:-]{1,128}$/.test(requestId) ||
     (idempotencyKey && !/^[A-Za-z0-9._:-]{1,128}$/.test(idempotencyKey))
   )
-    return fail(401, "DEVICE_SIGNATURE_REQUIRED", "缺少有效设备签名或请求时间已过期");
+    return fail(
+      401,
+      "DEVICE_SIGNATURE_REQUIRED",
+      "缺少有效设备签名或请求时间已过期",
+    );
   return {
     deviceId,
     timestamp,
@@ -167,7 +171,12 @@ export function verifyDetached(
   req: Request,
   publicKey: string,
   actualBody: Buffer,
-): { nonce: string; timestamp: number; bodyHash: string; idempotencyKey: string } {
+): {
+  nonce: string;
+  timestamp: number;
+  bodyHash: string;
+  idempotencyKey: string;
+} {
   const signed = headers(req);
   if (sha256(actualBody) !== signed.bodyHash)
     return fail(401, "DEVICE_BODY_TAMPERED", "正文与签名摘要不一致");
@@ -238,7 +247,11 @@ export class AgentStore {
     }
   }
   async createRequest(deviceName: unknown, rawPublicKey: unknown) {
-    if (typeof deviceName !== "string" || !deviceName.trim() || deviceName.length > 64)
+    if (
+      typeof deviceName !== "string" ||
+      !deviceName.trim() ||
+      deviceName.length > 64
+    )
       return fail(400, "INVALID_INPUT", "设备名称无效");
     const key = validatedPublicKey(rawPublicKey);
     const code = [...randomBytes(8)]
@@ -269,10 +282,19 @@ export class AgentStore {
     const requestId = String(req.params.requestId ?? "");
     return this.update((data) => {
       const request = data.requests.find((x) => x.requestId === requestId);
-      if (!request) return fail(404, "DEVICE_REQUEST_NOT_FOUND", "设备请求不存在");
+      if (!request)
+        return fail(404, "DEVICE_REQUEST_NOT_FOUND", "设备请求不存在");
       const proof = verifyDetached(req, request.publicKey, Buffer.alloc(0));
-      consumeNonce(data, "registration:" + request.fingerprint, proof.nonce, proof.timestamp);
-      if (Date.parse(request.expiresAt) <= Date.now() && request.status === "pending")
+      consumeNonce(
+        data,
+        "registration:" + request.fingerprint,
+        proof.nonce,
+        proof.timestamp,
+      );
+      if (
+        Date.parse(request.expiresAt) <= Date.now() &&
+        request.status === "pending"
+      )
         return { status: "expired" };
       return {
         status: request.status,
@@ -284,7 +306,10 @@ export class AgentStore {
     const id = req.get("x-cloudssh-device-id") ?? "";
     return this.update((data) => {
       const device = data.devices.find((x) => x.id === id && !x.revokedAt);
-      if (!device || (device.expiresAt && Date.parse(device.expiresAt) <= Date.now()))
+      if (
+        !device ||
+        (device.expiresAt && Date.parse(device.expiresAt) <= Date.now())
+      )
         return fail(401, "DEVICE_NOT_AUTHORIZED", "设备未授权或已撤销");
       const proof = verifyDetached(req, device.publicKey, body);
       consumeNonce(data, "device:" + device.id, proof.nonce, proof.timestamp);
@@ -313,7 +338,8 @@ export class AgentStore {
           r.status === "pending" &&
           Date.parse(r.expiresAt) > Date.now(),
       );
-      if (!request) return fail(404, "DEVICE_CODE_INVALID", "设备码已过期或不存在");
+      if (!request)
+        return fail(404, "DEVICE_CODE_INVALID", "设备码已过期或不存在");
       if (
         !Array.isArray(input.scopes) ||
         input.scopes.length < 1 ||
@@ -322,7 +348,11 @@ export class AgentStore {
       )
         return fail(400, "INVALID_GRANT", "设备授权范围无效");
       const maxConcurrentSessions = input.maxConcurrentSessions ?? 1;
-      if (!Number.isInteger(maxConcurrentSessions) || maxConcurrentSessions < 1 || maxConcurrentSessions > 20)
+      if (
+        !Number.isInteger(maxConcurrentSessions) ||
+        maxConcurrentSessions < 1 ||
+        maxConcurrentSessions > 20
+      )
         return fail(400, "INVALID_GRANT", "会话数必须为 1–20");
       if (
         input.expiresAt &&
@@ -355,33 +385,53 @@ export class AgentStore {
   async deny(code: string) {
     const hash = sha256(code.toUpperCase().replace(/[^A-Z0-9]/g, ""));
     return this.update((data) => {
-      const request = data.requests.find((r) => r.codeHash === hash && r.status === "pending");
+      const request = data.requests.find(
+        (r) => r.codeHash === hash && r.status === "pending",
+      );
       if (!request) return fail(404, "DEVICE_CODE_INVALID", "设备码不存在");
       request.status = "denied";
     });
   }
   async revoke(userId: string, id: string) {
     return this.update((data) => {
-      const device = data.devices.find((x) => x.id === id && x.ownerId === userId && !x.revokedAt);
+      const device = data.devices.find(
+        (x) => x.id === id && x.ownerId === userId && !x.revokedAt,
+      );
       if (!device) return fail(404, "DEVICE_NOT_FOUND", "设备不存在");
       device.revokedAt = new Date().toISOString();
     });
   }
-  async replay<T>(deviceId: string, key: string, hash: string, op: () => Promise<T>): Promise<T> {
-    if (!key) return fail(400, "IDEMPOTENCY_KEY_REQUIRED", "写操作必须指定幂等键");
+  async replay<T>(
+    deviceId: string,
+    key: string,
+    hash: string,
+    op: () => Promise<T>,
+  ): Promise<T> {
+    if (!key)
+      return fail(400, "IDEMPOTENCY_KEY_REQUIRED", "写操作必须指定幂等键");
     const cacheKey = deviceId + ":" + key;
     const saved = (await this.read()).idempotency[cacheKey];
     if (saved) {
-      if (saved.hash !== hash) return fail(409, "IDEMPOTENCY_CONFLICT", "幂等键与请求内容不一致");
+      if (saved.hash !== hash)
+        return fail(409, "IDEMPOTENCY_CONFLICT", "幂等键与请求内容不一致");
       return saved.data as T;
     }
     // An in-flight duplicate must never trigger an extra remote side effect.
-    if (this.inflight.has(cacheKey)) return fail(409, "IDEMPOTENCY_OUTCOME_UNKNOWN", "操作可能正在执行，先查询其状态");
+    if (this.inflight.has(cacheKey))
+      return fail(
+        409,
+        "IDEMPOTENCY_OUTCOME_UNKNOWN",
+        "操作可能正在执行，先查询其状态",
+      );
     this.inflight.add(cacheKey);
     try {
       const result = await op();
       await this.update((data) => {
-        data.idempotency[cacheKey] = { hash, data: result, until: Date.now() + 7 * 86_400_000 };
+        data.idempotency[cacheKey] = {
+          hash,
+          data: result,
+          until: Date.now() + 7 * 86_400_000,
+        };
       });
       return result;
     } finally {
@@ -390,9 +440,15 @@ export class AgentStore {
   }
   private inflight = new Set<string>();
 }
-function consumeNonce(data: AgentState, prefix: string, nonce: string, timestamp: number): void {
+function consumeNonce(
+  data: AgentState,
+  prefix: string,
+  nonce: string,
+  timestamp: number,
+): void {
   const key = prefix + ":" + nonce;
-  if (data.nonces[key]) return fail(401, "DEVICE_REQUEST_REPLAYED", "设备请求已使用");
+  if (data.nonces[key])
+    return fail(401, "DEVICE_REQUEST_REPLAYED", "设备请求已使用");
   if (Object.keys(data.nonces).length >= 10000)
     return fail(503, "NONCE_STORAGE_FULL", "设备认证暂不可用");
   data.nonces[key] = timestamp + 600_000;
@@ -406,9 +462,16 @@ const TRUSTED_RANGES: Array<[string, number]> = [
 ];
 function ipv4Number(ip: string): number | null {
   if (isIP(ip) !== 4) return null;
-  return ip.split(".").reduce((acc, part) => (acc * 256 + Number(part)) >>> 0, 0);
+  return ip
+    .split(".")
+    .reduce((acc, part) => (acc * 256 + Number(part)) >>> 0, 0);
 }
-function subnet(address: string, prefix: number, range: string, rangeBits: number) {
+function subnet(
+  address: string,
+  prefix: number,
+  range: string,
+  rangeBits: number,
+) {
   const input = ipv4Number(address);
   const base = ipv4Number(range);
   if (input === null || base === null || prefix < rangeBits) return false;
@@ -417,19 +480,42 @@ function subnet(address: string, prefix: number, range: string, rangeBits: numbe
 }
 export function validateTransportPolicy(raw: unknown): TransportPolicy {
   const v = raw as TransportPolicy;
-  if (!v || typeof v.allowHttp !== "boolean" || !Array.isArray(v.allowedCidrs) || v.allowedCidrs.length > 32)
-    return fail(400, "INVALID_HTTP_POLICY", "HTTP 来源需配置 0–32 个可信内网 CIDR");
-  const allowedCidrs = [...new Set(v.allowedCidrs.map((value) => {
-    if (typeof value !== "string" || value.length > 48)
-      return fail(400, "INVALID_HTTP_POLICY", "来源 IP 格式无效");
-    const [address, prefixRaw, ...extra] = value.split("/");
-    const prefix = prefixRaw === undefined ? 32 : Number(prefixRaw);
-    if (
-      extra.length || !Number.isInteger(prefix) || prefix < 0 || prefix > 32 ||
-      !TRUSTED_RANGES.some(([range, bits]) => subnet(address, prefix, range, bits))
-    ) return fail(400, "INVALID_HTTP_POLICY", "只能配置可信 IPv4 内网/VPN CIDR");
-    return address + "/" + prefix;
-  }))];
+  if (
+    !v ||
+    typeof v.allowHttp !== "boolean" ||
+    !Array.isArray(v.allowedCidrs) ||
+    v.allowedCidrs.length > 32
+  )
+    return fail(
+      400,
+      "INVALID_HTTP_POLICY",
+      "HTTP 来源需配置 0–32 个可信内网 CIDR",
+    );
+  const allowedCidrs = [
+    ...new Set(
+      v.allowedCidrs.map((value) => {
+        if (typeof value !== "string" || value.length > 48)
+          return fail(400, "INVALID_HTTP_POLICY", "来源 IP 格式无效");
+        const [address, prefixRaw, ...extra] = value.split("/");
+        const prefix = prefixRaw === undefined ? 32 : Number(prefixRaw);
+        if (
+          extra.length ||
+          !Number.isInteger(prefix) ||
+          prefix < 0 ||
+          prefix > 32 ||
+          !TRUSTED_RANGES.some(([range, bits]) =>
+            subnet(address, prefix, range, bits),
+          )
+        )
+          return fail(
+            400,
+            "INVALID_HTTP_POLICY",
+            "只能配置可信 IPv4 内网/VPN CIDR",
+          );
+        return address + "/" + prefix;
+      }),
+    ),
+  ];
   if (v.allowHttp && !allowedCidrs.length)
     return fail(400, "INVALID_HTTP_POLICY", "启用 HTTP 时必须指定来源 IP");
   return { allowHttp: v.allowHttp, allowedCidrs };
@@ -439,7 +525,8 @@ export function allowsTransport(
   ip: string,
   policy: TransportPolicy,
 ): boolean {
-  if (secure || ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(ip)) return true;
+  if (secure || ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(ip))
+    return true;
   if (!policy.allowHttp) return false;
   return policy.allowedCidrs.some((value) => {
     const [range, prefixRaw] = value.split("/");
@@ -454,13 +541,16 @@ export function projectId(folder: string | null): string {
   return "folder:" + Buffer.from(folder || "", "utf8").toString("base64url");
 }
 export function projectFolder(id: string): string | null {
-  if (!id.startsWith("folder:")) return fail(400, "INVALID_PROJECT", "项目标识无效");
+  if (!id.startsWith("folder:"))
+    return fail(400, "INVALID_PROJECT", "项目标识无效");
   const raw = id.slice(7);
-  if (raw && !/^[A-Za-z0-9_-]+$/.test(raw)) return fail(400, "INVALID_PROJECT", "项目标识无效");
+  if (raw && !/^[A-Za-z0-9_-]+$/.test(raw))
+    return fail(400, "INVALID_PROJECT", "项目标识无效");
   const folder = Buffer.from(raw, "base64url").toString("utf8");
   if (folder.length > 512) return fail(400, "INVALID_PROJECT", "分类路径过长");
   return folder || null;
 }
 export function requireScope(device: Device, scope: AgentScope): void {
-  if (!device.scopes.includes(scope)) fail(403, "SCOPE_DENIED", "此设备没有所需权限：" + scope);
+  if (!device.scopes.includes(scope))
+    fail(403, "SCOPE_DENIED", "此设备没有所需权限：" + scope);
 }
