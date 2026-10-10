@@ -7,7 +7,6 @@ import {
   readCheckpoint,
   type ContextPolicy,
 } from "../shared/context-policy";
-import { UpdateSettings } from "./UpdateSettings";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "@termix/plugin-sdk/frontend";
 import {
@@ -695,7 +694,6 @@ export function AiPanel({
             onOverride={modelContext.saveOverride}
             onRefresh={modelContext.refresh}
           />
-          <UpdateSettings />
           <details
             className="border-t border-border p-3"
             open={!providers.length}

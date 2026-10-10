@@ -12,6 +12,7 @@ import type {
 import { AiPanel } from "./AiPanel";
 import { TerminalAiPanel } from "./terminal/TerminalAiPanel";
 import { AiAssistantStep } from "./AiAssistantStep";
+import { UpdateSettings } from "./UpdateSettings";
 import { ProvidersSetting } from "./settings/ProvidersSetting";
 import { AI_STATUS_CHANGED_EVENT, getAiStatus } from "./ai-api";
 import { setAiApp } from "./app-ref";
@@ -179,6 +180,13 @@ export function activate(app: TermixApp): void {
   );
 
   app.registerSettingsComponent("providers", ProvidersSetting);
+
+  // Application updates are system administration, not conversation settings.
+  // Register regardless of the assistant's global enable/disable switch.
+  app.registerExtension("system.adminSettings.sections", {
+    id: "software-updates",
+    components: { section: UpdateSettings },
+  });
 
   applyStatus();
   refresh();

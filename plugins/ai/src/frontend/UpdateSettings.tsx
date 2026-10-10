@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "@termix/plugin-sdk/frontend";
 import { Button, Input } from "@termix/plugin-sdk/ui";
+import { ChevronDown, RefreshCw } from "lucide-react";
 import { aiApp } from "./app-ref";
 import type { UpdateInfo } from "../shared/update-policy";
 
@@ -66,13 +67,25 @@ export function UpdateSettings() {
       setBusy(false);
     }
   };
-  if (info && !info.canManage) return null;
+  // Only show the section after the server confirms both administrator
+  // settings permission and the scoped update-management permission.
+  if (!info?.canManage) return null;
   return (
-    <details className="border-t border-border p-3">
-      <summary className="cursor-pointer text-xs font-medium">
-        {t("ai.updateSettings")}
+    <details
+      data-testid="system-software-updates"
+      className="group shrink-0 overflow-hidden border border-border bg-card"
+    >
+      <summary className="flex w-full cursor-pointer list-none items-center gap-2.5 px-3 py-2.5 text-left hover:bg-muted/40 [&::-webkit-details-marker]:hidden">
+        <RefreshCw size={14} className="shrink-0 text-muted-foreground" />
+        <span className="flex-1 text-xs font-bold uppercase tracking-widest text-foreground">
+          {t("ai.updateSettings")}
+        </span>
+        <ChevronDown
+          size={14}
+          className="shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
+        />
       </summary>
-      <div className="space-y-3 pt-3 text-xs">
+      <div className="space-y-3 border-t border-border px-3 pb-3 pt-3 text-xs">
         <p className="text-muted-foreground">{t("ai.updateScope")}</p>
         {!info?.installed && <p role="status">{t("ai.updateInstallHint")}</p>}
         <label className="flex items-center gap-2">

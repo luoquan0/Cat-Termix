@@ -53,6 +53,7 @@ import {
   type UserRole,
 } from "@/main-axios";
 import { type AdminSection, type Host } from "@/types/ui-types";
+import { AdminSystemSettingsExtensions } from "@/settings/AdminSystemSettingsExtensions";
 import {
   FeatureSettingsSection,
   featureSectionId,
@@ -788,6 +789,8 @@ export function AdminSettingsPanel({
         logLevel={logLevel}
         handleSaveLogLevel={handleSaveLogLevel}
       />
+
+      <AdminSystemSettingsExtensions />
 
       <AdminUsersSection
         open={openSections.has("users")}

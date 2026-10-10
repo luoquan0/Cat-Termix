@@ -8,9 +8,6 @@ import {
 } from "@testing-library/react";
 import { AiPanel } from "../../src/frontend/AiPanel";
 
-vi.mock("../../src/frontend/UpdateSettings", () => ({
-  UpdateSettings: () => null,
-}));
 const api = vi.hoisted(() => ({
   t: (key: string) => key,
   getAiProviders: vi.fn(),
@@ -105,6 +102,7 @@ describe("compact chat settings and a clean composer", () => {
       screen.getByRole("combobox", { name: "ai.modelPicker" }),
     ).toBeTruthy();
     expect(screen.getByText("ai.providerSettings")).toBeTruthy();
+    expect(screen.queryByText("ai.updateSettings")).toBeNull();
     const dialog = screen.getByRole("dialog", { name: "ai.chatSettings" });
     expect(dialog.closest("[data-slot=dialog-content]")).toBeTruthy();
     expect(composer.closest("[role=dialog]")).toBeNull();
