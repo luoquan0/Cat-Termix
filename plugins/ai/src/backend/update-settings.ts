@@ -7,6 +7,7 @@ import type { PluginContext } from "@termix/plugin-sdk/backend";
 import {
   DEFAULT_UPDATE_POLICY,
   validateUpdatePolicy,
+  resolveUpdateRequestProgress,
 } from "../shared/update-policy.js";
 
 /** No Docker socket or updater command execution is ever exposed to the AI process. */
@@ -54,7 +55,10 @@ export function registerUpdateSettings(router: Router, ctx: PluginContext) {
       const policy = validateUpdatePolicy(
         (await read("config.json")) ?? DEFAULT_UPDATE_POLICY,
       );
-      const status = await read("status.json");
+      const [status, request] = await Promise.all([
+        read("status.json"),
+        read("request.json"),
+      ]);
       const installed = Boolean(
         status?.heartbeat && Date.now() - Date.parse(status.heartbeat) < 180000,
       );
@@ -68,6 +72,7 @@ export function registerUpdateSettings(router: Router, ctx: PluginContext) {
         },
         proxyConfigured: Boolean(policy.proxyUrl),
         status,
+        request: resolveUpdateRequestProgress(request, status),
       });
     } catch {
       res.status(500).json({ error: "Could not read updater state" });
@@ -121,12 +126,14 @@ export function registerUpdateSettings(router: Router, ctx: PluginContext) {
         return res
           .status(403)
           .json({ error: "Administrator permission required" });
+      const requestId = randomUUID();
       await write("request.json", {
-        id: randomUUID(),
+        id: requestId,
         action: "check",
         at: new Date().toISOString(),
       });
-      res.status(202).json({ accepted: true });
+      // Accepted means queued; the helper polls requests asynchronously.
+      res.status(202).json({ accepted: true, requestId });
     },
   );
   router.post(
@@ -147,12 +154,13 @@ export function registerUpdateSettings(router: Router, ctx: PluginContext) {
         resourceId: "cat-termix",
         success: true,
       });
+      const requestId = randomUUID();
       await write("request.json", {
-        id: randomUUID(),
+        id: requestId,
         action: "apply",
         at: new Date().toISOString(),
       });
-      res.status(202).json({ accepted: true });
+      res.status(202).json({ accepted: true, requestId });
     },
   );
 }
