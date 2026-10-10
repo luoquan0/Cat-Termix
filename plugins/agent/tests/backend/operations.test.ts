@@ -13,7 +13,12 @@ const DEVICE: Device = {
   accessMode: "all",
   projectIds: [],
   hostIds: [],
-  scopes: ["jobs:execute", "sessions:create", "sessions:read", "sessions:write"],
+  scopes: [
+    "jobs:execute",
+    "sessions:create",
+    "sessions:read",
+    "sessions:write",
+  ],
   maxConcurrentSessions: 2,
   expiresAt: null,
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -29,9 +34,14 @@ function fixture() {
     setWindow: vi.fn(),
   });
   const client = {
-    shell: vi.fn((_options: unknown, finish: (error: null, stream: typeof stream) => void) => {
-      finish(null, stream);
-    }),
+    shell: vi.fn(
+      (
+        _options: unknown,
+        finish: (error: null, output: unknown) => void,
+      ) => {
+        finish(null, stream);
+      },
+    ),
     exec: vi.fn(),
   };
   const dispose = vi.fn();
@@ -118,7 +128,11 @@ describe("Local Agent persistent SSH sessions", () => {
     await ops.restore();
     const disabled = { ...DEVICE, accessMode: "selected" as const };
     await expect(
-      ops.attachSession(disabled, "99999999-1234-4abc-8def-0123456789ab", "read-only"),
+      ops.attachSession(
+        disabled,
+        "99999999-1234-4abc-8def-0123456789ab",
+        "read-only",
+      ),
     ).rejects.toMatchObject({ code: "TMUX_RECONNECT_FAILED" });
     expect(f.ctx.ssh.connect).not.toHaveBeenCalled();
     await ops.stop();
@@ -130,7 +144,12 @@ describe("Local Agent structured SSH tasks", () => {
     const f = fixture();
     const ops = new AgentOperations(f.ctx);
     await ops.restore();
-    const job = await ops.createJob(DEVICE, "42", "touch /should-not-run", 30000);
+    const job = await ops.createJob(
+      DEVICE,
+      "42",
+      "touch /should-not-run",
+      30000,
+    );
     const canceled = await ops.cancelJob(DEVICE, job.id);
     expect(["QUEUED", "RUNNING", "CANCELED"]).toContain(canceled.state);
     await vi.waitFor(() => {

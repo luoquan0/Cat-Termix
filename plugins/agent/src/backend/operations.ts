@@ -450,9 +450,10 @@ export class AgentOperations {
           }
           if (session.state === "RUNNING") {
             session.state = "FAILED";
-            session.failureReason = session.runtimeMode === "tmux"
-              ? "连接已断开；等待重附着原 tmux 会话"
-              : "SSH PTY 已结束";
+            session.failureReason =
+              session.runtimeMode === "tmux"
+                ? "连接已断开；等待重附着原 tmux 会话"
+                : "SSH PTY 已结束";
           }
           this.activeSessions.delete(session.id);
           connection.dispose();
@@ -561,7 +562,11 @@ export class AgentOperations {
         session.state = "FAILED";
         session.failureReason = "连接已断开；等待重附着原 tmux 会话";
         await this.persistSession(id);
-        return error(503, "TMUX_RECONNECT_FAILED", "无法重附着远端 tmux 会话，请检查主机连接和权限");
+        return error(
+          503,
+          "TMUX_RECONNECT_FAILED",
+          "无法重附着远端 tmux 会话，请检查主机连接和权限",
+        );
       }
     }
     if (session.state !== "RUNNING")
@@ -709,9 +714,10 @@ export class AgentOperations {
       const session = this.sessions.get(id);
       if (session && session.state === "RUNNING") {
         session.state = "FAILED";
-        session.failureReason = session.runtimeMode === "tmux"
-          ? "连接已断开；等待重附着原 tmux 会话"
-          : "服务停机中断了平台会话";
+        session.failureReason =
+          session.runtimeMode === "tmux"
+            ? "连接已断开；等待重附着原 tmux 会话"
+            : "服务停机中断了平台会话";
         session.writeLease = null;
         session.attachments = [];
         session.updatedAt = new Date().toISOString();
