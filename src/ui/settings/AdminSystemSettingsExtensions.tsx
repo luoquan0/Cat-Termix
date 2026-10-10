@@ -17,8 +17,7 @@ export function AdminSystemSettingsExtensions() {
       {sections.map((entry) => {
         if (!entry.pluginId || !entry.id) return null;
         const components = entry.components as
-          | { section?: ComponentType }
-          | undefined;
+          { section?: ComponentType } | undefined;
         const Section = components?.section;
         if (!Section) return null;
         return <Section key={`${entry.pluginId}:${entry.id}`} />;

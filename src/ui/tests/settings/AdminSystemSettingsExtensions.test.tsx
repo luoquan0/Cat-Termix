@@ -24,11 +24,17 @@ describe("administrator system settings extensions", () => {
         id: "software-updates",
         pluginId: "ai",
         components: {
-          section: () => <section data-testid="global-update-panel">Software updates</section>,
+          section: () => (
+            <section data-testid="global-update-panel">
+              Software updates
+            </section>
+          ),
         },
       });
     });
-    expect(screen.getByTestId("global-update-panel").textContent).toBe("Software updates");
+    expect(screen.getByTestId("global-update-panel").textContent).toBe(
+      "Software updates",
+    );
     act(() => unregister());
     expect(screen.queryByTestId("global-update-panel")).toBeNull();
   });
