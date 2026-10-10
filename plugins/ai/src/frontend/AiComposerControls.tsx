@@ -79,7 +79,7 @@ export function AiComposerControls({
             {model || t("ai.modelPlaceholder")}
           </span>
           {selected && (
-            <span className="hidden max-w-24 shrink-0 truncate text-muted-foreground sm:inline">
+            <span className="max-w-24 shrink-0 truncate text-muted-foreground">
               · {selected.label}
             </span>
           )}
