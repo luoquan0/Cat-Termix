@@ -1,6 +1,14 @@
-# Cat-Termix AI Preview 7 测试版
+# Cat-Termix AI Preview 8 测试版
 
-开发分支 `Cat-Termix`，基于 2.9.2，不修改 `main`，也不覆盖 `latest`。测试镜像固定使用 `ghcr.io/luoquan0/cat-termix:ai-dev`；另发布固定版本 `ghcr.io/luoquan0/cat-termix:2.9.2-ai-preview.7`，方便回滚；发布流水线在全部回归、AMD64/ARM64 构建和启动检查成功后才更新该标签。每次发布保留 `sha-<完整提交 SHA>`，镜像版本标签为 `2.9.2-ai-preview.7`。
+开发分支 `Cat-Termix`，基于 2.9.2，不修改 `main`，也不覆盖 `latest`。测试镜像固定使用 `ghcr.io/luoquan0/cat-termix:ai-dev`；另发布固定版本 `ghcr.io/luoquan0/cat-termix:2.9.2-ai-preview.8`，方便回滚；发布流水线在全部回归、AMD64/ARM64 构建和启动检查成功后才更新该标签。每次发布保留 `sha-<完整提交 SHA>`，镜像版本标签为 `2.9.2-ai-preview.8`。
+
+## Preview 8：更新后自动恢复、移除捐赠推广
+
+管理员点击“立即更新”并确认后，浏览器会记住更新请求 ID 和旧版本（不会存储认证密钥），在应用暂时停机时保持轮询。**只有更新器确认新容器健康、修订号发生变化、且新应用的授权更新接口已能访问时**才自动刷新当前网页。刷新后会弹出更新成功通知；只有检查、失败、未发现新版或更新延后时均不会刷新。更新需要断开 SSH，页面刷新会中断未保存的临时编辑内容，请在维护时间操作。
+
+此版本移除用户资料中的 Termix 捐赠广告卡片、定期弹出的捐赠提醒和仪表盘上的捐赠链接；保留原项目开源许可证与版权说明。
+
+**旧版 CloudSSH 本地 Agent：** `luoquan0/Cat-Cloudssh` 的 Ed25519 设备认证、设备审批、独立 Agent Skill、持久 SSH 会话/任务/SFTP 后端目前没有完整移植到 Cat-Termix；新版网页内置 AI 聊天是另一套功能。
 
 ## 独立聊天设置悬浮窗
 

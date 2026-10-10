@@ -212,7 +212,9 @@
     "updateDeferred": "当前有 AI 请求正在执行，更新已延后。",
     "updateIdle": "可以检查已发布的 Cat-Termix 最新构建。",
     "updateLastCheck": "上次成功检查",
-    "updateRefreshError": "暂时无法刷新检查进度，连接可能中断，软件会自动重试。"
+    "updateRefreshError": "暂时无法刷新检查进度，连接可能中断，软件会自动重试。",
+    "updateReconnecting": "应用正在重启，等待新容器恢复连接，恢复后将自动刷新网页…",
+    "updateReloadingPage": "新容器已通过健康检查，正在自动刷新网页…"
   },
   "nav": {
     "ai": "AI"

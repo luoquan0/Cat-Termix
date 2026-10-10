@@ -212,7 +212,9 @@
     "updateDeferred": "An AI request was active; the update has been deferred.",
     "updateIdle": "Ready to check the published Cat-Termix build.",
     "updateLastCheck": "Last successful registry check",
-    "updateRefreshError": "Cannot refresh updater progress; connection may be interrupted. Retrying automatically."
+    "updateRefreshError": "Cannot refresh updater progress; connection may be interrupted. Retrying automatically.",
+    "updateReconnecting": "The application is restarting. Waiting for the new service to recover; this page will refresh automatically.",
+    "updateReloadingPage": "The replacement is healthy. Refreshing this page automatically..."
   },
   "nav": {
     "ai": "AI"
