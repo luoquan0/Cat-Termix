@@ -174,6 +174,50 @@ export async function getAiProviderModels(id: number): Promise<string[]> {
   }
 }
 
+export interface AiModelContext {
+  providerId: number;
+  model: string;
+  contextWindow: number;
+  detectedWindow: number | null;
+  source: "upstream" | "catalog" | "unknown" | "manual";
+  detectedSource: "upstream" | "catalog" | "unknown";
+  manualOverride: number | null;
+  maxOutputTokens: number | null;
+  referenceUrl: string | null;
+  detail: string | null;
+}
+
+/** The authenticated server checks the provider's model metadata and user overrides. */
+export async function getAiModelContext(
+  providerId: number,
+  model: string,
+): Promise<AiModelContext> {
+  try {
+    const value = encodeURIComponent(model);
+    return (
+      await api().get(`/providers/${providerId}/model-context?model=${value}`)
+    ).data;
+  } catch (error) {
+    throw apiError(error, "read model context capacity");
+  }
+}
+
+/** null removes this user's override and returns to upstream/catalog detection. */
+export async function saveAiModelContextOverride(
+  providerId: number,
+  model: string,
+  contextWindow: number | null,
+): Promise<void> {
+  try {
+    await api().put(`/providers/${providerId}/model-context`, {
+      model,
+      contextWindow,
+    });
+  } catch (error) {
+    throw apiError(error, "save model context capacity");
+  }
+}
+
 export async function getAiConversations(
   hostId?: number,
 ): Promise<AiConversation[]> {
