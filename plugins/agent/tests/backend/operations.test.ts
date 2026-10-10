@@ -35,10 +35,7 @@ function fixture() {
   });
   const client = {
     shell: vi.fn(
-      (
-        _options: unknown,
-        finish: (error: null, output: unknown) => void,
-      ) => {
+      (_options: unknown, finish: (error: null, output: unknown) => void) => {
         finish(null, stream);
       },
     ),
