@@ -192,7 +192,27 @@
     "contextResetAutomatic": "清除手动覆盖并恢复自动识别",
     "contextDetectRefresh": "重新检测模型上下文容量",
     "contextSaveFailed": "保存模型容量失败",
-    "contextOverrideHint": "修改容量会针对当前提供商和模型持久保存。切换回来自动恢复；如中转网关另有限制，请按实际可用容量填写。"
+    "contextOverrideHint": "修改容量会针对当前提供商和模型持久保存。切换回来自动恢复；如中转网关另有限制，请按实际可用容量填写。",
+    "updateSubmittingCheck": "正在向更新器提交检查请求…",
+    "updateSubmittingApply": "正在向更新器提交更新请求…",
+    "updateSaving": "正在保存更新配置…",
+    "updateQueued": "检查请求已排队，等待更新器接收（通常不超过 15 秒）…",
+    "updateCheckingUpstream": "正在连接 GHCR 检查最新 Cat-Termix 构建…",
+    "updateChecking": "检查中…",
+    "updateDownloading": "正在下载并验证新 Docker 镜像…",
+    "updateBackingUp": "正在停止应用并备份数据…",
+    "updateVerifying": "正在启动新容器并进行健康检查…",
+    "updateRollingBack": "新版本启动失败，正在恢复旧容器和数据…",
+    "updateApplying": "更新器已接收请求，正在准备更新…",
+    "updateCheckTimedOut": "检查请求 10 分钟内未被更新器接收。请检查更新器是否正常运行。",
+    "updateCheckFailed": "检查失败，请查看下方报错信息或更新器日志。",
+    "updateFound": "检查完成：发现可更新的 Cat-Termix 新构建。",
+    "updateLatest": "检查完成：当前已经是最新版本。",
+    "updateApplied": "更新完成，新构建已通过健康检查。",
+    "updateDeferred": "当前有 AI 请求正在执行，更新已延后。",
+    "updateIdle": "可以检查已发布的 Cat-Termix 最新构建。",
+    "updateLastCheck": "上次成功检查",
+    "updateRefreshError": "暂时无法刷新检查进度，连接可能中断，软件会自动重试。"
   },
   "nav": {
     "ai": "AI"

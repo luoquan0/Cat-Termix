@@ -192,7 +192,27 @@
     "contextResetAutomatic": "Remove manual override · Detect automatically",
     "contextDetectRefresh": "Recheck model capacity",
     "contextSaveFailed": "Could not save model context override",
-    "contextOverrideHint": "Changing the capacity saves a model-specific override. Switching models restores that model's saved value; provider-reported limits may differ from actual proxy restrictions."
+    "contextOverrideHint": "Changing the capacity saves a model-specific override. Switching models restores that model's saved value; provider-reported limits may differ from actual proxy restrictions.",
+    "updateSubmittingCheck": "Sending check request to the updater...",
+    "updateSubmittingApply": "Sending update request to the updater...",
+    "updateSaving": "Saving update settings...",
+    "updateQueued": "Check queued; waiting for the updater to pick it up (usually within 15 seconds).",
+    "updateCheckingUpstream": "Checking the latest Cat-Termix build on GHCR...",
+    "updateChecking": "Checking...",
+    "updateDownloading": "Downloading and verifying the new Docker image...",
+    "updateBackingUp": "Stopping the app and backing up its data...",
+    "updateVerifying": "Starting and health-checking the replacement container...",
+    "updateRollingBack": "New version failed; restoring the previous container and data...",
+    "updateApplying": "Updater acknowledged the request; preparing the update...",
+    "updateCheckTimedOut": "Update check did not start within 10 minutes. Check whether the updater is running and reachable.",
+    "updateCheckFailed": "Update check failed. See the message below or the updater logs.",
+    "updateFound": "Check complete: a newer Cat-Termix build is available.",
+    "updateLatest": "Check complete: Cat-Termix is already up to date.",
+    "updateApplied": "Update completed and the new build is healthy.",
+    "updateDeferred": "An AI request was active; the update has been deferred.",
+    "updateIdle": "Ready to check the published Cat-Termix build.",
+    "updateLastCheck": "Last successful registry check",
+    "updateRefreshError": "Cannot refresh updater progress; connection may be interrupted. Retrying automatically."
   },
   "nav": {
     "ai": "AI"
