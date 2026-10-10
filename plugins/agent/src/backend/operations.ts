@@ -106,6 +106,7 @@ export function validateRemotePath(input: unknown): string {
 
 export class AgentOperations {
   private readonly activeJobs = new Map<string, JobController>();
+  private readonly cancelRequests = new Set<string>();
   private readonly activeSessions = new Map<string, Runtime>();
   private writeQueue: Promise<void> = Promise.resolve();
   private flushTimers = new Map<string, NodeJS.Timeout>();
@@ -129,7 +130,7 @@ export class AgentOperations {
         row.state = "FAILED";
         row.failureReason =
           row.runtimeMode === "tmux"
-            ? "连接已断开；远端 tmux 可通过重新创建会话附着"
+            ? "连接已断开；等待重附着原 tmux 会话"
             : "服务重启关闭了平台模式会话";
         row.writeLease = null;
         row.attachments = [];
@@ -243,6 +244,11 @@ export class AgentOperations {
   ) {
     requireScope(device, "jobs:execute");
     const hostId = await this.assertHost(device, rawHost);
+    const activeCount = [...this.jobs.values()].filter(
+      (job) => job.state === "QUEUED" || job.state === "RUNNING",
+    ).length;
+    if (activeCount >= 32)
+      return error(429, "JOB_LIMIT_REACHED", "并发任务数已达到上限");
     if (
       typeof command !== "string" ||
       !command.trim() ||
@@ -273,6 +279,10 @@ export class AgentOperations {
     return this.publicJob(job);
   }
   private async executeJob(job: Job, hostId: number) {
+    if (job.state === "CANCELED" || this.cancelRequests.has(job.id)) {
+      this.cancelRequests.delete(job.id);
+      return;
+    }
     let end: (() => void) | null = null;
     let timedOut = false;
     let aborted = false;
@@ -281,6 +291,10 @@ export class AgentOperations {
       job.state = "RUNNING";
       job.startedAt = new Date().toISOString();
       await this.saveJobs();
+      if (this.cancelRequests.has(job.id)) {
+        aborted = true;
+        throw new Error("Canceled");
+      }
       await this.ctx.asUser(job.ownerId, async () => {
         const connection = await this.ctx.ssh.connect<Client>(hostId, {
           purpose: "agent-job",
@@ -298,9 +312,20 @@ export class AgentOperations {
               else resolve();
             };
             end = () => finish(new Error("Canceled"));
+            if (this.cancelRequests.has(job.id)) {
+              aborted = true;
+              finish(new Error("Canceled"));
+              return;
+            }
             connection.client.exec(job.command, (err, stream) => {
               if (err) {
                 finish(err);
+                return;
+              }
+              if (this.cancelRequests.has(job.id)) {
+                aborted = true;
+                stream.close();
+                finish(new Error("Canceled"));
                 return;
               }
               timer = setTimeout(() => {
@@ -343,11 +368,12 @@ export class AgentOperations {
       job.state = job.exitCode === 0 ? "SUCCEEDED" : "FAILED";
       if (job.state === "FAILED") job.failureReason = "远程命令返回非零退出码";
     } catch (failure) {
-      job.state = timedOut ? "TIMED_OUT" : aborted ? "CANCELED" : "FAILED";
+      job.state = timedOut ? "TIMED_OUT" : aborted || this.cancelRequests.has(job.id) ? "CANCELED" : "FAILED";
       job.failureReason =
         failure instanceof Error ? failure.message.slice(0, 200) : "运行失败";
     } finally {
       if (end) this.activeJobs.delete(job.id);
+      this.cancelRequests.delete(job.id);
       job.finishedAt = new Date().toISOString();
       await this.saveJobs().catch(() => undefined);
     }
@@ -367,6 +393,8 @@ export class AgentOperations {
   }
   async cancelJob(device: Device, id: string) {
     const job = this.getJob(device, id);
+    if (job.state === "QUEUED" || job.state === "RUNNING")
+      this.cancelRequests.add(id);
     if (job.state === "QUEUED") {
       const original = this.jobs.get(id)!;
       original.state = "CANCELED";
@@ -503,6 +531,29 @@ export class AgentOperations {
   ) {
     requireScope(device, "sessions:read");
     const session = this.getSession(device, id);
+    if (
+      session.state === "FAILED" &&
+      session.runtimeMode === "tmux" &&
+      session.failureReason === "连接已断开；等待重附着原 tmux 会话"
+    ) {
+      // Explicit attach is the recovery boundary. Never reconnect to a host
+      // without re-checking its CURRENT owner grants after restart.
+      session.state = "CREATING";
+      try {
+        await this.persistSession(id);
+        await this.assertHost(device, session.serverId);
+        await this.openSession(session); // Same session ID reattaches original tmux.
+        session.state = "RUNNING";
+        session.failureReason = null;
+        session.updatedAt = new Date().toISOString();
+        await this.persistSession(id);
+      } catch {
+        session.state = "FAILED";
+        session.failureReason = "连接已断开；等待重附着原 tmux 会话";
+        await this.persistSession(id);
+        return error(503, "TMUX_RECONNECT_FAILED", "无法重附着远端 tmux 会话，请检查主机连接和权限");
+      }
+    }
     if (session.state !== "RUNNING")
       return error(409, "SESSION_NOT_RUNNING", "会话未连接");
     if (mode !== "read-only" && mode !== "read-write")
