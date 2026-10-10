@@ -241,9 +241,16 @@ export async function createAiRepository(
         .delete(providers)
         .where(and(eq(providers.id, id), eq(providers.userId, userId)));
       await secrets.delete(providerSecretKey(id));
-      await (await client()).delete(modelContexts).where(
-        and(eq(modelContexts.userId, userId), eq(modelContexts.providerId, id)),
-      );
+      await (
+        await client()
+      )
+        .delete(modelContexts)
+        .where(
+          and(
+            eq(modelContexts.userId, userId),
+            eq(modelContexts.providerId, id),
+          ),
+        );
       await db.persist();
       return true;
     },
@@ -282,7 +289,8 @@ export async function createAiRepository(
       if (capacity === null) {
         if (old) await drizzle.delete(modelContexts).where(condition);
       } else if (old) {
-        await drizzle.update(modelContexts)
+        await drizzle
+          .update(modelContexts)
           .set({ contextWindow: capacity, updatedAt: now() })
           .where(condition);
       } else {

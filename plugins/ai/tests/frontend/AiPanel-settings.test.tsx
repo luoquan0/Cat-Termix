@@ -50,9 +50,16 @@ beforeEach(() => {
   ]);
   api.getAiProviderModels.mockResolvedValue(["auto-model"]);
   api.getAiModelContext.mockResolvedValue({
-    providerId: 1, model: "auto-model", contextWindow: 128000,
-    detectedWindow: 128000, source: "upstream", detectedSource: "upstream",
-    manualOverride: null, maxOutputTokens: null, detail: null, referenceUrl: null,
+    providerId: 1,
+    model: "auto-model",
+    contextWindow: 128000,
+    detectedWindow: 128000,
+    source: "upstream",
+    detectedSource: "upstream",
+    manualOverride: null,
+    maxOutputTokens: null,
+    detail: null,
+    referenceUrl: null,
   });
   api.saveAiModelContextOverride.mockResolvedValue(undefined);
   api.getAiStatus.mockResolvedValue({ globallyEnabled: true, enabled: true });

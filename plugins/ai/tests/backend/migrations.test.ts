@@ -48,6 +48,7 @@ describe("ai adoption migration", () => {
     expect(tables(db.sqlite)).toEqual([
       "p_ai_conversations",
       "p_ai_messages",
+      "p_ai_model_contexts",
       "p_ai_proposals",
       "p_ai_providers",
     ]);
@@ -85,6 +86,7 @@ describe("ai adoption migration", () => {
     expect(tables(db.sqlite)).toEqual([
       "p_ai_conversations",
       "p_ai_messages",
+      "p_ai_model_contexts",
       "p_ai_proposals",
       "p_ai_providers",
     ]);

@@ -150,7 +150,11 @@ export function AiPanel({
       ),
     }));
   }, []);
-  const modelContext = useModelContext(providerId, model, applyDetectedCapacity);
+  const modelContext = useModelContext(
+    providerId,
+    model,
+    applyDetectedCapacity,
+  );
 
   function newConversation() {
     historyOperationRef.current += 1;
@@ -268,7 +272,8 @@ export function AiPanel({
       }
       const savedContext = readCheckpoint(saved.conversation.contextState);
       if (savedContext) {
-        const matchingModel = modelContext.info?.providerId === saved.conversation.providerId &&
+        const matchingModel =
+          modelContext.info?.providerId === saved.conversation.providerId &&
           modelContext.info?.model === saved.conversation.model;
         const capacity = matchingModel
           ? modelContext.info!.contextWindow

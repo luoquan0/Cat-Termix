@@ -43,7 +43,9 @@ export function useModelContext(
         .catch((failure: unknown) => {
           if (!cancelled) {
             setError(
-              failure instanceof Error ? failure.message : "Model context lookup failed",
+              failure instanceof Error
+                ? failure.message
+                : "Model context lookup failed",
             );
           }
         })

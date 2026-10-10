@@ -76,9 +76,14 @@ export function ContextControls({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const source = modelInfo?.source ?? "unknown";
-  const sourceKey = source === "upstream" ? "ai.contextSourceUpstream" :
-    source === "catalog" ? "ai.contextSourceCatalog" :
-    source === "manual" ? "ai.contextSourceManual" : "ai.contextSourceUnknown";
+  const sourceKey =
+    source === "upstream"
+      ? "ai.contextSourceUpstream"
+      : source === "catalog"
+        ? "ai.contextSourceCatalog"
+        : source === "manual"
+          ? "ai.contextSourceManual"
+          : "ai.contextSourceUnknown";
   const saveCapacity = async (capacity: number | null) => {
     if (!modelSelected) return;
     setSaving(true);
@@ -106,7 +111,10 @@ export function ContextControls({
             {modelLoading && <Loader2 size={13} className="animate-spin" />}
             {saving && <Loader2 size={13} className="animate-spin" />}
             <Button
-              type="button" size="sm" variant="ghost" className="h-7"
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7"
               disabled={disabled || !modelSelected || modelLoading || saving}
               onClick={onRefresh}
               aria-label={t("ai.contextDetectRefresh")}
@@ -118,7 +126,9 @@ export function ContextControls({
         </div>
         <p className="text-muted-foreground" role="status">
           {modelSelected ? t(sourceKey) : t("ai.contextChooseModel")}
-          {modelSelected && !modelLoading ? " · " + value.contextWindow.toLocaleString() + " Token" : null}
+          {modelSelected && !modelLoading
+            ? " · " + value.contextWindow.toLocaleString() + " Token"
+            : null}
         </p>
         {source === "unknown" && modelSelected && !modelLoading && (
           <p className="text-[11px] text-muted-foreground">
@@ -126,7 +136,9 @@ export function ContextControls({
           </p>
         )}
         {modelInfo?.detail && (
-          <p className="text-[11px] text-muted-foreground">{modelInfo.detail}</p>
+          <p className="text-[11px] text-muted-foreground">
+            {modelInfo.detail}
+          </p>
         )}
         {modelInfo?.referenceUrl && (
           <a
@@ -140,15 +152,26 @@ export function ContextControls({
         )}
         {source === "manual" && modelSelected && (
           <Button
-            type="button" size="sm" variant="outline" className="h-7"
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7"
             disabled={disabled || saving}
             onClick={() => void saveCapacity(null)}
           >
             {t("ai.contextResetAutomatic")}
           </Button>
         )}
-        {modelError && <p role="alert" className="text-destructive">{modelError}</p>}
-        {saveError && <p role="alert" className="text-destructive">{saveError}</p>}
+        {modelError && (
+          <p role="alert" className="text-destructive">
+            {modelError}
+          </p>
+        )}
+        {saveError && (
+          <p role="alert" className="text-destructive">
+            {saveError}
+          </p>
+        )}
       </div>
       <label className="flex items-center gap-2 text-xs">
         <input
@@ -184,7 +207,10 @@ export function ContextControls({
               min={min}
               max={max}
               step={step}
-              disabled={disabled || (key === "contextWindow" && (!modelSelected || saving))}
+              disabled={
+                disabled ||
+                (key === "contextWindow" && (!modelSelected || saving))
+              }
               onChange={(n) => {
                 const next = {
                   ...value,
@@ -205,8 +231,7 @@ export function ContextControls({
         ))}
       </div>
       <p className="text-[11px] text-muted-foreground">
-        {t("ai.contextExplanation")}
-        {" "}{t("ai.contextOverrideHint")}
+        {t("ai.contextExplanation")} {t("ai.contextOverrideHint")}
       </p>
     </section>
   );

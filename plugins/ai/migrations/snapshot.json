@@ -50,10 +50,7 @@
       "indexes": [
         {
           "name": "idx_ai_providers_user_label",
-          "columns": [
-            "userId",
-            "label"
-          ],
+          "columns": ["userId", "label"],
           "unique": true
         }
       ],
@@ -100,10 +97,7 @@
       "indexes": [
         {
           "name": "idx_ai_conversations_user",
-          "columns": [
-            "userId",
-            "updatedAt"
-          ]
+          "columns": ["userId", "updatedAt"]
         }
       ],
       "adopts": "ai_conversations"
@@ -140,10 +134,7 @@
       "indexes": [
         {
           "name": "idx_ai_messages_conversation",
-          "columns": [
-            "conversationId",
-            "createdAt"
-          ]
+          "columns": ["conversationId", "createdAt"]
         }
       ],
       "adopts": "ai_messages"
@@ -198,16 +189,11 @@
       "indexes": [
         {
           "name": "idx_ai_proposals_user",
-          "columns": [
-            "userId",
-            "status"
-          ]
+          "columns": ["userId", "status"]
         },
         {
           "name": "idx_ai_proposals_conversation",
-          "columns": [
-            "conversationId"
-          ]
+          "columns": ["conversationId"]
         }
       ],
       "adopts": "ai_proposals"
@@ -251,11 +237,7 @@
       "indexes": [
         {
           "name": "idx_ai_model_context_unique",
-          "columns": [
-            "userId",
-            "providerId",
-            "model"
-          ],
+          "columns": ["userId", "providerId", "model"],
           "unique": true
         }
       ]

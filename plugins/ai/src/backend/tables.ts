@@ -161,4 +161,10 @@ export const modelContexts = defineTable(
   },
 );
 
-export const tables = [providers, conversations, messages, proposals, modelContexts];
+export const tables = [
+  providers,
+  conversations,
+  messages,
+  proposals,
+  modelContexts,
+];

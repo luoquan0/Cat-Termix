@@ -586,33 +586,49 @@ export function registerAiRoutes(
       const userId = actor(ctx);
       const providerId = parseId(req.params.id);
       const rawModel = req.query.model;
-      if (!providerId ||
-          typeof rawModel !== "string" ||
-          !rawModel.trim() ||
-          rawModel.length > 200 ||
-          /[\x00-\x1F]/.test(rawModel))
+      if (
+        !providerId ||
+        typeof rawModel !== "string" ||
+        !rawModel.trim() ||
+        rawModel.length > 200 ||
+        /[\x00-\x1F]/.test(rawModel)
+      )
         return res.status(400).json({ error: "Invalid provider or model" });
       const model = rawModel.trim();
       try {
-        const provider = await repository.findProviderWithSecret(providerId, userId);
-        if (!provider) return res.status(404).json({ error: "Provider not found" });
+        const provider = await repository.findProviderWithSecret(
+          providerId,
+          userId,
+        );
+        if (!provider)
+          return res.status(404).json({ error: "Provider not found" });
         const override = await repository.getModelContextOverride(
-          userId, providerId, model,
+          userId,
+          providerId,
+          model,
         );
         if (override !== null) {
           // Saved values work immediately even when the gateway is offline.
           return res.json({
-            providerId, model, contextWindow: override,
-            detectedWindow: null, source: "manual", detectedSource: "unknown",
-            manualOverride: override, maxOutputTokens: null,
-            referenceUrl: null, detail: null,
+            providerId,
+            model,
+            contextWindow: override,
+            detectedWindow: null,
+            source: "manual",
+            detectedSource: "unknown",
+            manualOverride: override,
+            maxOutputTokens: null,
+            referenceUrl: null,
+            detail: null,
           });
         }
         const detected = await detectModelContext(
-          await providerConfig(provider), model,
+          await providerConfig(provider),
+          model,
         );
         res.json({
-          providerId, model,
+          providerId,
+          model,
           contextWindow: detected.contextWindow ?? 32768,
           detectedWindow: detected.contextWindow,
           source: detected.source,
@@ -638,17 +654,27 @@ export function registerAiRoutes(
       const providerId = parseId(req.params.id);
       const model = req.body?.model;
       const rawWindow = req.body?.contextWindow;
-      if (!providerId ||
-          typeof model !== "string" ||
-          !model.trim() ||
-          model.length > 200 ||
-          /[\x00-\x1F]/.test(model) ||
-          (rawWindow !== null && capacityNumber(rawWindow) !== rawWindow))
-        return res.status(400).json({ error: "Invalid model context override" });
+      if (
+        !providerId ||
+        typeof model !== "string" ||
+        !model.trim() ||
+        model.length > 200 ||
+        /[\x00-\x1F]/.test(model) ||
+        (rawWindow !== null && capacityNumber(rawWindow) !== rawWindow)
+      )
+        return res
+          .status(400)
+          .json({ error: "Invalid model context override" });
       try {
         const provider = await repository.findProvider(providerId, userId);
-        if (!provider) return res.status(404).json({ error: "Provider not found" });
-        await repository.setModelContextOverride(userId, providerId, model.trim(), rawWindow);
+        if (!provider)
+          return res.status(404).json({ error: "Provider not found" });
+        await repository.setModelContextOverride(
+          userId,
+          providerId,
+          model.trim(),
+          rawWindow,
+        );
         res.json({ success: true });
       } catch (err) {
         logError("Failed to save model context", err);
