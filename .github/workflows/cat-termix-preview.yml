@@ -1,5 +1,8 @@
 name: Cat-Termix Preview
 
+# Stable AMD64/ARM64 publication is handled by the separately verified
+# cat-termix-arm64.yml; this preview workflow must never publish ai-dev.
+
 on:
   push:
     branches: [Cat-Termix]
