@@ -145,29 +145,36 @@ describe("Local Agent durable idempotency", () => {
   it("stores successful results and rejects reuse for a different command", async () => {
     const store = new AgentStore(fakeContext());
     let count = 0;
-    const invoke = () => store.replay("device-a", "request-1", "command-a", async () => {
-      count += 1;
-      return { jobId: "job-one" };
-    });
+    const invoke = () =>
+      store.replay("device-a", "request-1", "command-a", async () => {
+        count += 1;
+        return { jobId: "job-one" };
+      });
     expect(await invoke()).toEqual({ jobId: "job-one" });
     expect(await invoke()).toEqual({ jobId: "job-one" });
     expect(count).toBe(1);
-    await expect(store.replay("device-a", "request-1", "command-b", async () => {
-      count += 1;
-    })).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+    await expect(
+      store.replay("device-a", "request-1", "command-b", async () => {
+        count += 1;
+      }),
+    ).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
     expect(count).toBe(1);
   });
   it("preserves uncertain results across new AgentStore instances", async () => {
     const ctx = fakeContext();
     const original = new AgentStore(ctx);
-    await expect(original.replay("device-a", "request-1", "command-a", async () => {
-      throw new Error("remote outcome unknown");
-    })).rejects.toThrow("remote outcome unknown");
+    await expect(
+      original.replay("device-a", "request-1", "command-a", async () => {
+        throw new Error("remote outcome unknown");
+      }),
+    ).rejects.toThrow("remote outcome unknown");
     let retried = false;
     const restored = new AgentStore(ctx);
-    await expect(restored.replay("device-a", "request-1", "command-a", async () => {
-      retried = true;
-    })).rejects.toMatchObject({ code: "IDEMPOTENCY_OUTCOME_UNKNOWN" });
+    await expect(
+      restored.replay("device-a", "request-1", "command-a", async () => {
+        retried = true;
+      }),
+    ).rejects.toMatchObject({ code: "IDEMPOTENCY_OUTCOME_UNKNOWN" });
     expect(retried).toBe(false);
   });
 });

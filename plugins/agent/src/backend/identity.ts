@@ -57,7 +57,10 @@ export type AgentState = {
   devices: Device[];
   requests: DeviceRequest[];
   nonces: Record<string, number>;
-  idempotency: Record<string, { hash: string; data: unknown; until: number; pending?: boolean }>;
+  idempotency: Record<
+    string,
+    { hash: string; data: unknown; until: number; pending?: boolean }
+  >;
   transport: TransportPolicy;
 };
 
