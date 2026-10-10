@@ -368,7 +368,11 @@ export class AgentOperations {
       job.state = job.exitCode === 0 ? "SUCCEEDED" : "FAILED";
       if (job.state === "FAILED") job.failureReason = "远程命令返回非零退出码";
     } catch (failure) {
-      job.state = timedOut ? "TIMED_OUT" : aborted || this.cancelRequests.has(job.id) ? "CANCELED" : "FAILED";
+      job.state = timedOut
+        ? "TIMED_OUT"
+        : aborted || this.cancelRequests.has(job.id)
+          ? "CANCELED"
+          : "FAILED";
       job.failureReason =
         failure instanceof Error ? failure.message.slice(0, 200) : "运行失败";
     } finally {
@@ -440,9 +444,15 @@ export class AgentOperations {
           this.scheduleSessionSave(session.id);
         });
         stream.on("close", () => {
+          if (this.activeSessions.get(session.id)?.stream !== stream) {
+            connection.dispose();
+            return;
+          }
           if (session.state === "RUNNING") {
             session.state = "FAILED";
-            session.failureReason = "SSH PTY 已结束";
+            session.failureReason = session.runtimeMode === "tmux"
+              ? "连接已断开；等待重附着原 tmux 会话"
+              : "SSH PTY 已结束";
           }
           this.activeSessions.delete(session.id);
           connection.dispose();
@@ -695,7 +705,19 @@ export class AgentOperations {
   async stop() {
     for (const ctl of this.activeJobs.values()) ctl.cancel();
     this.activeJobs.clear();
-    for (const item of this.activeSessions.values()) item.dispose();
+    for (const [id, item] of this.activeSessions) {
+      const session = this.sessions.get(id);
+      if (session && session.state === "RUNNING") {
+        session.state = "FAILED";
+        session.failureReason = session.runtimeMode === "tmux"
+          ? "连接已断开；等待重附着原 tmux 会话"
+          : "服务停机中断了平台会话";
+        session.writeLease = null;
+        session.attachments = [];
+        session.updatedAt = new Date().toISOString();
+      }
+      item.dispose();
+    }
     this.activeSessions.clear();
     for (const timer of this.flushTimers.values()) clearTimeout(timer);
     this.flushTimers.clear();

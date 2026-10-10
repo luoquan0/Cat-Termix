@@ -46,7 +46,7 @@ function fixture() {
       list: async () => [
         { id: 42, userId: DEVICE.ownerId, folder: null, name: "test-host" },
       ],
-      checkAccess: async () => ({ hasAccess: true }),
+      checkAccess: vi.fn(async () => ({ hasAccess: true })),
     },
     asUser: async (_owner: string, fn: () => unknown) => fn(),
     ssh: {
@@ -84,7 +84,7 @@ describe("Local Agent persistent SSH sessions", () => {
     expect(ops.sessionStatus(DEVICE, session.id).state).toBe("FAILED");
     const reattached = await ops.attachSession(DEVICE, session.id, "read-only");
     expect(reattached.session.state).toBe("RUNNING");
-    expect(f.ctx.hosts.checkAccess).toBeDefined();
+    expect(f.ctx.hosts.checkAccess).toHaveBeenCalledWith(42, "connect");
     expect(f.stream.write).toHaveBeenCalledWith(
       "tmux new-session -A -s cat-agent-12345678-123\n",
     );
