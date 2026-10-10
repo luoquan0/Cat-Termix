@@ -8,6 +8,10 @@ import {
 } from "@testing-library/react";
 import { UpdateSettings } from "../../src/frontend/UpdateSettings";
 import type { UpdateInfo } from "../../src/shared/update-policy";
+import {
+  clearUpdateRestartIntent,
+  readUpdateRestartIntent,
+} from "../../src/frontend/update-recovery";
 
 const api = vi.hoisted(() => ({
   get: vi.fn(),
@@ -26,6 +30,8 @@ vi.mock("react-i18next", async (original) => ({
 const requestId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 let snapshot: UpdateInfo;
 beforeEach(() => {
+  clearUpdateRestartIntent();
+  window.sessionStorage.clear();
   vi.clearAllMocks();
   snapshot = {
     canManage: true,
@@ -55,7 +61,11 @@ beforeEach(() => {
     return { data: { accepted: true, requestId } };
   });
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  clearUpdateRestartIntent();
+  window.sessionStorage.clear();
+});
 
 async function showSettings() {
   render(<UpdateSettings />);
@@ -136,6 +146,25 @@ describe("updater check feedback", () => {
     expect(screen.getByTestId("updater-progress").textContent).not.toContain(
       "ai.updateLatest",
     );
+  });
+
+  it("tracks a confirmed installation separately from a check, across the restart", async () => {
+    await showSettings();
+    api.post.mockResolvedValueOnce({
+      data: { accepted: true, requestId },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "ai.updateApply" }));
+    fireEvent.click(screen.getByRole("button", { name: "ai.updateConfirm" }));
+    await waitFor(() =>
+      expect(readUpdateRestartIntent()).toMatchObject({
+        trigger: "manual",
+        requestId,
+        previousRevision: "a".repeat(40),
+      }),
+    );
+    expect(api.post).toHaveBeenCalledWith("/updates/apply", {
+      confirmRestart: true,
+    });
   });
 
   it("does not expose updater controls to an account without admin grants", async () => {

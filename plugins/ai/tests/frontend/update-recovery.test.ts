@@ -99,7 +99,8 @@ describe("Docker replacement browser recovery", () => {
     // Simulate the reloaded page: toast once, never re-display on later mounts.
     consumeUpdateSuccessNotification(notify);
     consumeUpdateSuccessNotification(notify);
-    expect(notify).toHaveBeenCalledExactlyOnceWith(
+    expect(notify).toHaveBeenCalledOnce();
+    expect(notify).toHaveBeenCalledWith(
       "success", "Cat-Termix updated successfully. The page was refreshed.",
     );
   });
