@@ -1,14 +1,23 @@
-# Cat-Termix AI Preview 8 测试版
+# Cat-Termix AI Preview 9 测试版
 
-开发分支 `Cat-Termix`，基于 2.9.2，不修改 `main`，也不覆盖 `latest`。测试镜像固定使用 `ghcr.io/luoquan0/cat-termix:ai-dev`；另发布固定版本 `ghcr.io/luoquan0/cat-termix:2.9.2-ai-preview.8`，方便回滚；发布流水线在全部回归、AMD64/ARM64 构建和启动检查成功后才更新该标签。每次发布保留 `sha-<完整提交 SHA>`，镜像版本标签为 `2.9.2-ai-preview.8`。
+开发分支 `Cat-Termix`，基于 2.9.2，不修改 `main`，也不覆盖 `latest`。测试镜像固定使用 `ghcr.io/luoquan0/cat-termix:ai-dev`；另发布固定版本 `ghcr.io/luoquan0/cat-termix:2.9.2-ai-preview.9`，方便回滚；发布流水线在全部回归、AMD64/ARM64 构建和启动检查成功后才更新该标签。每次发布保留 `sha-<完整提交 SHA>`，镜像版本标签为 `2.9.2-ai-preview.9`。
 
+## Preview 9：本地 Agent 接入（测试版）
+
+保留现有 AI 聊天、软件自动更新和 Preview 8 的所有功能，新增独立「本地 Agent 接入」插件。外部本地 AI 可安装 [cloudssh-agent Skill](../skills/cloudssh-agent/SKILL.md)，沿用 `/agent/v1` 的 Ed25519 设备签名、一次性设备码、网页审批及权限隔离。支持 SSH Jobs、平台/tmux 会话和写入租约，以及 SFTP 列目录、读取、上传、下载、创建目录、移动、删除。设备注册与授权保存到插件自身状态，撤销可阻止后续请求。网页提供配对、主机分类授权、scopes 和设备撤销；不向 AI 聊天工具直接暴露设备管理接口。
+
+管理员可通过「Agent 内网 HTTP」保存可信来源 CIDR（默认禁用 HTTP，优先 HTTPS）。允许来源由真实客户端 IP 与 CIDR 校验，部署环境 `CLOUDSSH_AGENT_HTTP_POLICY_LOCKED=true` 可锁定该策略；不合法的锁定配置拒绝 HTTP。旧本地客户端明文连接仍须显式 `--allow-http`。
+
+**兼容限制：** 旧 CloudSSH 团队项目 ID 与设备批准记录不能直接迁移；此版本用当前账号拥有的主机与文件夹分类构造项目标识，初次连接应重新配对。旧版 `/quick-connections` 临时主机、直接导入密码/私钥创建主机、会话重启后自动恢复远端 tmux、完整的近期 MFA 管理员再次验证、可信内网 IPv6 CIDR 尚未达到旧版完全对等。用户应先在非生产测试主机验证读写操作；不要认为这个预览版本已经完整替代旧仓库的所有边缘能力。
+
+CI 在原 AI/SSH/更新/回滚检查之外验证 Agent 安全测试，并在启动双架构镜像时通过真实 Nginx 发起 Ed25519 设备申请、签名轮询、未批准设备拒绝；仍不等于已经对用户真实 SSH 主机进行端到端验证。
 ## Preview 8：更新后自动恢复、移除捐赠推广
 
 管理员点击“立即更新”并确认后，浏览器会记住更新请求 ID 和旧版本（不会存储认证密钥），在应用暂时停机时保持轮询。**只有更新器确认新容器健康、修订号发生变化、且新应用的授权更新接口已能访问时**才自动刷新当前网页。刷新后会弹出更新成功通知；只有检查、失败、未发现新版或更新延后时均不会刷新。已启用后台自动安装时，具有更新管理权限的浏览器会在后台低频观察更新阶段，即使关闭系统设置抽屉也能在检测到新版本健康后自动恢复刷新。更新需要断开 SSH，页面刷新会中断未保存的临时编辑内容，请在维护时间操作。
 
 此版本移除用户资料中的 Termix 捐赠广告卡片、定期弹出的捐赠提醒和仪表盘上的捐赠链接；保留原项目开源许可证与版权说明。
 
-**旧版 CloudSSH 本地 Agent：** `luoquan0/Cat-Cloudssh` 的 Ed25519 设备认证、设备审批、独立 Agent Skill、持久 SSH 会话/任务/SFTP 后端目前没有完整移植到 Cat-Termix；新版网页内置 AI 聊天是另一套功能。
+**旧版 CloudSSH 本地 Agent：** Preview 9 已通过独立插件开始迁移；未完全对等的功能列于上节，网页 AI 聊天保持独立。
 
 ## 独立聊天设置悬浮窗
 

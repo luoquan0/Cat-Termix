@@ -156,6 +156,7 @@ jobs:
           docker exec cat-termix-smoke test -s /app/dist/plugins/agent/dist/backend.js
           docker exec cat-termix-smoke test -s /app/dist/plugins/agent/dist/frontend.js
           curl -fsS http://127.0.0.1:19080/agent/v1/health | tee /tmp/cat-termix-image/agent-health.json
+          node docker/agent/preview-smoke.mjs
           grep -q '"status":"ok"' /tmp/cat-termix-image/agent-health.json
           docker exec cat-termix-smoke test -s /app/dist/plugins/ssh-terminal/dist/frontend.js
           printf '%s\n' "$IMAGE@$DIGEST" > /tmp/cat-termix-image/image.txt
