@@ -11,6 +11,12 @@ import {
 } from "lucide-react";
 import { aiApp } from "./app-ref";
 import type { UpdateInfo } from "../shared/update-policy";
+import {
+  armUpdateRestart,
+  getUpdateRecoveryPhase,
+  readUpdateRestartIntent,
+  subscribeUpdateRecovery,
+} from "./update-recovery";
 
 const activePhases = new Set([
   "checking",
@@ -33,6 +39,11 @@ export function UpdateSettings() {
   const [confirm, setConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pollError, setPollError] = useState(false);
+  const [recoveryPhase, setRecoveryPhase] = useState(
+    getUpdateRecoveryPhase,
+  );
+
+  useEffect(() => subscribeUpdateRecovery(setRecoveryPhase), []);
 
   const refresh = useCallback(async () => {
     const response = await aiApp().api.get<UpdateInfo>("/updates");
@@ -66,7 +77,24 @@ export function UpdateSettings() {
     info?.request?.state === "queued" || info?.request?.state === "running";
   const phaseActive =
     Boolean(info?.installed) && activePhases.has(info?.status?.phase ?? "");
-  const isWorking = busyAction !== null || requestActive || phaseActive;
+  const reconnecting =
+    recoveryPhase === "reconnecting" || recoveryPhase === "reloading";
+  const isWorking =
+    busyAction !== null || requestActive || phaseActive || reconnecting;
+
+  useEffect(() => {
+    // An administrator may be watching when the periodic auto-installer starts.
+    // Only a REAL replacement phase arms reload, never a version check.
+    if (!info?.canManage || !info.installed || readUpdateRestartIntent())
+      return;
+    if (
+      info.status?.phase === "downloading" ||
+      info.status?.phase === "backing_up" ||
+      info.status?.phase === "verifying"
+    ) {
+      armUpdateRestart(info.status, "automatic", null);
+    }
+  }, [info]);
 
   // The helper polls for manual requests every 15 seconds. Poll the
   // authenticated state quickly while busy, then return to low-rate polling.
@@ -93,14 +121,31 @@ export function UpdateSettings() {
         keepProxy: !proxyChanged,
       });
       if (name !== "save") {
-        // The response is HTTP 202 (queued), not proof that the check is done.
-        await aiApp().api.post("/updates/" + name, {
+        // HTTP 202 means queued. Wait until the separate updater verifies
+        // a healthy replacement before refreshing this browser tab.
+        const response = await aiApp().api.post<{
+          accepted?: boolean;
+          requestId?: string;
+        }>("/updates/" + name, {
           confirmRestart: name === "apply",
         });
+        if (
+          name === "apply" &&
+          response.data.accepted === true &&
+          typeof response.data.requestId === "string"
+        ) {
+          armUpdateRestart(info?.status, "manual", response.data.requestId);
+        }
       }
       setConfirm(false);
       setProxyChanged(false);
-      await refresh();
+      try {
+        await refresh();
+      } catch {
+        // Once accepted, the updater may already be stopping the app.
+        // Don't report a successful queued action as a submission failure.
+        setPollError(true);
+      }
     } catch {
       setError(t("ai.updateActionError"));
     } finally {
@@ -111,7 +156,11 @@ export function UpdateSettings() {
   const request = info?.request;
   const phase = info?.status?.phase;
   let feedback = t("ai.updateIdle");
-  if (busyAction === "check") {
+  if (recoveryPhase === "reloading") {
+    feedback = t("ai.updateReloadingPage");
+  } else if (recoveryPhase === "reconnecting") {
+    feedback = t("ai.updateReconnecting");
+  } else if (busyAction === "check") {
     feedback = t("ai.updateSubmittingCheck");
   } else if (busyAction === "apply") {
     feedback = t("ai.updateSubmittingApply");

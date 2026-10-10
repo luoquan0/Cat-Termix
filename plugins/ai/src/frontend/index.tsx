@@ -16,6 +16,8 @@ import { UpdateSettings } from "./UpdateSettings";
 import { ProvidersSetting } from "./settings/ProvidersSetting";
 import { AI_STATUS_CHANGED_EVENT, getAiStatus } from "./ai-api";
 import { setAiApp } from "./app-ref";
+import { startUpdateRestartMonitor } from "./update-recovery";
+import type { UpdateInfo } from "../shared/update-policy";
 
 /** The rail id the assistant registers under. */
 const AI_RAIL_ID = "ai";
@@ -67,6 +69,14 @@ function TerminalSidePanel({
 export function activate(app: TermixApp): void {
   setAiApp(app);
   app.onDispose(() => setAiApp(null));
+
+  // The app container may disappear during replacement. Keep the recovery
+  // watcher alive even if the administrator closes the settings section.
+  app.onDispose(
+    startUpdateRestartMonitor(
+      async () => (await app.api.get<UpdateInfo>("/updates")).data,
+    ),
+  );
 
   let globallyEnabled = false;
   let userEnabled = false;
