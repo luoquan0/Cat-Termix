@@ -1,4 +1,5 @@
 import { useAiModels } from "./use-ai-models";
+import { useModelContext } from "./use-model-context";
 import { ApprovalToggle } from "./ApprovalToggle";
 import { ContextControls, ContextStatus } from "./ContextControls";
 import {
@@ -139,6 +140,17 @@ export function AiPanel({
     model,
     setModel,
   );
+  const applyDetectedCapacity = useCallback((contextWindow: number) => {
+    setContextConfig((previous) => ({
+      ...previous,
+      contextWindow,
+      outputReserve: Math.min(
+        previous.outputReserve,
+        Math.floor(contextWindow / 2),
+      ),
+    }));
+  }, []);
+  const modelContext = useModelContext(providerId, model, applyDetectedCapacity);
 
   function newConversation() {
     historyOperationRef.current += 1;
@@ -255,7 +267,21 @@ export function AiPanel({
         setModel(saved.conversation.model ?? "");
       }
       const savedContext = readCheckpoint(saved.conversation.contextState);
-      if (savedContext) setContextConfig(savedContext.policy);
+      if (savedContext) {
+        const matchingModel = modelContext.info?.providerId === saved.conversation.providerId &&
+          modelContext.info?.model === saved.conversation.model;
+        const capacity = matchingModel
+          ? modelContext.info!.contextWindow
+          : savedContext.policy.contextWindow;
+        setContextConfig({
+          ...savedContext.policy,
+          contextWindow: capacity,
+          outputReserve: Math.min(
+            savedContext.policy.outputReserve,
+            Math.floor(capacity / 2),
+          ),
+        });
+      }
       setState((prev) => ({
         ...prev,
         contextUsage: savedContext?.usage ?? null,
@@ -657,6 +683,12 @@ export function AiPanel({
             value={contextConfig}
             onChange={setContextConfig}
             disabled={executing}
+            modelSelected={Boolean(providerId && model.trim())}
+            modelInfo={modelContext.info}
+            modelLoading={modelContext.loading}
+            modelError={modelContext.error}
+            onOverride={modelContext.saveOverride}
+            onRefresh={modelContext.refresh}
           />
           <UpdateSettings />
           <details
