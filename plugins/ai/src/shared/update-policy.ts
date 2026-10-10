@@ -95,10 +95,16 @@ export function resolveUpdateRequestProgress(
   const doneCheck = accepted &&
     Number.isFinite(checkedAt) &&
     checkedAt >= at;
-  const doneApply = accepted &&
-    phase === "updated" &&
-    Number.isFinite(heartbeat) &&
-    heartbeat >= at;
+  const appliedAt = Date.parse(status?.lastSuccessAt ?? "");
+  const doneApply =
+    accepted &&
+    ((phase === "updated" &&
+      Number.isFinite(appliedAt) &&
+      appliedAt >= at) ||
+      (phase === "current" && doneCheck) ||
+      (phase === "deferred" &&
+        Number.isFinite(heartbeat) &&
+        heartbeat >= at));
   let state: UpdateRequestProgress["state"] = "queued";
 
   if (
