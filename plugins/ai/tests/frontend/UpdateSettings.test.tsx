@@ -85,8 +85,10 @@ describe("updater check feedback", () => {
       status: { ...snapshot.status, phase: "checking" },
     };
     await waitFor(
-      () => expect(screen.getByTestId("updater-progress").textContent)
-        .toContain("ai.updateCheckingUpstream"),
+      () =>
+        expect(screen.getByTestId("updater-progress").textContent).toContain(
+          "ai.updateCheckingUpstream",
+        ),
       { timeout: 5000 },
     );
     snapshot = {
@@ -99,13 +101,19 @@ describe("updater check feedback", () => {
       },
     };
     await waitFor(
-      () => expect(screen.getByTestId("updater-progress").textContent)
-        .toContain("ai.updateLatest"),
+      () =>
+        expect(screen.getByTestId("updater-progress").textContent).toContain(
+          "ai.updateLatest",
+        ),
       { timeout: 5000 },
     );
-    expect((screen.getByRole("button", {
-      name: "ai.updateCheck",
-    }) as HTMLButtonElement).disabled).toBe(false);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "ai.updateCheck",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
   }, 15000);
 
   it("shows updater errors and their message without a misleading completion", async () => {
@@ -122,10 +130,12 @@ describe("updater check feedback", () => {
     };
     render(<UpdateSettings />);
     await screen.findByText("ai.updateCheckFailed");
-    expect(screen.getByTestId("updater-progress").textContent)
-      .toContain("Registry request failed (502)");
-    expect(screen.getByTestId("updater-progress").textContent)
-      .not.toContain("ai.updateLatest");
+    expect(screen.getByTestId("updater-progress").textContent).toContain(
+      "Registry request failed (502)",
+    );
+    expect(screen.getByTestId("updater-progress").textContent).not.toContain(
+      "ai.updateLatest",
+    );
   });
 
   it("does not expose updater controls to an account without admin grants", async () => {

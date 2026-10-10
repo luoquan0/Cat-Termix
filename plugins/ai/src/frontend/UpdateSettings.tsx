@@ -63,8 +63,7 @@ export function UpdateSettings() {
   }, [t]);
 
   const requestActive =
-    info?.request?.state === "queued" ||
-    info?.request?.state === "running";
+    info?.request?.state === "queued" || info?.request?.state === "running";
   const phaseActive =
     Boolean(info?.installed) && activePhases.has(info?.status?.phase ?? "");
   const isWorking = busyAction !== null || requestActive || phaseActive;
@@ -74,9 +73,12 @@ export function UpdateSettings() {
   // This also restores correct progress if the settings page is reopened.
   useEffect(() => {
     if (!info?.canManage) return;
-    const timer = setInterval(() => {
-      void refresh().catch(() => setPollError(true));
-    }, requestActive || phaseActive ? 2000 : 10000);
+    const timer = setInterval(
+      () => {
+        void refresh().catch(() => setPollError(true));
+      },
+      requestActive || phaseActive ? 2000 : 10000,
+    );
     return () => clearInterval(timer);
   }, [info?.canManage, requestActive, phaseActive, refresh]);
 
@@ -223,7 +225,9 @@ export function UpdateSettings() {
             value={hours}
             disabled={isWorking}
             onChange={(event) =>
-              setHours(Math.min(168, Math.max(1, Number(event.target.value) || 6)))
+              setHours(
+                Math.min(168, Math.max(1, Number(event.target.value) || 6)),
+              )
             }
           />
         </label>
@@ -261,7 +265,11 @@ export function UpdateSettings() {
             {(busyAction === "check" ||
               (request?.action === "check" && requestActive) ||
               phase === "checking") && (
-              <Loader2 size={14} className="mr-1 inline animate-spin" aria-hidden="true" />
+              <Loader2
+                size={14}
+                className="mr-1 inline animate-spin"
+                aria-hidden="true"
+              />
             )}
             {busyAction === "check" ||
             (request?.action === "check" && requestActive)
@@ -302,27 +310,42 @@ export function UpdateSettings() {
         >
           <div className="flex items-center gap-2">
             {isWorking ? (
-              <Loader2 size={14} className="shrink-0 animate-spin text-primary" aria-hidden="true" />
+              <Loader2
+                size={14}
+                className="shrink-0 animate-spin text-primary"
+                aria-hidden="true"
+              />
             ) : failed ? (
-              <AlertCircle size={14} className="shrink-0 text-destructive" aria-hidden="true" />
+              <AlertCircle
+                size={14}
+                className="shrink-0 text-destructive"
+                aria-hidden="true"
+              />
             ) : request?.state === "completed" ||
               phase === "current" ||
               phase === "available" ||
               phase === "updated" ? (
-              <CheckCircle2 size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
+              <CheckCircle2
+                size={14}
+                className="shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
             ) : (
-              <Clock3 size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
+              <Clock3
+                size={14}
+                className="shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
             )}
             <span className={failed ? "text-destructive" : "font-medium"}>
               {feedback}
             </span>
           </div>
-          {info.status?.message &&
-            (failed || phase === "deferred") && (
-              <p className="break-words text-muted-foreground">
-                {info.status.message}
-              </p>
-            )}
+          {info.status?.message && (failed || phase === "deferred") && (
+            <p className="break-words text-muted-foreground">
+              {info.status.message}
+            </p>
+          )}
           {lastCheck && (
             <p className="text-muted-foreground">
               {t("ai.updateLastCheck")}: {lastCheck}

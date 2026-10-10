@@ -84,7 +84,8 @@ export function resolveUpdateRequestProgress(
     !/^[a-f\d-]{36}$/i.test(request.id) ||
     (request.action !== "check" && request.action !== "apply") ||
     typeof request.at !== "string"
-  ) return null;
+  )
+    return null;
   const at = Date.parse(request.at);
   if (!Number.isFinite(at)) return null;
 
@@ -92,29 +93,28 @@ export function resolveUpdateRequestProgress(
   const phase = status?.phase;
   const checkedAt = Date.parse(status?.lastCheckAt ?? "");
   const heartbeat = Date.parse(status?.heartbeat ?? "");
-  const doneCheck = accepted &&
-    Number.isFinite(checkedAt) &&
-    checkedAt >= at;
+  const doneCheck = accepted && Number.isFinite(checkedAt) && checkedAt >= at;
   const appliedAt = Date.parse(status?.lastSuccessAt ?? "");
   const doneApply =
     accepted &&
-    ((phase === "updated" &&
-      Number.isFinite(appliedAt) &&
-      appliedAt >= at) ||
+    ((phase === "updated" && Number.isFinite(appliedAt) && appliedAt >= at) ||
       (phase === "current" && doneCheck) ||
-      (phase === "deferred" &&
-        Number.isFinite(heartbeat) &&
-        heartbeat >= at));
+      (phase === "deferred" && Number.isFinite(heartbeat) && heartbeat >= at));
   let state: UpdateRequestProgress["state"] = "queued";
 
   if (
-    (request.action === "check" && doneCheck &&
+    (request.action === "check" &&
+      doneCheck &&
       (phase === "current" || phase === "available")) ||
     (request.action === "apply" && doneApply)
   ) {
     state = "completed";
-  } else if (accepted && phase === "error" &&
-    Number.isFinite(heartbeat) && heartbeat >= at) {
+  } else if (
+    accepted &&
+    phase === "error" &&
+    Number.isFinite(heartbeat) &&
+    heartbeat >= at
+  ) {
     state = "failed";
   } else if (accepted && request.action === "check" && doneCheck) {
     // A later automatic update may have already advanced the phase.
