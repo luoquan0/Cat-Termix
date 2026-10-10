@@ -264,11 +264,16 @@ export function registerAiRoutes(
       )
         return res.status(400).json({ error: "Invalid reasoning effort" });
       if (patch.providerEfforts !== undefined)
-        return res.status(400).json({ error: "Provider defaults are edited separately" });
+        return res
+          .status(400)
+          .json({ error: "Provider defaults are edited separately" });
       try {
         const userId = actor(ctx);
         if (patch.providerId) {
-          const provider = await repository.findProvider(patch.providerId, userId);
+          const provider = await repository.findProvider(
+            patch.providerId,
+            userId,
+          );
           if (!provider?.enabled)
             return res.status(404).json({ error: "Provider not found" });
         }
@@ -321,7 +326,9 @@ export function registerAiRoutes(
         ]);
         res.json({
           providers: await Promise.all(
-            providers.map((provider) => enrichedProvider(userId, provider, preferences)),
+            providers.map((provider) =>
+              enrichedProvider(userId, provider, preferences),
+            ),
           ),
         });
       } catch (err) {
@@ -367,8 +374,14 @@ export function registerAiRoutes(
     gate,
     async (req: Request, res: Response) => {
       const userId = actor(ctx);
-      const { providerType, label, baseUrl, apiKey, defaultModel, defaultReasoningEffort } =
-        req.body ?? {};
+      const {
+        providerType,
+        label,
+        baseUrl,
+        apiKey,
+        defaultModel,
+        defaultReasoningEffort,
+      } = req.body ?? {};
       if (
         defaultReasoningEffort !== undefined &&
         !isReasoningEffort(defaultReasoningEffort)
@@ -421,7 +434,9 @@ export function registerAiRoutes(
           success: true,
         });
 
-        res.status(201).json({ provider: await enrichedProvider(userId, created) });
+        res
+          .status(201)
+          .json({ provider: await enrichedProvider(userId, created) });
       } catch (err) {
         logError("Failed to create AI provider", err);
         res.status(500).json({ error: "Failed to create provider" });
@@ -1052,7 +1067,10 @@ export function registerAiRoutes(
         if (approvalMode !== "review" && approvalMode !== "auto") {
           return res.status(400).json({ error: "Invalid approval mode" });
         }
-        if (reasoningEffort !== undefined && !isReasoningEffort(reasoningEffort))
+        if (
+          reasoningEffort !== undefined &&
+          !isReasoningEffort(reasoningEffort)
+        )
           return res.status(400).json({ error: "Invalid reasoning effort" });
         if (
           hostId !== undefined &&
@@ -1198,7 +1216,8 @@ export function registerAiRoutes(
                 .map((text) => mentionedHostIds(text, hosts))
                 .find((ids) => ids.length > 0) ?? [];
             const config = await providerConfig(provider);
-            const storedPreferences = await repository.getChatPreferences(userId);
+            const storedPreferences =
+              await repository.getChatPreferences(userId);
             const selectedReasoningEffort: ReasoningEffort =
               reasoningEffort ??
               storedPreferences.providerEfforts[String(resolvedProviderId)] ??

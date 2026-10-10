@@ -48,11 +48,14 @@ export function AiComposerControls({
     ).then((entries) => {
       if (!cancelled) setCatalog(Object.fromEntries(entries));
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [providers]);
 
   const selected = providers.find((p) => p.id === providerId);
-  const selectedValue = providerId && model ? `${providerId}:${model}` : undefined;
+  const selectedValue =
+    providerId && model ? `${providerId}:${model}` : undefined;
 
   return (
     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -72,7 +75,9 @@ export function AiComposerControls({
           className="h-8 w-auto max-w-[min(75vw,285px)] min-w-[110px] rounded-full border-border/70 bg-muted/70 px-3 text-xs"
         >
           <Layers3 size={13} className="shrink-0" />
-          <span className="min-w-0 truncate">{model || t("ai.modelPlaceholder")}</span>
+          <span className="min-w-0 truncate">
+            {model || t("ai.modelPlaceholder")}
+          </span>
           {selected && (
             <span className="hidden max-w-24 shrink-0 truncate text-muted-foreground sm:inline">
               · {selected.label}
@@ -81,11 +86,15 @@ export function AiComposerControls({
         </SelectTrigger>
         <SelectContent className="z-[300] max-h-[min(65vh,380px)] min-w-[230px]">
           {providers.map((provider) => {
-            const options = [...new Set([
-              provider.defaultModel,
-              ...(catalog[provider.id] ?? []),
-              ...(provider.id === providerId ? [model] : []),
-            ].filter((value): value is string => Boolean(value)))];
+            const options = [
+              ...new Set(
+                [
+                  provider.defaultModel,
+                  ...(catalog[provider.id] ?? []),
+                  ...(provider.id === providerId ? [model] : []),
+                ].filter((value): value is string => Boolean(value)),
+              ),
+            ];
             return (
               <SelectGroup key={provider.id}>
                 <SelectLabel>
@@ -119,7 +128,9 @@ export function AiComposerControls({
           className="h-8 w-auto max-w-[130px] rounded-full border-border/70 bg-muted/70 px-3 text-xs"
         >
           <BrainCircuit size={13} className="shrink-0" />
-          <span className="truncate">{t(`ai.reasoning.${reasoningEffort}`)}</span>
+          <span className="truncate">
+            {t(`ai.reasoning.${reasoningEffort}`)}
+          </span>
         </SelectTrigger>
         <SelectContent className="z-[300]">
           {REASONING_EFFORTS.map((effort) => (

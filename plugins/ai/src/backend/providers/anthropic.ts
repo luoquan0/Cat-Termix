@@ -119,9 +119,10 @@ export const anthropicAdapter: ProviderAdapter = {
       request.reasoningEffort !== "off"
         ? {
             output_config: {
-              effort: request.reasoningEffort === "xhigh"
-                ? ("max" as const)
-                : request.reasoningEffort,
+              effort:
+                request.reasoningEffort === "xhigh"
+                  ? ("max" as const)
+                  : request.reasoningEffort,
             },
           }
         : {}),

@@ -126,22 +126,26 @@ export const geminiAdapter: ProviderAdapter = {
                   ? {
                       thinkingConfig: request.model.startsWith("gemini-3")
                         ? {
-                            thinkingLevel: ({
-                              off: "MINIMAL",
-                              low: "LOW",
-                              medium: "MEDIUM",
-                              high: "HIGH",
-                              xhigh: "HIGH",
-                            } as const)[request.reasoningEffort],
+                            thinkingLevel: (
+                              {
+                                off: "MINIMAL",
+                                low: "LOW",
+                                medium: "MEDIUM",
+                                high: "HIGH",
+                                xhigh: "HIGH",
+                              } as const
+                            )[request.reasoningEffort],
                           }
                         : {
-                            thinkingBudget: ({
-                              off: 0,
-                              low: 1024,
-                              medium: 4096,
-                              high: 8192,
-                              xhigh: 16384,
-                            } as const)[request.reasoningEffort],
+                            thinkingBudget: (
+                              {
+                                off: 0,
+                                low: 1024,
+                                medium: 4096,
+                                high: 8192,
+                                xhigh: 16384,
+                              } as const
+                            )[request.reasoningEffort],
                           },
                     }
                   : {}),

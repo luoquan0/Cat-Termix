@@ -10,7 +10,11 @@ import {
 } from "../shared/context-policy";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { DEFAULT_AI_PREFERENCES, type AiChatPreferences, type ReasoningEffort } from "../shared/reasoning";
+import {
+  DEFAULT_AI_PREFERENCES,
+  type AiChatPreferences,
+  type ReasoningEffort,
+} from "../shared/reasoning";
 import { useTranslation } from "@termix/plugin-sdk/frontend";
 import {
   History,
@@ -90,7 +94,8 @@ export function AiPanel({
   const [providerId, setProviderId] = useState<number | null>(null);
   const [model, setModel] = useState("");
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>("review");
-  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("auto");
+  const [reasoningEffort, setReasoningEffort] =
+    useState<ReasoningEffort>("auto");
   const preferenceRef = useRef<AiChatPreferences>({
     ...DEFAULT_AI_PREFERENCES,
     providerEfforts: {},
@@ -102,20 +107,23 @@ export function AiPanel({
     [providers],
   );
 
-  const persistPreference = useCallback((patch: Partial<AiChatPreferences>) => {
-    if (!initializedRef.current) return;
-    const updated = { ...preferenceRef.current, ...patch };
-    preferenceRef.current = updated;
-    // Serialize writes: a rapid channel + thinking change must not allow
-    // an older request to overwrite the user's latest selection.
-    // Channel defaults are administrator/user channel edits, not a writable
-    // part of the chat preference PATCH API.
-    const { providerEfforts: _providerEfforts, ...writable } = updated;
-    preferenceWriteRef.current = preferenceWriteRef.current
-      .catch(() => undefined)
-      .then(() => saveAiPreferences(writable))
-      .catch(() => toast.error(t("ai.preferencesSaveFailed")));
-  }, [t]);
+  const persistPreference = useCallback(
+    (patch: Partial<AiChatPreferences>) => {
+      if (!initializedRef.current) return;
+      const updated = { ...preferenceRef.current, ...patch };
+      preferenceRef.current = updated;
+      // Serialize writes: a rapid channel + thinking change must not allow
+      // an older request to overwrite the user's latest selection.
+      // Channel defaults are administrator/user channel edits, not a writable
+      // part of the chat preference PATCH API.
+      const { providerEfforts: _providerEfforts, ...writable } = updated;
+      preferenceWriteRef.current = preferenceWriteRef.current
+        .catch(() => undefined)
+        .then(() => saveAiPreferences(writable))
+        .catch(() => toast.error(t("ai.preferencesSaveFailed")));
+    },
+    [t],
+  );
 
   const chooseModel = useCallback(
     (id: number, chosenModel: string) => {

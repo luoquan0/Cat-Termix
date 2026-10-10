@@ -396,7 +396,9 @@ export function AiProviderSettings({
                   <span className="truncate">{provider.defaultModel}</span>
                 )}
                 <span className="truncate">
-                  {t(`ai.reasoning.${provider.defaultReasoningEffort ?? "auto"}`)}
+                  {t(
+                    `ai.reasoning.${provider.defaultReasoningEffort ?? "auto"}`,
+                  )}
                 </span>
                 {provider.baseUrl && (
                   <span className="truncate">{provider.baseUrl}</span>

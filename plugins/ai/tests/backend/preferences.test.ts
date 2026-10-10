@@ -33,24 +33,26 @@ describe("AI user defaults and channel thinking settings", () => {
       },
     });
     expect(saved.status).toBe(200);
-    expect((await server.request("GET", "/preferences")).body.preferences)
-      .toMatchObject({
-        providerId: id,
-        model: "gpt-6",
-        approvalMode: "auto",
-        reasoningEffort: "xhigh",
-        providerEfforts: { [id]: "high" },
-      });
+    expect(
+      (await server.request("GET", "/preferences")).body.preferences,
+    ).toMatchObject({
+      providerId: id,
+      model: "gpt-6",
+      approvalMode: "auto",
+      reasoningEffort: "xhigh",
+      providerEfforts: { [id]: "high" },
+    });
 
     const updated = await server.request("PATCH", `/providers/${id}`, {
       body: { defaultReasoningEffort: "medium" },
     });
     expect(updated.body.provider.defaultReasoningEffort).toBe("medium");
-    expect((await server.request("GET", "/providers")).body.providers[0])
-      .toMatchObject({
-        id,
-        defaultReasoningEffort: "medium",
-      });
+    expect(
+      (await server.request("GET", "/providers")).body.providers[0],
+    ).toMatchObject({
+      id,
+      defaultReasoningEffort: "medium",
+    });
 
     await server.enableFor("user-2");
     const other = await server.request("GET", "/preferences", {
@@ -73,23 +75,41 @@ describe("AI user defaults and channel thinking settings", () => {
   it("rejects unsupported levels, invalid data and client edits to channel defaults", async () => {
     server = await startServer();
     await server.enableFor("user-1");
-    expect((await server.request("PUT", "/preferences", {
-      body: { reasoningEffort: "ultra-hyper" },
-    })).status).toBe(400);
-    expect((await server.request("PUT", "/preferences", {
-      body: { approvalMode: "always_sudo" },
-    })).status).toBe(400);
-    expect((await server.request("PUT", "/preferences", {
-      body: { providerEfforts: { "1": "high" } },
-    })).status).toBe(400);
-    expect((await server.request("POST", "/providers", {
-      body: {
-        providerType: "openai",
-        label: "Invalid",
-        apiKey: "test",
-        defaultReasoningEffort: "invalid",
-      },
-    })).status).toBe(400);
-    expect((await server.request("GET", "/providers")).body.providers).toEqual([]);
+    expect(
+      (
+        await server.request("PUT", "/preferences", {
+          body: { reasoningEffort: "ultra-hyper" },
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await server.request("PUT", "/preferences", {
+          body: { approvalMode: "always_sudo" },
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await server.request("PUT", "/preferences", {
+          body: { providerEfforts: { "1": "high" } },
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await server.request("POST", "/providers", {
+          body: {
+            providerType: "openai",
+            label: "Invalid",
+            apiKey: "test",
+            defaultReasoningEffort: "invalid",
+          },
+        })
+      ).status,
+    ).toBe(400);
+    expect((await server.request("GET", "/providers")).body.providers).toEqual(
+      [],
+    );
   });
 });

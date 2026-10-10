@@ -110,8 +110,10 @@ describe("compact chat settings and a clean composer", () => {
       screen.getByRole("combobox", { name: "ai.executionMode" }),
     ).toBeTruthy();
     expect(
-      within(screen.getByRole("dialog", { name: "ai.chatSettings" }))
-        .getByRole("combobox", { name: "ai.modelPicker" }),
+      within(screen.getByRole("dialog", { name: "ai.chatSettings" })).getByRole(
+        "combobox",
+        { name: "ai.modelPicker" },
+      ),
     ).toBeTruthy();
     expect(screen.getByText("ai.providerSettings")).toBeTruthy();
     expect(screen.queryByText("ai.updateSettings")).toBeNull();
