@@ -38,18 +38,91 @@ export function validateUpdatePolicy(value: unknown): UpdatePolicy {
     proxyUrl: p.proxyUrl,
   };
 }
+/** A check is asynchronous. 202 means queued, not that GHCR was checked. */
+export interface UpdateRequestProgress {
+  id: string;
+  action: "check" | "apply";
+  requestedAt: string;
+  state: "queued" | "running" | "completed" | "failed" | "timed_out";
+}
+
+export interface UpdateStatus {
+  phase?: string;
+  currentRevision?: string;
+  availableRevision?: string;
+  lastCheckAt?: string;
+  lastSuccessAt?: string;
+  lastRequest?: string;
+  message?: string;
+  heartbeat?: string;
+}
+
 export interface UpdateInfo {
   canManage: boolean;
   installed: boolean;
   policy: UpdatePolicy;
   proxyConfigured: boolean;
-  status?: {
-    phase?: string;
-    currentRevision?: string;
-    availableRevision?: string;
-    lastCheckAt?: string;
-    lastSuccessAt?: string;
-    message?: string;
-    heartbeat?: string;
+  status?: UpdateStatus | null;
+  /** Derived from the request file and the separate updater's real heartbeat. */
+  request?: UpdateRequestProgress | null;
+}
+
+/**
+ * Correlate an accepted manual request with the updater's acknowledged ID and
+ * timestamps. Crucially, an old "current" status cannot finish a new check.
+ * Compatible with already-deployed Preview 4+ updater helpers.
+ */
+export function resolveUpdateRequestProgress(
+  raw: unknown,
+  status: UpdateStatus | null | undefined,
+  now = Date.now(),
+): UpdateRequestProgress | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const request = raw as Record<string, unknown>;
+  if (
+    typeof request.id !== "string" ||
+    !/^[a-f\d-]{36}$/i.test(request.id) ||
+    (request.action !== "check" && request.action !== "apply") ||
+    typeof request.at !== "string"
+  ) return null;
+  const at = Date.parse(request.at);
+  if (!Number.isFinite(at)) return null;
+
+  const accepted = status?.lastRequest === request.id;
+  const phase = status?.phase;
+  const checkedAt = Date.parse(status?.lastCheckAt ?? "");
+  const heartbeat = Date.parse(status?.heartbeat ?? "");
+  const doneCheck = accepted &&
+    Number.isFinite(checkedAt) &&
+    checkedAt >= at;
+  const doneApply = accepted &&
+    phase === "updated" &&
+    Number.isFinite(heartbeat) &&
+    heartbeat >= at;
+  let state: UpdateRequestProgress["state"] = "queued";
+
+  if (
+    (request.action === "check" && doneCheck &&
+      (phase === "current" || phase === "available")) ||
+    (request.action === "apply" && doneApply)
+  ) {
+    state = "completed";
+  } else if (accepted && phase === "error" &&
+    Number.isFinite(heartbeat) && heartbeat >= at) {
+    state = "failed";
+  } else if (accepted && request.action === "check" && doneCheck) {
+    // A later automatic update may have already advanced the phase.
+    state = "completed";
+  } else if (!accepted && now - at > 10 * 60_000) {
+    // The helper refuses manual requests older than ten minutes.
+    state = "timed_out";
+  } else if (accepted) {
+    state = "running";
+  }
+  return {
+    id: request.id,
+    action: request.action,
+    requestedAt: request.at,
+    state,
   };
 }
