@@ -51,8 +51,11 @@ export interface ToolDefinition {
   parameters: Record<string, unknown>;
 }
 
+import type { ReasoningEffort } from "../../shared/reasoning.js";
+
 export interface ChatRequest {
   model: string;
+  reasoningEffort?: ReasoningEffort;
   system: string;
   messages: ChatMessage[];
   tools: ToolDefinition[];

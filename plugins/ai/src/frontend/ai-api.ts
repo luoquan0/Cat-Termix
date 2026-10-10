@@ -1,4 +1,6 @@
 import { aiApp } from "./app-ref";
+import type { AiChatPreferences, ReasoningEffort } from "../shared/reasoning";
+export type { AiChatPreferences, ReasoningEffort } from "../shared/reasoning";
 
 /** Fired when the AI status may have changed, so every surface re-reads it. */
 export const AI_STATUS_CHANGED_EVENT = "termix-ai:status-changed";
@@ -42,8 +44,27 @@ export interface AiProvider {
   /** The first few characters only; the key itself never leaves the server. */
   apiKeyPrefix: string | null;
   defaultModel: string | null;
+  defaultReasoningEffort?: ReasoningEffort;
   enabled: boolean;
   createdAt: string;
+}
+
+export async function getAiPreferences(): Promise<AiChatPreferences> {
+  try {
+    return (await api().get("/preferences")).data.preferences;
+  } catch (error) {
+    throw apiError(error, "load AI preferences");
+  }
+}
+
+export async function saveAiPreferences(
+  patch: Partial<AiChatPreferences>,
+): Promise<AiChatPreferences> {
+  try {
+    return (await api().put("/preferences", patch)).data.preferences;
+  } catch (error) {
+    throw apiError(error, "save AI preferences");
+  }
 }
 
 export interface AiConversation {
@@ -112,6 +133,7 @@ export async function createAiProvider(input: {
   baseUrl?: string | null;
   apiKey?: string | null;
   defaultModel?: string | null;
+  defaultReasoningEffort?: ReasoningEffort;
 }): Promise<AiProvider> {
   try {
     return (await api().post("/providers", input)).data.provider;
@@ -127,6 +149,7 @@ export async function updateAiProvider(
     baseUrl: string | null;
     apiKey: string | null;
     defaultModel: string | null;
+    defaultReasoningEffort: ReasoningEffort;
     enabled: boolean;
   }>,
 ): Promise<AiProvider> {

@@ -6,6 +6,7 @@ import type {
 } from "../shared/context-policy.js";
 import { getErrorMessage } from "./errors.js";
 import { describeProviderError } from "./providers/http.js";
+import type { ReasoningEffort } from "../shared/reasoning.js";
 import { getAdapter } from "./providers/registry.js";
 import type {
   ChatMessage,
@@ -46,6 +47,7 @@ export interface EngineOptions {
   contextCheckpoint?: ContextCheckpoint | null;
   saveContext?: (checkpoint: ContextCheckpoint) => Promise<void>;
   model: string;
+  reasoningEffort?: ReasoningEffort;
   system: string;
   history: ChatMessage[];
   context: ToolContext;
@@ -108,6 +110,7 @@ export async function* runAgent(
       yield report();
       for await (const chunk of adapter.streamChat(options.config, {
         model: options.model,
+        reasoningEffort: options.reasoningEffort,
         system: finalTurn
           ? `${options.system}\nNo more tools may run this turn. Summarize the observed results in the user's language. Explain failures and any unfinished work; do not claim unverified success.`
           : options.system,

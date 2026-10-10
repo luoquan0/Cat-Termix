@@ -1,6 +1,12 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
+import {
+  DEFAULT_AI_PREFERENCES,
+  normalizeAiPreferences,
+  type AiChatPreferences,
+} from "../shared/reasoning.js";
 import type { PluginContext } from "@termix/plugin-sdk/backend";
 import {
+  chatPreferences as chatPreferencesDef,
   conversations as conversationsDef,
   messages as messagesDef,
   modelContexts as modelContextsDef,
@@ -107,6 +113,7 @@ export async function createAiRepository(
   const messages: Table = await db.define(messagesDef);
   const proposals: Table = await db.define(proposalsDef);
   const modelContexts: Table = await db.define(modelContextsDef);
+  const chatPreferences: Table = await db.define(chatPreferencesDef);
 
   const client = () => db.client<Drizzle>();
 
@@ -140,6 +147,51 @@ export async function createAiRepository(
   }
 
   const repo = {
+    /** Defaults follow the authenticated user, not a browser or conversation. */
+    async getChatPreferences(userId: string): Promise<AiChatPreferences> {
+      const row = await first<{ value: string }>(
+        chatPreferences,
+        eq(chatPreferences.userId, userId),
+      );
+      if (!row) return normalizeAiPreferences(DEFAULT_AI_PREFERENCES);
+      try {
+        return normalizeAiPreferences(JSON.parse(row.value));
+      } catch {
+        return normalizeAiPreferences(DEFAULT_AI_PREFERENCES);
+      }
+    },
+
+    async saveChatPreferences(
+      userId: string,
+      patch: Partial<AiChatPreferences>,
+    ): Promise<AiChatPreferences> {
+      const previous = await repo.getChatPreferences(userId);
+      const next = normalizeAiPreferences({
+        ...previous,
+        ...patch,
+        providerEfforts: patch.providerEfforts ?? previous.providerEfforts,
+      });
+      const existing = await first<{ id: number }>(
+        chatPreferences,
+        eq(chatPreferences.userId, userId),
+      );
+      const drizzle = await client();
+      if (existing) {
+        await drizzle
+          .update(chatPreferences)
+          .set({ value: JSON.stringify(next), updatedAt: now() })
+          .where(eq(chatPreferences.userId, userId));
+      } else {
+        await insertId(chatPreferences, {
+          userId,
+          value: JSON.stringify(next),
+          updatedAt: now(),
+        });
+      }
+      await db.persist();
+      return next;
+    },
+
     // --- providers ---
 
     /** Never includes key material; callers get the masked prefix only. */

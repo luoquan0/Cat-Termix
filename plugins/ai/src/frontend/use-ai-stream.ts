@@ -1,6 +1,7 @@
 import type { ContextPolicy, ContextUsage } from "../shared/context-policy";
 import { getErrorMessage } from "./errors";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReasoningEffort } from "../shared/reasoning";
 import { aiApp } from "./app-ref";
 import type { AiProposal } from "./ai-api";
 
@@ -80,6 +81,7 @@ export function useAiStream() {
       activeTab?: string | null;
       hostId?: number;
       approvalMode?: "review" | "auto";
+      reasoningEffort?: ReasoningEffort;
       executionMode?: "isolated" | "shared";
       terminalSessionId?: string | null;
       terminalContext?: { hostId: number; tabInstanceId?: string };
@@ -151,6 +153,7 @@ export function useAiStream() {
             activeTab: input.activeTab ?? undefined,
             hostId: input.hostId,
             approvalMode: input.approvalMode ?? "review",
+            reasoningEffort: input.reasoningEffort ?? "auto",
             executionMode: input.executionMode ?? "isolated",
             terminalSessionId: input.terminalSessionId,
             terminalContext: input.terminalContext,

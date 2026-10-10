@@ -82,6 +82,11 @@ export const openAiAdapter: ProviderAdapter = {
 
     const payload: Record<string, unknown> = {
       model: request.model,
+      ...(request.reasoningEffort &&
+      request.reasoningEffort !== "auto" &&
+      request.reasoningEffort !== "off"
+        ? { reasoning_effort: request.reasoningEffort }
+        : {}),
       messages: toOpenAiMessages(request),
       stream: true,
       ...(config.providerType === "openai"

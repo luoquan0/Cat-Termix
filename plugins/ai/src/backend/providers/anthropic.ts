@@ -111,7 +111,20 @@ export const anthropicAdapter: ProviderAdapter = {
       max_tokens: request.maxOutputTokens ?? 16000,
       system: request.system,
       messages: toAnthropicMessages(request),
-      thinking: { type: "adaptive" },
+      ...(request.reasoningEffort === "off"
+        ? {}
+        : { thinking: { type: "adaptive" as const } }),
+      ...(request.reasoningEffort &&
+      request.reasoningEffort !== "auto" &&
+      request.reasoningEffort !== "off"
+        ? {
+            output_config: {
+              effort: request.reasoningEffort === "xhigh"
+                ? ("max" as const)
+                : request.reasoningEffort,
+            },
+          }
+        : {}),
       ...(request.tools.length
         ? {
             tools: request.tools.map((tool) => ({

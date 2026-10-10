@@ -161,10 +161,22 @@ export const modelContexts = defineTable(
   },
 );
 
+/** User-scoped defaults, separate from saved conversation snapshots. */
+export const chatPreferences = defineTable(
+  "chat_preferences",
+  {
+    id: id(),
+    userId: refUser().unique(),
+    value: text().notNull().default("{}"),
+    updatedAt: timestamp().notNull().defaultNow(),
+  },
+);
+
 export const tables = [
   providers,
   conversations,
   messages,
   proposals,
   modelContexts,
+  chatPreferences,
 ];

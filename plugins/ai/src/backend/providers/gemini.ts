@@ -114,8 +114,39 @@ export const geminiAdapter: ProviderAdapter = {
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: request.system }] },
         contents: toGeminiContents(request),
-        ...(request.maxOutputTokens
-          ? { generationConfig: { maxOutputTokens: request.maxOutputTokens } }
+        ...(request.maxOutputTokens ||
+        (request.reasoningEffort && request.reasoningEffort !== "auto")
+          ? {
+              generationConfig: {
+                ...(request.maxOutputTokens
+                  ? { maxOutputTokens: request.maxOutputTokens }
+                  : {}),
+                ...(request.reasoningEffort &&
+                request.reasoningEffort !== "auto"
+                  ? {
+                      thinkingConfig: request.model.startsWith("gemini-3")
+                        ? {
+                            thinkingLevel: ({
+                              off: "MINIMAL",
+                              low: "LOW",
+                              medium: "MEDIUM",
+                              high: "HIGH",
+                              xhigh: "HIGH",
+                            } as const)[request.reasoningEffort],
+                          }
+                        : {
+                            thinkingBudget: ({
+                              off: 0,
+                              low: 1024,
+                              medium: 4096,
+                              high: 8192,
+                              xhigh: 16384,
+                            } as const)[request.reasoningEffort],
+                          },
+                    }
+                  : {}),
+              },
+            }
           : {}),
         ...(request.tools.length
           ? {

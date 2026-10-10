@@ -1,0 +1,60 @@
+/** Portable request-level reasoning settings. "auto" leaves the provider's
+ * existing behavior untouched; unsupported modes are never guessed. */
+export const REASONING_EFFORTS = [
+  "auto",
+  "off",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+] as const;
+
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
+export const isReasoningEffort = (value: unknown): value is ReasoningEffort =>
+  typeof value === "string" &&
+  (REASONING_EFFORTS as readonly string[]).includes(value);
+
+export interface AiChatPreferences {
+  providerId: number | null;
+  model: string;
+  approvalMode: "review" | "auto";
+  reasoningEffort: ReasoningEffort;
+  /** User-owned default effort per configured provider ID. */
+  providerEfforts: Record<string, ReasoningEffort>;
+}
+
+export const DEFAULT_AI_PREFERENCES: AiChatPreferences = {
+  providerId: null,
+  model: "",
+  approvalMode: "review",
+  reasoningEffort: "auto",
+  providerEfforts: {},
+};
+
+export function normalizeAiPreferences(input: unknown): AiChatPreferences {
+  if (!input || typeof input !== "object" || Array.isArray(input))
+    return { ...DEFAULT_AI_PREFERENCES, providerEfforts: {} };
+  const obj = input as Record<string, unknown>;
+  const effortEntries = Object.entries(
+    obj.providerEfforts &&
+      typeof obj.providerEfforts === "object" &&
+      !Array.isArray(obj.providerEfforts)
+      ? obj.providerEfforts
+      : {},
+  ).filter(([id, effort]) => /^\d+$/.test(id) && isReasoningEffort(effort));
+  return {
+    providerId:
+      typeof obj.providerId === "number" &&
+      Number.isSafeInteger(obj.providerId) &&
+      obj.providerId > 0
+        ? obj.providerId
+        : null,
+    model: typeof obj.model === "string" ? obj.model.slice(0, 200) : "",
+    approvalMode: obj.approvalMode === "auto" ? "auto" : "review",
+    reasoningEffort: isReasoningEffort(obj.reasoningEffort)
+      ? obj.reasoningEffort
+      : "auto",
+    providerEfforts: Object.fromEntries(effortEntries),
+  };
+}

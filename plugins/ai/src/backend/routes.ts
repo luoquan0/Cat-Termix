@@ -25,6 +25,11 @@ import {
 } from "./providers/registry.js";
 import type { AiProviderType, ProviderConfig } from "./providers/types.js";
 import { isAiProviderType } from "./providers/types.js";
+import {
+  isReasoningEffort,
+  type AiChatPreferences,
+  type ReasoningEffort,
+} from "../shared/reasoning.js";
 import type { AiRepository } from "./repository.js";
 import { serviceAvailable } from "./services.js";
 import { availableTools } from "./tools/catalog.js";
@@ -211,6 +216,85 @@ export function registerAiRoutes(
     },
   );
 
+  /** Saved defaults belong to this user; they survive a new chat and reload. */
+  router.get(
+    "/preferences",
+    ctx.rbac.require("use") as never,
+    gate,
+    async (_req: Request, res: Response) => {
+      try {
+        res.json({
+          preferences: await repository.getChatPreferences(actor(ctx)),
+        });
+      } catch (error) {
+        logError("Failed to read AI preferences", error);
+        res.status(500).json({ error: "Failed to load preferences" });
+      }
+    },
+  );
+
+  router.put(
+    "/preferences",
+    ctx.rbac.require("use") as never,
+    gate,
+    async (req: Request, res: Response) => {
+      const patch = req.body as Partial<AiChatPreferences> | null;
+      if (!patch || typeof patch !== "object" || Array.isArray(patch))
+        return res.status(400).json({ error: "Invalid preferences" });
+      if (
+        patch.providerId !== undefined &&
+        patch.providerId !== null &&
+        (!Number.isSafeInteger(patch.providerId) || patch.providerId <= 0)
+      )
+        return res.status(400).json({ error: "Invalid provider" });
+      if (
+        patch.model !== undefined &&
+        (typeof patch.model !== "string" || patch.model.length > 200)
+      )
+        return res.status(400).json({ error: "Invalid model" });
+      if (
+        patch.approvalMode !== undefined &&
+        patch.approvalMode !== "auto" &&
+        patch.approvalMode !== "review"
+      )
+        return res.status(400).json({ error: "Invalid approval mode" });
+      if (
+        patch.reasoningEffort !== undefined &&
+        !isReasoningEffort(patch.reasoningEffort)
+      )
+        return res.status(400).json({ error: "Invalid reasoning effort" });
+      if (patch.providerEfforts !== undefined)
+        return res.status(400).json({ error: "Provider defaults are edited separately" });
+      try {
+        const userId = actor(ctx);
+        if (patch.providerId) {
+          const provider = await repository.findProvider(patch.providerId, userId);
+          if (!provider?.enabled)
+            return res.status(404).json({ error: "Provider not found" });
+        }
+        const preferences = await repository.saveChatPreferences(userId, patch);
+        res.json({ preferences });
+      } catch (error) {
+        logError("Failed to save AI preferences", error);
+        res.status(500).json({ error: "Failed to save preferences" });
+      }
+    },
+  );
+
+  /** Display each channel's default thinking effort without exposing keys. */
+  async function enrichedProvider(
+    userId: string,
+    provider: Awaited<ReturnType<typeof repository.listProviders>>[number],
+    preference?: AiChatPreferences,
+  ) {
+    const state = preference ?? (await repository.getChatPreferences(userId));
+    return {
+      ...provider,
+      defaultReasoningEffort:
+        state.providerEfforts[String(provider.id)] ?? "auto",
+    };
+  }
+
   /**
    * @openapi
    * /plugin-api/ai/providers:
@@ -230,8 +314,16 @@ export function registerAiRoutes(
     gate,
     async (_req: Request, res: Response) => {
       try {
-        const providers = await repository.listProviders(actor(ctx));
-        res.json({ providers });
+        const userId = actor(ctx);
+        const [providers, preferences] = await Promise.all([
+          repository.listProviders(userId),
+          repository.getChatPreferences(userId),
+        ]);
+        res.json({
+          providers: await Promise.all(
+            providers.map((provider) => enrichedProvider(userId, provider, preferences)),
+          ),
+        });
       } catch (err) {
         logError("Failed to list AI providers", err);
         res.status(500).json({ error: "Failed to list providers" });
@@ -275,8 +367,14 @@ export function registerAiRoutes(
     gate,
     async (req: Request, res: Response) => {
       const userId = actor(ctx);
-      const { providerType, label, baseUrl, apiKey, defaultModel } =
+      const { providerType, label, baseUrl, apiKey, defaultModel, defaultReasoningEffort } =
         req.body ?? {};
+      if (
+        defaultReasoningEffort !== undefined &&
+        !isReasoningEffort(defaultReasoningEffort)
+      ) {
+        return res.status(400).json({ error: "Invalid reasoning effort" });
+      }
 
       if (!isAiProviderType(providerType)) {
         return res.status(400).json({ error: "Unknown provider type" });
@@ -305,6 +403,16 @@ export function registerAiRoutes(
             typeof defaultModel === "string" ? defaultModel.trim() : null,
         });
 
+        if (defaultReasoningEffort !== undefined) {
+          const state = await repository.getChatPreferences(userId);
+          await repository.saveChatPreferences(userId, {
+            providerEfforts: {
+              ...state.providerEfforts,
+              [created.id]: defaultReasoningEffort as ReasoningEffort,
+            },
+          });
+        }
+
         await audit({
           action: "create_ai_provider",
           resourceType: "ai_provider",
@@ -313,7 +421,7 @@ export function registerAiRoutes(
           success: true,
         });
 
-        res.status(201).json({ provider: created });
+        res.status(201).json({ provider: await enrichedProvider(userId, created) });
       } catch (err) {
         logError("Failed to create AI provider", err);
         res.status(500).json({ error: "Failed to create provider" });
@@ -357,6 +465,12 @@ export function registerAiRoutes(
         return res.status(400).json({ error: "Unknown provider type" });
       }
 
+      if (
+        body.defaultReasoningEffort !== undefined &&
+        !isReasoningEffort(body.defaultReasoningEffort)
+      )
+        return res.status(400).json({ error: "Invalid reasoning effort" });
+
       const text = (value: unknown) =>
         typeof value === "string" ? value.trim() : undefined;
 
@@ -376,6 +490,16 @@ export function registerAiRoutes(
         if (!updated)
           return res.status(404).json({ error: "Provider not found" });
 
+        if (body.defaultReasoningEffort !== undefined) {
+          const state = await repository.getChatPreferences(userId);
+          await repository.saveChatPreferences(userId, {
+            providerEfforts: {
+              ...state.providerEfforts,
+              [id]: body.defaultReasoningEffort as ReasoningEffort,
+            },
+          });
+        }
+
         await audit({
           action: "update_ai_provider",
           resourceType: "ai_provider",
@@ -384,7 +508,7 @@ export function registerAiRoutes(
           success: true,
         });
 
-        res.json({ provider: updated });
+        res.json({ provider: await enrichedProvider(userId, updated) });
       } catch (err) {
         logError("Failed to update AI provider", err);
         res.status(500).json({ error: "Failed to update provider" });
@@ -883,6 +1007,7 @@ export function registerAiRoutes(
           activeTab,
           hostId,
           approvalMode = "review",
+          reasoningEffort,
           executionMode = "isolated",
           terminalSessionId,
           terminalContext,
@@ -927,6 +1052,8 @@ export function registerAiRoutes(
         if (approvalMode !== "review" && approvalMode !== "auto") {
           return res.status(400).json({ error: "Invalid approval mode" });
         }
+        if (reasoningEffort !== undefined && !isReasoningEffort(reasoningEffort))
+          return res.status(400).json({ error: "Invalid reasoning effort" });
         if (
           hostId !== undefined &&
           (!Number.isSafeInteger(hostId) || hostId <= 0)
@@ -1071,6 +1198,11 @@ export function registerAiRoutes(
                 .map((text) => mentionedHostIds(text, hosts))
                 .find((ids) => ids.length > 0) ?? [];
             const config = await providerConfig(provider);
+            const storedPreferences = await repository.getChatPreferences(userId);
+            const selectedReasoningEffort: ReasoningEffort =
+              reasoningEffort ??
+              storedPreferences.providerEfforts[String(resolvedProviderId)] ??
+              "auto";
             const tools = availableTools(
               (service) => serviceAvailable(ctx.services, service),
               { allowReadOnlyCommands: access.allowReadOnlyCommands },
@@ -1120,6 +1252,7 @@ export function registerAiRoutes(
               for await (const event of runAgent({
                 config,
                 model: chosenModel,
+                reasoningEffort: selectedReasoningEffort,
                 contextPolicy: selectedContextPolicy,
                 contextCheckpoint: savedContext,
                 saveContext: async (checkpoint) => {

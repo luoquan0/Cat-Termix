@@ -54,6 +54,9 @@ export const ollamaAdapter: ProviderAdapter = {
       body: JSON.stringify({
         model: request.model,
         messages: toOllamaMessages(request),
+        ...(request.reasoningEffort && request.reasoningEffort !== "auto"
+          ? { think: request.reasoningEffort !== "off" }
+          : {}),
         stream: true,
         ...(request.maxOutputTokens
           ? { options: { num_predict: request.maxOutputTokens } }
