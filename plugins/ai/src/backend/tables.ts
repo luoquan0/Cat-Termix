@@ -166,9 +166,14 @@ export const chatPreferences = defineTable(
   "chat_preferences",
   {
     id: id(),
-    userId: refUser().unique(),
-    value: text().notNull().default("{}"),
+    userId: refUser(),
+    value: text().notNull(),
     updatedAt: timestamp().notNull().defaultNow(),
+  },
+  {
+    uniques: [
+      { name: "idx_ai_chat_preferences_user", columns: ["userId"] },
+    ],
   },
 );
 

@@ -65,6 +65,7 @@ describe("AiProviderSettings", () => {
       expect(api.updateAiProvider).toHaveBeenCalledWith(7, {
         label: "Production Ollama",
         defaultModel: "qwen3:32b",
+        defaultReasoningEffort: "auto",
       });
     });
     expect(onChanged).toHaveBeenCalledWith(7);
