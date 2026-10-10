@@ -1,4 +1,4 @@
-name: Cat-Termix Official Agent Release
+name: Cat-Termix Agent UI Hotfix Promotion
 
 # Runs only when this release workflow itself is introduced/edited.
 # Normal development commits must never promote the rolling ai-dev image.
@@ -9,7 +9,7 @@ on:
       - ".github/workflows/cat-termix-official-release.yml"
 
 permissions:
-  contents: write
+  contents: read
   packages: write
   actions: read
 
@@ -23,12 +23,13 @@ defaults:
 
 env:
   IMAGE: ghcr.io/luoquan0/cat-termix
-  SOURCE_SHA: b8f9a5fa9cd2770de78721570173ad12f104dea4
-  PREVIEW_DIGEST: sha256:02fe31a3c4a1fa019b38e04d57246fb8816b6661901fd29ca9045dec3aeba4c5
-  PREVIOUS_DIGEST: sha256:37b4a279f7d25d6152c039e2ea98055dbc4186b5cfc8930892c6588ec99005af
-  RELEASE_IMAGE_TAG: "2.9.2-cat-termix.9"
-  RELEASE_TAG: "v2.9.2-cat-termix.9"
-  VERIFIED_RUN_ID: "38043099924"
+  SOURCE_SHA: d68838980e96aefbfbba4368da49961db33151c1
+  PREVIEW_DIGEST: sha256:7593e42e78379588fbc4a06c93b70820486d193a5d13a7d42d321dadf611d439
+  PREVIOUS_DIGEST: sha256:02fe31a3c4a1fa019b38e04d57246fb8816b6661901fd29ca9045dec3aeba4c5
+  PREVIOUS_FIXED_TAG: "2.9.2-cat-termix.9"
+  RELEASE_IMAGE_TAG: "2.9.2-cat-termix.10"
+  RELEASE_TAG: "v2.9.2-cat-termix.10"
+  VERIFIED_RUN_ID: "38056143961"
 
 jobs:
   promote:
@@ -47,10 +48,6 @@ jobs:
           test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFIED_RUN_ID" --jq .conclusion)" = "success"
           test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFIED_RUN_ID" --jq .head_sha)" = "$SOURCE_SHA"
           test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$SOURCE_SHA" --jq .sha)" = "$SOURCE_SHA"
-          if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            tag_commit="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq .object.sha)"
-            test "$tag_commit" = "$SOURCE_SHA" || { echo "Existing release does not refer to verified source" >&2; exit 1; }
-          fi
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
@@ -84,7 +81,7 @@ jobs:
           }
           tested="$(index_digest "$IMAGE:sha-$SOURCE_SHA")"
           previous="$(index_digest "$IMAGE:ai-dev")"
-          rollback="$(index_digest "$IMAGE:2.9.2-ai-preview.8")"
+          rollback="$(index_digest "$IMAGE:$PREVIOUS_FIXED_TAG")"
           test "$tested" = "$PREVIEW_DIGEST" || { echo "Verified new digest mismatch: $tested" >&2; exit 1; }
           test "$rollback" = "$PREVIOUS_DIGEST" || { echo "Rollback digest mismatch: $rollback" >&2; exit 1; }
           if [ "$previous" != "$PREVIOUS_DIGEST" ] && [ "$previous" != "$PREVIEW_DIGEST" ]; then
@@ -100,28 +97,13 @@ jobs:
           anonymous_config="$(mktemp -d)"
           DOCKER_CONFIG="$anonymous_config" docker manifest inspect "$IMAGE:ai-dev" > /tmp/cat-termix-official-anonymous-manifest.json
           echo "Rolling ai-dev and official fixed tag: $PREVIEW_DIGEST" >> "$GITHUB_STEP_SUMMARY"
-          echo "Rollback image retained: $IMAGE:2.9.2-ai-preview.8" >> "$GITHUB_STEP_SUMMARY"
-      - name: Create and verify GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          echo "Previous version preserved: $IMAGE:$PREVIOUS_FIXED_TAG" >> "$GITHUB_STEP_SUMMARY"
+      # GitHub refuses Actions' POST /releases and POST /git/refs (403), even
+      # with contents:write. Keep Docker image promotion independent from that
+      # manually-managed metadata so the website updater can receive this fix.
+      - name: Record available hotfix and manual GitHub Release limitation
         run: |
-          set -euo pipefail
-          # Creating the lightweight tag separately avoids relying on GitHub
-          # Releases' implicit tag creation path. Never force-move an existing tag.
-          if ! gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" > /dev/null 2>&1; then
-            echo "Creating immutable tag refs/tags/$RELEASE_TAG at verified source $SOURCE_SHA"
-            gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
-              -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$SOURCE_SHA" \
-              --jq '.ref'
-          fi
-          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq .object.sha)" = "$SOURCE_SHA"
-          if ! gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --verify-tag \
-              --target "$SOURCE_SHA" \
-              --title "Cat-Termix 2.9.2 - AI + Local Agent" \
-              --notes-file docs/releases/v2.9.2-cat-termix.9.md \
-              --latest
-          fi
-          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq .object.sha)" = "$SOURCE_SHA"
-          gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --json tagName,url,isPrerelease
-          echo "Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "Source: $SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "CI verification: https://github.com/$GITHUB_REPOSITORY/actions/runs/$VERIFIED_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
+          echo "Docker image: $IMAGE:ai-dev and $IMAGE:$RELEASE_IMAGE_TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "GitHub Releases entry v2.9.2-cat-termix.10 requires repository-owner creation (403 from GitHub Actions)" >> "$GITHUB_STEP_SUMMARY"
