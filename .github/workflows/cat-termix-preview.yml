@@ -129,7 +129,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=2.9.2-ai-preview.9
+            org.opencontainers.image.version=2.9.2-ai-preview.10
             org.opencontainers.image.title=Cat-Termix AI Preview
       - name: Start the exact image and check health, web and bundled AI
         env:
@@ -204,14 +204,14 @@ jobs:
         run: |
           docker buildx imagetools create \
             --tag "$IMAGE:sha-$GITHUB_SHA" \
-            --tag "$IMAGE:2.9.2-ai-preview.9" \
+            --tag "$IMAGE:2.9.2-ai-preview.10" \
             "$IMAGE:build-$GITHUB_SHA-amd64"
           mkdir -p /tmp/cat-termix-release
           docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA" | tee /tmp/cat-termix-release/manifest.txt
           printf 'Source: %s\nPreview image: %s\nPinned tag: %s\nRolling ai-dev: unchanged (Preview 8)\nArchitecture: linux/amd64\n' "$GITHUB_SHA" "$IMAGE:2.9.2-ai-preview.9" "$IMAGE:sha-$GITHUB_SHA" | tee /tmp/cat-termix-release/release.txt >> "$GITHUB_STEP_SUMMARY"
       - name: Check anonymous image access
         run: |
-          if DOCKER_CONFIG="$(mktemp -d)" docker manifest inspect "$IMAGE:2.9.2-ai-preview.9" > /tmp/cat-termix-release/anonymous-manifest.json; then
+          if DOCKER_CONFIG="$(mktemp -d)" docker manifest inspect "$IMAGE:2.9.2-ai-preview.10" > /tmp/cat-termix-release/anonymous-manifest.json; then
             echo "Anonymous pull: available" | tee /tmp/cat-termix-release/access.txt >> "$GITHUB_STEP_SUMMARY"
           else
             echo "Anonymous pull: requires GHCR login or changing package visibility to public" | tee /tmp/cat-termix-release/access.txt >> "$GITHUB_STEP_SUMMARY"

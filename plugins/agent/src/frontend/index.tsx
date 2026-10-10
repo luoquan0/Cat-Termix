@@ -1,6 +1,6 @@
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { Bot } from "lucide-react";
-import type { TabProps, TermixApp } from "@termix/plugin-sdk/frontend";
+import type { PanelProps, TabProps, TermixApp } from "@termix/plugin-sdk/frontend";
 import { useTranslation } from "@termix/plugin-sdk/frontend";
 
 let current: TermixApp | null = null;
@@ -479,6 +479,9 @@ export function activate(instance: TermixApp): void {
     rightDockable: false,
     after: "ai",
   });
+  // Rail items open sidebar panels; the tab registration alone cannot render
+  // this view when its icon is clicked in the left navigation.
+  instance.registerPanel("agent", LocalAgentPanel as ComponentType<PanelProps>);
   instance.registerTab("agent", LocalAgentPanel as ComponentType<TabProps>, {
     icon: Bot,
     titleKey: "nav.agent",
