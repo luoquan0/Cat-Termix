@@ -1,0 +1,213 @@
+name: Cat-Termix ARM64 and Multi-arch Release
+
+# On explicit changes to this workflow only. Normal source commits must not
+# overwrite the rolling update channel without a separate verified release.
+on:
+  push:
+    branches: [Cat-Termix]
+    paths:
+      - ".github/workflows/cat-termix-arm64.yml"
+
+permissions:
+  contents: read
+  packages: write
+  actions: read
+
+concurrency:
+  group: cat-termix-verified-multiarch-release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  IMAGE: ghcr.io/luoquan0/cat-termix
+  SOURCE_SHA: d68838980e96aefbfbba4368da49961db33151c1
+  VERIFIED_RUN_ID: "38056143961"
+  EXPECTED_AMD64_INDEX: sha256:7593e42e78379588fbc4a06c93b70820486d193a5d13a7d42d321dadf611d439
+  RELEASE_TAG: "2.9.2-cat-termix.10"
+
+jobs:
+  arm64:
+    name: Build and smoke native ARM64
+    if: github.repository == 'luoquan0/Cat-Termix' && github.ref == 'refs/heads/Cat-Termix'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    outputs:
+      arm64_digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Fetch exact CI-verified application source
+        uses: actions/checkout@v4
+        with:
+          ref: d68838980e96aefbfbba4368da49961db33151c1
+          persist-credentials: false
+      - name: Confirm original source and passing CI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFIED_RUN_ID" --jq .head_sha)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFIED_RUN_ID" --jq .conclusion)" = success
+          test "$(uname -m)" = aarch64
+      - uses: docker/setup-buildx-action@v4
+        with:
+          buildkitd-config-inline: |
+            [worker.oci]
+              max-parallelism = 2
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build exact source on the native ARM64 runner
+        uses: docker/build-push-action@v7
+        id: build
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: ${{ env.IMAGE }}:build-${{ env.SOURCE_SHA }}-arm64
+          cache-from: type=gha,scope=cat-termix-arm64
+          cache-to: type=gha,mode=max,scope=cat-termix-arm64
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+            org.opencontainers.image.version=2.9.2-cat-termix.10
+            org.opencontainers.image.title=Cat-Termix AI + Local Agent ARM64
+      - name: Start ARM64 image and validate application, plugin UI and device protocol
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/cat-termix-arm64
+          trap 'docker logs cat-termix-arm64-smoke > /tmp/cat-termix-arm64/container.log 2>&1 || true; docker rm -fv cat-termix-arm64-smoke >/dev/null 2>&1 || true' EXIT
+          docker buildx imagetools inspect "$IMAGE@$DIGEST" --raw > /tmp/cat-termix-arm64/candidate.json
+          jq -e 'any(.manifests[]?; .platform.os == "linux" and .platform.architecture == "arm64")' /tmp/cat-termix-arm64/candidate.json
+          docker run -d --name cat-termix-arm64-smoke "$IMAGE@$DIGEST"
+          test "$(docker exec cat-termix-arm64-smoke uname -m)" = aarch64
+          test "$(docker exec cat-termix-arm64-smoke node -p process.arch)" = arm64
+          test "$(docker image inspect "$IMAGE@$DIGEST" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "$SOURCE_SHA"
+          ready=false
+          for attempt in $(seq 1 90); do
+            if docker exec cat-termix-arm64-smoke wget -q -O /dev/null http://127.0.0.1:30001/health &&
+               docker exec cat-termix-arm64-smoke wget -q -O - http://127.0.0.1:8080/ > /tmp/cat-termix-arm64/index.html; then
+              ready=true
+              break
+            fi
+            sleep 3
+          done
+          if [ "$ready" != true ]; then
+            echo "ARM64 web/backend failed to start" >&2
+            docker logs cat-termix-arm64-smoke | tail -n 150
+            exit 1
+          fi
+          grep -q 'id="root"' /tmp/cat-termix-arm64/index.html
+          docker exec cat-termix-arm64-smoke test -s /app/dist/plugins/agent/dist/frontend.js
+          docker exec cat-termix-arm64-smoke test -s /app/dist/plugins/agent/dist/backend.js
+          docker exec cat-termix-arm64-smoke test -s /app/dist/plugins/ai/dist/frontend.js
+          docker exec cat-termix-arm64-smoke test -s /app/dist/plugins/ssh-terminal/dist/frontend.js
+          agent_ready=false
+          for attempt in $(seq 1 60); do
+            if docker exec cat-termix-arm64-smoke wget -q -O - http://127.0.0.1:8080/agent/v1/health > /tmp/cat-termix-arm64/agent-health.json; then
+              agent_ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$agent_ready" != true ]; then
+            echo "ARM64 Agent route failed to activate" >&2
+            docker logs cat-termix-arm64-smoke | tail -n 150
+            exit 1
+          fi
+          grep -q '"status":"ok"' /tmp/cat-termix-arm64/agent-health.json
+          docker cp docker/agent/preview-smoke.mjs cat-termix-arm64-smoke:/tmp/agent-preview-smoke.mjs
+          docker exec -e CAT_TERMIX_SMOKE_URL=http://127.0.0.1:8080 cat-termix-arm64-smoke node /tmp/agent-preview-smoke.mjs
+          printf '%s\n' "$IMAGE@$DIGEST" > /tmp/cat-termix-arm64/image.txt
+          echo "Native ARM64 application and Agent signature protocol smoke passed: $IMAGE@$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cat-termix-arm64-smoke-${{ github.run_id }}
+          path: /tmp/cat-termix-arm64
+          retention-days: 14
+          if-no-files-found: ignore
+
+  multiarch:
+    name: Verify and promote AMD64 plus ARM64
+    needs: arm64
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Preserve old AMD64 and publish checked multi-arch index
+        env:
+          ARM64_CANDIDATE_DIGEST: ${{ needs.arm64.outputs.arm64_digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/cat-termix-multiarch
+          index_digest() {
+            local body digest
+            body="$(docker buildx imagetools inspect "$1")"
+            digest="$(printf '%s\n' "$body" | awk '$1 == "Digest:" { print $2; exit }')"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+              echo "Missing digest for $1" >&2
+              return 1
+            }
+            printf '%s\n' "$digest"
+          }
+          amd64="$IMAGE:sha-$SOURCE_SHA"
+          arm64="$IMAGE:build-$SOURCE_SHA-arm64"
+          test "$(index_digest "$amd64")" = "$EXPECTED_AMD64_INDEX"
+          test "$(index_digest "$IMAGE:ai-dev")" = "$EXPECTED_AMD64_INDEX" || {
+            echo "Rolling ai-dev changed since source verification; refusing overwrite" >&2
+            exit 1
+          }
+          test "$(index_digest "$IMAGE:$RELEASE_TAG")" = "$EXPECTED_AMD64_INDEX"
+          test "$(index_digest "$arm64")" = "$ARM64_CANDIDATE_DIGEST"
+          docker buildx imagetools inspect "$amd64" --raw > /tmp/cat-termix-multiarch/amd64.json
+          docker buildx imagetools inspect "$arm64" --raw > /tmp/cat-termix-multiarch/arm64.json
+          jq -e 'any(.manifests[]?; .platform.os == "linux" and .platform.architecture == "amd64")' /tmp/cat-termix-multiarch/amd64.json
+          jq -e 'any(.manifests[]?; .platform.os == "linux" and .platform.architecture == "arm64")' /tmp/cat-termix-multiarch/arm64.json
+          # Keep the previously tested single-architecture index available.
+          docker buildx imagetools create \
+            --tag "$IMAGE:$RELEASE_TAG-amd64" \
+            "$amd64"
+          test "$(index_digest "$IMAGE:$RELEASE_TAG-amd64")" = "$EXPECTED_AMD64_INDEX"
+          # Publish the same tested AMD64 image and smoke-tested native ARM64 image
+          # in one platform index; do NOT change main/latest or old rollback tags.
+          docker buildx imagetools create \
+            --tag "$IMAGE:$RELEASE_TAG" \
+            --tag "$IMAGE:ai-dev" \
+            "$amd64" "$arm64"
+          docker buildx imagetools inspect "$IMAGE:ai-dev" --raw > /tmp/cat-termix-multiarch/index.json
+          docker buildx imagetools inspect "$IMAGE:$RELEASE_TAG" --raw > /tmp/cat-termix-multiarch/pinned.json
+          jq -e '
+            ([.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "amd64")] | length) == 1 and
+            ([.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "arm64")] | length) == 1
+          ' /tmp/cat-termix-multiarch/index.json
+          jq -e '
+            ([.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "amd64")] | length) == 1 and
+            ([.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "arm64")] | length) == 1
+          ' /tmp/cat-termix-multiarch/pinned.json
+          test "$(index_digest "$IMAGE:ai-dev")" = "$(index_digest "$IMAGE:$RELEASE_TAG")"
+          anonymous_config="$(mktemp -d)"
+          DOCKER_CONFIG="$anonymous_config" docker manifest inspect "$IMAGE:ai-dev" > /tmp/cat-termix-multiarch/anonymous.json
+          docker buildx imagetools inspect "$IMAGE:ai-dev" | tee /tmp/cat-termix-multiarch/manifest.txt
+          printf 'Image: %s\nSource: %s\nDigest: %s\nPlatforms: linux/amd64,linux/arm64\n' \
+            "$IMAGE:ai-dev" "$SOURCE_SHA" "$(index_digest "$IMAGE:ai-dev")" \
+            | tee /tmp/cat-termix-multiarch/release.txt >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cat-termix-multiarch-manifest-${{ github.run_id }}
+          path: /tmp/cat-termix-multiarch
+          if-no-files-found: ignore
+          retention-days: 30
