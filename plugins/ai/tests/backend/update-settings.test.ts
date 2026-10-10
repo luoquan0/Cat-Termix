@@ -1,9 +1,12 @@
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { startServer, type TestServer } from "./helpers";
-import { validateUpdatePolicy } from "../../src/shared/update-policy";
+import {
+  resolveUpdateRequestProgress,
+  validateUpdatePolicy,
+} from "../../src/shared/update-policy";
 let server: TestServer;
 let directory: string | undefined;
 afterEach(async () => {
@@ -107,5 +110,116 @@ describe("authorized updater policy storage", () => {
         await readFile(path.join(directory, "updates", "request.json"), "utf8"),
       ).action,
     ).toBe("apply");
+  });
+});
+
+describe("manual updater request progress", () => {
+  const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const at = "2026-10-10T00:00:00.000Z";
+  const request = { id, action: "check", at };
+
+  it("does not mistake old current status for a completed new check", () => {
+    const old = {
+      phase: "current",
+      lastRequest: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      lastCheckAt: "2026-10-09T23:00:00.000Z",
+      heartbeat: "2026-10-10T00:00:01.000Z",
+    };
+    expect(resolveUpdateRequestProgress(request, old, Date.parse(at) + 1000))
+      .toMatchObject({ state: "queued", action: "check" });
+    expect(resolveUpdateRequestProgress(
+      request, { ...old, lastRequest: id }, Date.parse(at) + 1000,
+    )).toMatchObject({ state: "running" });
+    expect(resolveUpdateRequestProgress(
+      request, { ...old, lastRequest: id, phase: "checking" },
+      Date.parse(at) + 1000,
+    )).toMatchObject({ state: "running" });
+    expect(resolveUpdateRequestProgress(
+      request, {
+        ...old, lastRequest: id, phase: "current",
+        lastCheckAt: "2026-10-10T00:00:05.000Z",
+      },
+    )).toMatchObject({ state: "completed" });
+    expect(resolveUpdateRequestProgress(
+      request, {
+        ...old, lastRequest: id, phase: "available",
+        lastCheckAt: "2026-10-10T00:00:05.000Z",
+      },
+    )).toMatchObject({ state: "completed" });
+  });
+
+  it("reports updater errors and expiry instead of spinning forever", () => {
+    expect(resolveUpdateRequestProgress(
+      request, {
+        lastRequest: id, phase: "error",
+        heartbeat: "2026-10-10T00:00:12.000Z",
+      },
+      Date.parse(at) + 12000,
+    )).toMatchObject({ state: "failed" });
+    expect(resolveUpdateRequestProgress(
+      request, null, Date.parse(at) + 10 * 60_000 + 1,
+    )).toMatchObject({ state: "timed_out" });
+    expect(resolveUpdateRequestProgress(
+      { ...request, action: "shell" }, null,
+    )).toBeNull();
+  });
+
+  it("ends an update request when no new image exists, or installation was deferred", () => {
+    const apply = { ...request, action: "apply" };
+    expect(resolveUpdateRequestProgress(
+      apply, {
+        lastRequest: id, phase: "current",
+        lastCheckAt: "2026-10-10T00:00:07.000Z",
+      },
+    )).toMatchObject({ state: "completed" });
+    expect(resolveUpdateRequestProgress(
+      apply, {
+        lastRequest: id, phase: "deferred",
+        heartbeat: "2026-10-10T00:00:07.000Z",
+      },
+    )).toMatchObject({ state: "completed" });
+    expect(resolveUpdateRequestProgress(
+      apply, {
+        lastRequest: id, phase: "updated",
+        lastSuccessAt: "2026-10-10T00:00:08.000Z",
+      },
+    )).toMatchObject({ state: "completed" });
+  });
+
+  it("makes check requests visibly queued, running and completed in the authenticated API", async () => {
+    directory = await mkdtemp(path.join(os.tmpdir(), "cat-update-progress-"));
+    server = await startServer({
+      permissions: ["ai.manage_updates", "admin.settings.manage"],
+    });
+    vi.spyOn(server.mock.ctx.files, "dataDir").mockResolvedValue(directory);
+    const posted = await server.request("POST", "/updates/check");
+    expect(posted.status).toBe(202);
+    expect(posted.body.accepted).toBe(true);
+    expect(posted.body.requestId).toMatch(/^[a-f\d-]{36}$/i);
+    const current = await server.request("GET", "/updates");
+    expect(current.body.request).toMatchObject({
+      id: posted.body.requestId, action: "check", state: "queued",
+    });
+    const root = path.join(directory, "updates", "status.json");
+    const status = {
+      lastRequest: posted.body.requestId,
+      heartbeat: new Date().toISOString(),
+      phase: "checking",
+      currentRevision: "a".repeat(40),
+    };
+    await writeFile(root, JSON.stringify(status));
+    expect((await server.request("GET", "/updates")).body.request).toMatchObject({
+      state: "running",
+    });
+    const requestedAt = JSON.parse(
+      await readFile(path.join(directory, "updates", "request.json"), "utf8"),
+    ).at;
+    await writeFile(root, JSON.stringify({
+      ...status, phase: "current",
+      lastCheckAt: new Date(Date.parse(requestedAt) + 1000).toISOString(),
+    }));
+    expect((await server.request("GET", "/updates")).body.request).toMatchObject({
+      state: "completed",
+    });
   });
 });
