@@ -42,6 +42,7 @@ jobs:
         run: |
           npm run type-check
           npm run typecheck --workspace @termix-plugin/ai
+          npm run typecheck --workspace @termix-plugin/agent
           npm run typecheck --workspace @termix-plugin/ssh-terminal
       - name: Build application and bundled plugins
         run: |
@@ -51,6 +52,8 @@ jobs:
         run: |
           mkdir -p /tmp/cat-termix-reports
           npm test --workspace @termix-plugin/ai 2>&1 | tee /tmp/cat-termix-reports/ai-tests.log
+      - name: Agent device and policy regression tests
+        run: npm test --workspace @termix-plugin/agent
       - name: Terminal regression tests
         run: npm test --workspace @termix-plugin/ssh-terminal 2>&1 | tee /tmp/cat-termix-reports/terminal-tests.log
       - name: Update helper tests and Docker rollback smoke
@@ -128,7 +131,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=2.9.2-ai-preview.8
+            org.opencontainers.image.version=2.9.2-ai-preview.9
             org.opencontainers.image.title=Cat-Termix AI Preview
       - name: Start the exact image and check health, web and bundled AI
         env:
@@ -150,6 +153,8 @@ jobs:
           grep -q 'id="root"' /tmp/cat-termix-image/index.html
           docker exec cat-termix-smoke test -s /app/dist/plugins/ai/dist/frontend.js
           docker exec cat-termix-smoke test -s /app/dist/plugins/ai/dist/backend.js
+          docker exec cat-termix-smoke test -s /app/dist/plugins/agent/dist/backend.js
+          docker exec cat-termix-smoke test -s /app/dist/plugins/agent/dist/frontend.js
           docker exec cat-termix-smoke test -s /app/dist/plugins/ssh-terminal/dist/frontend.js
           printf '%s\n' "$IMAGE@$DIGEST" > /tmp/cat-termix-image/image.txt
           echo "Native ${{ matrix.arch }} startup checks passed: $IMAGE@$DIGEST" >> "$GITHUB_STEP_SUMMARY"
@@ -179,7 +184,7 @@ jobs:
         run: |
           docker buildx imagetools create \
             --tag "$IMAGE:sha-$GITHUB_SHA" \
-            --tag "$IMAGE:2.9.2-ai-preview.8" \
+            --tag "$IMAGE:2.9.2-ai-preview.9" \
             --tag "$IMAGE:ai-dev" \
             "$IMAGE:build-$GITHUB_SHA-amd64" \
             "$IMAGE:build-$GITHUB_SHA-arm64"
