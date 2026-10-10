@@ -2,6 +2,7 @@ import { activeAiRequests, maintenance } from "./update-activity.js";
 import type { Request, Response, Router } from "express";
 import type { PluginContext } from "@termix/plugin-sdk/backend";
 import { contextPolicy, readCheckpoint } from "../shared/context-policy.js";
+import { capacityNumber, detectModelContext } from "./model-context.js";
 import { buildSystemPrompt } from "./context.js";
 import { runAgent } from "./engine.js";
 import { getErrorMessage } from "./errors.js";
@@ -568,6 +569,79 @@ export function registerAiRoutes(
         );
         ctx.log.warn(`Failed to list provider models: ${message}`);
         res.status(502).json({ error: message });
+      }
+    },
+  );
+
+  /**
+   * GET resolves this user's selected model through the egress-guarded provider
+   * connection. An unrecognized proxy alias is intentionally 'unknown'.
+   * PUT creates or clears a model-scoped manual override on the server.
+   */
+  router.get(
+    "/providers/:id/model-context",
+    ctx.rbac.require("use") as never,
+    gate,
+    async (req: Request, res: Response) => {
+      const userId = actor(ctx);
+      const providerId = parseId(req.params.id);
+      const rawModel = req.query.model;
+      if (!providerId ||
+          typeof rawModel !== "string" ||
+          !rawModel.trim() ||
+          rawModel.length > 200 ||
+          /[\\x00-\\x1F]/.test(rawModel))
+        return res.status(400).json({ error: "Invalid provider or model" });
+      const model = rawModel.trim();
+      try {
+        const provider = await repository.findProviderWithSecret(providerId, userId);
+        if (!provider) return res.status(404).json({ error: "Provider not found" });
+        const [detected, override] = await Promise.all([
+          detectModelContext(await providerConfig(provider), model),
+          repository.getModelContextOverride(userId, providerId, model),
+        ]);
+        res.json({
+          providerId, model,
+          contextWindow: override ?? detected.contextWindow ?? 32768,
+          detectedWindow: detected.contextWindow,
+          source: override !== null ? "manual" : detected.source,
+          detectedSource: detected.source,
+          manualOverride: override,
+          maxOutputTokens: detected.maxOutputTokens,
+          referenceUrl: detected.referenceUrl,
+          detail: detected.detail,
+        });
+      } catch (err) {
+        logError("Failed to resolve model context", err);
+        res.status(500).json({ error: "Could not resolve model context" });
+      }
+    },
+  );
+
+  router.put(
+    "/providers/:id/model-context",
+    ctx.rbac.require("use") as never,
+    gate,
+    async (req: Request, res: Response) => {
+      const userId = actor(ctx);
+      const providerId = parseId(req.params.id);
+      const model = req.body?.model;
+      const rawWindow = req.body?.contextWindow;
+      if (!providerId ||
+          typeof model !== "string" ||
+          !model.trim() ||
+          model.length > 200 ||
+          /[\\x00-\\x1F]/.test(model) ||
+          (rawWindow !== null && capacityNumber(rawWindow) !== rawWindow))
+        return res.status(400).json({ error: "Invalid model context override" });
+      try {
+        const provider = await repository.findProvider(providerId, userId);
+        if (!provider) return res.status(404).json({ error: "Provider not found" });
+        await repository.setModelContextOverride(userId, providerId, model.trim(), rawWindow);
+        res.json({ success: true });
+      } catch (err) {
+        logError("Failed to save model context", err);
+        res.status(500).json({ error: "Could not save model context" });
       }
     },
   );
