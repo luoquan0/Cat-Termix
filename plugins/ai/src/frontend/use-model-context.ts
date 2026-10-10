@@ -24,6 +24,9 @@ export function useModelContext(
     const selected = model.trim();
     setInfo(null);
     setError(null);
+    // Unknown/new models start with a conservative budget while discovery is
+    // in flight. Never carry a previous model's large window across switches.
+    onCapacity(32768);
     if (!providerId || !selected) {
       setLoading(false);
       return;
