@@ -25,10 +25,7 @@ describe("Local Agent frontend navigation", () => {
       locales,
       api: {
         get: async (path: string) => ({
-          data:
-            path === "/admin/devices"
-              ? { devices: [] }
-              : { projects: [] },
+          data: path === "/admin/devices" ? { devices: [] } : { projects: [] },
         }),
       } as never,
     });
@@ -52,8 +49,8 @@ describe("Local Agent frontend navigation", () => {
     await rendered.deactivate();
     expect(rendered.registered.panels()).not.toContain("agent");
     expect(rendered.registered.tabs()).not.toContain("agent");
-    expect(rendered.registered.railItems().map((item) => item.id)).not.toContain(
-      "agent",
-    );
+    expect(
+      rendered.registered.railItems().map((item) => item.id),
+    ).not.toContain("agent");
   });
 });

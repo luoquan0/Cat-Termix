@@ -1,6 +1,6 @@
-import { useEffect, useState, type ComponentType, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Bot } from "lucide-react";
-import type { PanelProps, TabProps, TermixApp } from "@termix/plugin-sdk/frontend";
+import type { TermixApp } from "@termix/plugin-sdk/frontend";
 import { useTranslation } from "@termix/plugin-sdk/frontend";
 
 let current: TermixApp | null = null;
@@ -63,7 +63,7 @@ type Policy = {
   sourceAddress: string;
   canConfigure: boolean;
 };
-function LocalAgentPanel(_props: TabProps) {
+function LocalAgentPanel() {
   const { t } = useTranslation();
   const [devices, setDevices] = useState<ManagedDevice[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -481,8 +481,8 @@ export function activate(instance: TermixApp): void {
   });
   // Rail items open sidebar panels; the tab registration alone cannot render
   // this view when its icon is clicked in the left navigation.
-  instance.registerPanel("agent", LocalAgentPanel as ComponentType<PanelProps>);
-  instance.registerTab("agent", LocalAgentPanel as ComponentType<TabProps>, {
+  instance.registerPanel("agent", LocalAgentPanel);
+  instance.registerTab("agent", LocalAgentPanel, {
     icon: Bot,
     titleKey: "nav.agent",
     singleton: true,
