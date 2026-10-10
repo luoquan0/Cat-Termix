@@ -180,7 +180,19 @@
     "updateApply": "Update now",
     "updateConfirm": "Confirm restart and update",
     "updateCurrent": "Current revision",
-    "updateAvailable": "Published revision"
+    "updateAvailable": "Published revision",
+    "contextModelCapacity": "Selected model context limit",
+    "contextSourceUpstream": "Live capacity reported by the upstream provider",
+    "contextSourceCatalog": "Published capacity from official model documentation",
+    "contextSourceManual": "Your saved override for this provider and model",
+    "contextSourceUnknown": "Capacity unknown (temporary conservative default)",
+    "contextChooseModel": "Select a provider and model to detect capacity",
+    "contextUnknownWarning": "This gateway did not report a reliable limit. Edit the capacity below to save it for this model. No capacity is guessed from model aliases.",
+    "contextOfficialReference": "View official model documentation",
+    "contextResetAutomatic": "Remove manual override · Detect automatically",
+    "contextDetectRefresh": "Recheck model capacity",
+    "contextSaveFailed": "Could not save model context override",
+    "contextOverrideHint": "Changing the capacity saves a model-specific override. Switching models restores that model's saved value; provider-reported limits may differ from actual proxy restrictions."
   },
   "nav": {
     "ai": "AI"

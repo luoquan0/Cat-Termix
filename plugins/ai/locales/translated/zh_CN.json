@@ -180,7 +180,19 @@
     "updateApply": "立即更新",
     "updateConfirm": "确认重启并更新",
     "updateCurrent": "当前构建",
-    "updateAvailable": "已发布构建"
+    "updateAvailable": "已发布构建",
+    "contextModelCapacity": "当前模型上下文容量",
+    "contextSourceUpstream": "已从上游接口读取容量",
+    "contextSourceCatalog": "已从官方模型资料读取容量",
+    "contextSourceManual": "已使用此提供商与模型的手动覆盖值",
+    "contextSourceUnknown": "容量未知（暂用保守默认值）",
+    "contextChooseModel": "先选择提供商与模型，才会检测容量",
+    "contextUnknownWarning": "上游没有返回可靠的容量信息。可在下方填写后保存到此模型；不会根据自定义模型名称猜测容量。",
+    "contextOfficialReference": "查看官方模型资料",
+    "contextResetAutomatic": "清除手动覆盖并恢复自动识别",
+    "contextDetectRefresh": "重新检测模型上下文容量",
+    "contextSaveFailed": "保存模型容量失败",
+    "contextOverrideHint": "修改容量会针对当前提供商和模型持久保存。切换回来自动恢复；如中转网关另有限制，请按实际可用容量填写。"
   },
   "nav": {
     "ai": "AI"
