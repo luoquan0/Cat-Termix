@@ -108,9 +108,12 @@ export function AiPanel({
     preferenceRef.current = updated;
     // Serialize writes: a rapid channel + thinking change must not allow
     // an older request to overwrite the user's latest selection.
+    // Channel defaults are administrator/user channel edits, not a writable
+    // part of the chat preference PATCH API.
+    const { providerEfforts: _providerEfforts, ...writable } = updated;
     preferenceWriteRef.current = preferenceWriteRef.current
       .catch(() => undefined)
-      .then(() => saveAiPreferences(updated))
+      .then(() => saveAiPreferences(writable))
       .catch(() => toast.error(t("ai.preferencesSaveFailed")));
   }, [t]);
 
