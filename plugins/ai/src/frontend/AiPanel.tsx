@@ -1,13 +1,16 @@
 import { useAiModels } from "./use-ai-models";
 import { useModelContext } from "./use-model-context";
 import { ApprovalToggle } from "./ApprovalToggle";
+import { AiComposerControls } from "./AiComposerControls";
 import { ContextControls, ContextStatus } from "./ContextControls";
 import {
   DEFAULT_CONTEXT_POLICY,
   readCheckpoint,
   type ContextPolicy,
 } from "../shared/context-policy";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import { DEFAULT_AI_PREFERENCES, type AiChatPreferences, type ReasoningEffort } from "../shared/reasoning";
 import { useTranslation } from "@termix/plugin-sdk/frontend";
 import {
   History,
@@ -32,6 +35,8 @@ import {
   getAiConversation,
   getAiConversations,
   getAiProviders,
+  getAiPreferences,
+  saveAiPreferences,
   getAiStatus,
   setAiOptIn,
   type AiConversation,
@@ -85,6 +90,74 @@ export function AiPanel({
   const [providerId, setProviderId] = useState<number | null>(null);
   const [model, setModel] = useState("");
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>("review");
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("auto");
+  const preferenceRef = useRef<AiChatPreferences>({
+    ...DEFAULT_AI_PREFERENCES,
+    providerEfforts: {},
+  });
+  const preferenceWriteRef = useRef<Promise<unknown>>(Promise.resolve());
+  const initializedRef = useRef(false);
+  const enabledProviders = useMemo(
+    () => providers.filter((provider) => provider.enabled),
+    [providers],
+  );
+
+  const persistPreference = useCallback((patch: Partial<AiChatPreferences>) => {
+    if (!initializedRef.current) return;
+    const updated = { ...preferenceRef.current, ...patch };
+    preferenceRef.current = updated;
+    // Serialize writes: a rapid channel + thinking change must not allow
+    // an older request to overwrite the user's latest selection.
+    preferenceWriteRef.current = preferenceWriteRef.current
+      .catch(() => undefined)
+      .then(() => saveAiPreferences(updated))
+      .catch(() => toast.error(t("ai.preferencesSaveFailed")));
+  }, [t]);
+
+  const chooseModel = useCallback(
+    (id: number, chosenModel: string) => {
+      setProviderId(id);
+      setModel(chosenModel);
+      const channel = providers.find((item) => item.id === id);
+      const nextEffort =
+        id === preferenceRef.current.providerId
+          ? preferenceRef.current.reasoningEffort
+          : (channel?.defaultReasoningEffort ?? "auto");
+      setReasoningEffort(nextEffort);
+      persistPreference({
+        providerId: id,
+        model: chosenModel,
+        reasoningEffort: nextEffort,
+      });
+    },
+    [persistPreference, providers],
+  );
+
+  const selectProvider = useCallback(
+    (id: number) => chooseModel(id, ""),
+    [chooseModel],
+  );
+  const selectModel = useCallback(
+    (value: string) => {
+      setModel(value);
+      persistPreference({ providerId, model: value });
+    },
+    [persistPreference, providerId],
+  );
+  const changeApproval = useCallback(
+    (value: ApprovalMode) => {
+      setApprovalMode(value);
+      persistPreference({ approvalMode: value });
+    },
+    [persistPreference],
+  );
+  const changeReasoning = useCallback(
+    (value: ReasoningEffort) => {
+      setReasoningEffort(value);
+      persistPreference({ reasoningEffort: value });
+    },
+    [persistPreference],
+  );
   const [executionMode, setExecutionMode] = useState<ExecutionMode>("isolated");
   const [executingProposalId, setExecutingProposalId] = useState<number | null>(
     null,
@@ -137,7 +210,7 @@ export function AiPanel({
     providerId,
     providers.find((p) => p.id === providerId)?.defaultModel ?? "",
     model,
-    setModel,
+    selectModel,
   );
   const applyDetectedCapacity = useCallback((contextWindow: number) => {
     setContextConfig((previous) => ({
@@ -161,7 +234,13 @@ export function AiPanel({
     setHistory([]);
     setResolvedProposals({});
     setPendingResolutions([]);
-    setApprovalMode("review");
+    // New conversations inherit durable defaults, not the model of
+    // whichever saved conversation was opened most recently.
+    const defaults = preferenceRef.current;
+    setApprovalMode(defaults.approvalMode);
+    setProviderId(defaults.providerId);
+    setModel(defaults.model);
+    setReasoningEffort(defaults.reasoningEffort);
     setExecutionMode("isolated");
     jumpToLatest();
     setInput("");
@@ -253,7 +332,8 @@ export function AiPanel({
       setHistory(savedConversationEntries(saved.messages));
       setResolvedProposals({});
       setPendingResolutions([]);
-      setApprovalMode("review");
+      // Approval remains the saved user preference across conversations.
+      setApprovalMode(preferenceRef.current.approvalMode);
       setExecutionMode("isolated");
       jumpToLatest();
       setInput("");
@@ -342,8 +422,22 @@ export function AiPanel({
         }
         if (!status.globallyEnabled) return;
 
-        const list = await loadProviders();
-        if (!cancelled) void refreshConversations();
+        const stored = await getAiPreferences();
+        if (cancelled) return;
+        preferenceRef.current = stored;
+        setApprovalMode(stored.approvalMode);
+        setReasoningEffort(stored.reasoningEffort);
+        setModel(stored.model);
+        const list = await loadProviders(stored.providerId ?? undefined);
+        if (cancelled) return;
+        if (
+          stored.providerId &&
+          !list.some((provider) => provider.id === stored.providerId)
+        ) {
+          setModel("");
+        }
+        initializedRef.current = true;
+        void refreshConversations();
         // With nothing configured there is nothing to chat with, so go
         // straight to the form instead of showing a card that just vanishes.
         if (!cancelled && list.length === 0) setShowSettings(true);
@@ -396,6 +490,7 @@ export function AiPanel({
       model: model.trim(),
       contextPolicy: contextConfig,
       approvalMode,
+      reasoningEffort,
       executionMode,
       terminalSessionId: getTerminalSessionId?.(),
       terminalContext,
@@ -447,6 +542,7 @@ export function AiPanel({
       model: model.trim(),
       contextPolicy: contextConfig,
       approvalMode,
+      reasoningEffort,
       executionMode,
       terminalSessionId: getTerminalSessionId?.(),
       terminalContext,
@@ -463,6 +559,7 @@ export function AiPanel({
     providerId,
     model,
     approvalMode,
+    reasoningEffort,
     executionMode,
     getTerminalSessionId,
     terminalContext,
@@ -557,7 +654,7 @@ export function AiPanel({
             />
             <ApprovalToggle
               mode={approvalMode}
-              onChange={setApprovalMode}
+              onChange={changeApproval}
               disabled={executing}
             />
           </div>
@@ -664,11 +761,11 @@ export function AiPanel({
             </h3>
             {providers.length > 0 && (
               <AiSessionControls
-                providers={providers.filter((item) => item.enabled)}
+                providers={enabledProviders}
                 providerId={providerId}
-                onProviderChange={setProviderId}
+                onProviderChange={selectProvider}
                 model={model}
-                onModelChange={setModel}
+                onModelChange={selectModel}
                 discovery={modelDiscovery}
                 disabled={executing}
                 executionMode={executionMode}
@@ -704,7 +801,11 @@ export function AiPanel({
             <div className="pt-2">
               <AiProviderSettings
                 providers={providers}
-                onChanged={loadProviders}
+                onChanged={(selectId) => {
+                  void loadProviders(selectId).then(() => {
+                    if (selectId) selectProvider(selectId);
+                  });
+                }}
                 onAdded={() => setShowSettings(false)}
               />
             </div>
@@ -799,7 +900,7 @@ export function AiPanel({
         </Button>
       )}
 
-      <div className="relative shrink-0 border-t border-border p-3">
+      <div className="relative mx-2 mb-2 shrink-0 rounded-2xl border border-border bg-background p-2 shadow-sm">
         {mentionMatches.length > 0 && (
           <div className="absolute bottom-full left-3 right-3 z-10 max-h-56 overflow-y-auto border border-border bg-popover shadow-md">
             {mentionMatches.map((item, index) => (
@@ -831,7 +932,7 @@ export function AiPanel({
 
         <Textarea
           ref={textareaRef}
-          className="min-h-[64px] resize-none rounded-none text-sm"
+          className="min-h-[88px] resize-none rounded-xl border-0 bg-transparent text-sm shadow-none focus-visible:ring-0"
           value={input}
           onChange={(event) => {
             setInput(event.target.value);
@@ -875,15 +976,16 @@ export function AiPanel({
           placeholder={t("ai.inputPlaceholder")}
           disabled={!providerId || loadingConversationId !== null}
         />
-        {/*
-          The hint gets its own line and wraps: sharing a row with the send
-          button left it truncated to an ellipsis in the sidebar, where the
-          panel is at its narrowest.
-        */}
-        <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
-          {t("ai.composerHint")}
-        </p>
-        <div className="mt-1.5 flex flex-wrap items-center justify-end gap-2">
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-2">
+          <AiComposerControls
+            providers={enabledProviders}
+            providerId={providerId}
+            model={model}
+            reasoningEffort={reasoningEffort}
+            disabled={executing || loadingConversationId !== null}
+            onChooseModel={chooseModel}
+            onReasoningChange={changeReasoning}
+          />
           {state.streaming ? (
             <Button size="sm" variant="outline" onClick={stop}>
               <Square size={14} />
@@ -893,7 +995,7 @@ export function AiPanel({
             <Button
               size="sm"
               variant="outline"
-              className="border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand"
+              className="h-9 w-9 shrink-0 rounded-full border-accent-brand/40 bg-accent-brand text-white hover:bg-accent-brand/85 hover:text-white"
               disabled={
                 executing || !input.trim() || !providerId || !model.trim()
               }
