@@ -5,12 +5,15 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { AiPanel } from "../../src/frontend/AiPanel";
 
 const api = vi.hoisted(() => ({
   t: (key: string) => key,
   getAiProviders: vi.fn(),
+  getAiPreferences: vi.fn(),
+  saveAiPreferences: vi.fn(),
   getAiProviderModels: vi.fn(),
   getAiModelContext: vi.fn(),
   saveAiModelContextOverride: vi.fn(),
@@ -46,6 +49,14 @@ beforeEach(() => {
     },
   ]);
   api.getAiProviderModels.mockResolvedValue(["auto-model"]);
+  api.getAiPreferences.mockResolvedValue({
+    providerId: 1,
+    model: "auto-model",
+    approvalMode: "review",
+    reasoningEffort: "auto",
+    providerEfforts: {},
+  });
+  api.saveAiPreferences.mockResolvedValue({});
   api.getAiModelContext.mockResolvedValue({
     providerId: 1,
     model: "auto-model",
@@ -85,7 +96,7 @@ describe("compact chat settings and a clean composer", () => {
     expect(sessionId).not.toHaveBeenCalled();
     expect(api.fetch).not.toHaveBeenCalled();
     expect(screen.queryByText("ai.attachTerminalOutput")).toBeNull();
-    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.getAllByRole("combobox")).toHaveLength(2);
     const settings = screen.getByRole("button", { name: "ai.chatSettings" });
     expect(
       screen.getByRole("button", { name: "ai.history" }).nextElementSibling,
@@ -99,7 +110,8 @@ describe("compact chat settings and a clean composer", () => {
       screen.getByRole("combobox", { name: "ai.executionMode" }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("combobox", { name: "ai.modelPicker" }),
+      within(screen.getByRole("dialog", { name: "ai.chatSettings" }))
+        .getByRole("combobox", { name: "ai.modelPicker" }),
     ).toBeTruthy();
     expect(screen.getByText("ai.providerSettings")).toBeTruthy();
     expect(screen.queryByText("ai.updateSettings")).toBeNull();
@@ -137,12 +149,13 @@ describe("compact chat settings and a clean composer", () => {
     const composer = await ready();
     const settings = screen.getByRole("button", { name: "ai.chatSettings" });
     fireEvent.click(settings);
-    fireEvent.change(screen.getByLabelText("ai.modelPicker"), {
+    const modal = screen.getByRole("dialog", { name: "ai.chatSettings" });
+    fireEvent.change(within(modal).getByLabelText("ai.modelPicker"), {
       target: { value: "my-model" },
     });
     fireEvent.click(screen.getByRole("button", { name: "common.close" }));
     fireEvent.click(screen.getByRole("button", { name: "ai.reviewMode" }));
-    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.getAllByRole("combobox")).toHaveLength(2);
     expect(screen.getByText("ai.autoModeCompact")).toBeTruthy();
     fireEvent.change(composer, { target: { value: "Hello" } });
     fireEvent.click(screen.getByRole("button", { name: "ai.send" }));
@@ -151,5 +164,35 @@ describe("compact chat settings and a clean composer", () => {
       model: "my-model",
       approvalMode: "auto",
     });
+    fireEvent.click(screen.getByRole("button", { name: "ai.newConversation" }));
+    expect(screen.getByText("ai.autoModeCompact")).toBeTruthy();
+    await waitFor(() =>
+      expect(api.saveAiPreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: "my-model",
+          approvalMode: "auto",
+        }),
+      ),
+    );
+  });
+  it("restores channel, model, thinking and approval after reload", async () => {
+    api.getAiPreferences.mockResolvedValue({
+      providerId: 1,
+      model: "remember-me",
+      approvalMode: "auto",
+      reasoningEffort: "high",
+      providerEfforts: { "1": "low" },
+    });
+    render(<AiPanel />);
+    await ready();
+    expect(screen.getByText("ai.autoModeCompact")).toBeTruthy();
+    expect(
+      screen.getByRole("combobox", { name: "ai.modelPicker" }).textContent,
+    ).toContain("remember-me");
+    expect(
+      screen.getByRole("combobox", { name: "ai.reasoningEffort" }).textContent,
+    ).toContain("ai.reasoning.high");
+    fireEvent.click(screen.getByRole("button", { name: "ai.newConversation" }));
+    expect(screen.getByText("ai.autoModeCompact")).toBeTruthy();
   });
 });
