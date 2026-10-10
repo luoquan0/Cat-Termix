@@ -145,7 +145,6 @@ import {
   getActiveSessions,
   getUserPreferences,
   saveUserPreferences,
-  dismissDonationModal,
   type UserPreferences,
   type OpenTabRecord,
 } from "@/main-axios";
@@ -155,7 +154,6 @@ import {
   resolveLayoutTabTarget,
   snapshotData,
 } from "@/shell/shell-layout";
-import { DonationReminderModal } from "@/user/DonationReminderModal.tsx";
 import { useSyncStatus } from "@/hooks/use-sync-status";
 import { rem, remScale } from "@/lib/rem";
 import { dbHealthMonitor } from "@/lib/db-health-monitor";
@@ -295,7 +293,6 @@ export function AppShell({
   // The standalone desktop backend still owns system settings such as the
   // Tailscale API key, even though it has only one implicit user.
   const showAdminUI = isAdmin;
-  const [showDonationModal, setShowDonationModal] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [backgroundTabRecords, setBackgroundTabRecords] = useState<
     OpenTabRecord[]
@@ -444,14 +441,8 @@ export function AppShell({
     getUserInfo()
       .then((info) => {
         setIsAdmin(info.is_admin);
-        setShowDonationModal(!!info.show_donation_modal);
       })
       .catch(() => setIsAdmin(false));
-  }, []);
-
-  const handleDismissDonationModal = useCallback(() => {
-    setShowDonationModal(false);
-    dismissDonationModal().catch(() => {});
   }, []);
 
   const toggleAppFullscreen = useCallback(async () => {
@@ -3250,10 +3241,6 @@ export function AppShell({
         open={showOnboarding}
         context={{}}
         onClose={() => setShowOnboarding(false)}
-      />
-      <DonationReminderModal
-        open={showDonationModal && !showOnboarding}
-        onDismiss={handleDismissDonationModal}
       />
     </ServerStatusProvider>
   );
