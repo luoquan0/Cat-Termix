@@ -1,6 +1,6 @@
-# Cat-Termix AI Preview 6 测试版
+# Cat-Termix AI Preview 7 测试版
 
-开发分支 `Cat-Termix`，基于 2.9.2，不修改 `main`，也不覆盖 `latest`。测试镜像固定使用 `ghcr.io/luoquan0/cat-termix:ai-dev`；另发布固定版本 `ghcr.io/luoquan0/cat-termix:2.9.2-ai-preview.6`，方便回滚；发布流水线在全部回归、AMD64/ARM64 构建和启动检查成功后才更新该标签。每次发布保留 `sha-<完整提交 SHA>`，镜像版本标签为 `2.9.2-ai-preview.6`。
+开发分支 `Cat-Termix`，基于 2.9.2，不修改 `main`，也不覆盖 `latest`。测试镜像固定使用 `ghcr.io/luoquan0/cat-termix:ai-dev`；另发布固定版本 `ghcr.io/luoquan0/cat-termix:2.9.2-ai-preview.7`，方便回滚；发布流水线在全部回归、AMD64/ARM64 构建和启动检查成功后才更新该标签。每次发布保留 `sha-<完整提交 SHA>`，镜像版本标签为 `2.9.2-ai-preview.7`。
 
 ## 独立聊天设置悬浮窗
 
@@ -59,6 +59,8 @@ docker compose -f docker-compose.ai-test.yml -f docker-compose.ai-updates.yml up
 ```
 
 随后进入**整个系统的管理员设置 → 软件自动更新**，保存间隔、代理并按需开启“自动安装”。默认关闭自动安装；支持“立即检查”和确认重启后的“立即更新”。管理员需要 `ai.manage_updates` 和 `admin.settings.manage` 两项权限。软件更新接口不是模型工具，自动执行模式不赋予更新权限。
+
+点击“立即检查”后，按钮和系统设置栏目标题出现旋转图标，并显示“请求已排队 → 正在连接 GHCR → 检查完成/找到新版本/检查失败”的实时进度；更新器异步检查可能先排队约 15 秒。页面关闭后重新打开仍可从后台请求编号恢复检查状态；请求超时、更新器失联或版本检查失败会给出相应反馈，绝不把 HTTP 202 接受请求当作完成检查。繁忙状态约每 2 秒刷新，空闲约每 10 秒刷新，页面显示真实上次检查时间与当前/已发布构建。代理请求失败会显示更新器的脱敏错误消息。此功能只需更新主应用镜像，不要求重建已经部署的旧更新器。
 
 默认检查间隔 6 小时，可设 1–168 小时。更新会重启应用并断开 SSH。正在运行的 AI 请求会延后更新，并通过维护握手阻止停机前的新 AI 执行；普通手动 SSH 会话仍会因升级断开，请安排维护时间。
 

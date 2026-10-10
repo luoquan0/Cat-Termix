@@ -128,7 +128,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=2.9.2-ai-preview.6
+            org.opencontainers.image.version=2.9.2-ai-preview.7
             org.opencontainers.image.title=Cat-Termix AI Preview
       - name: Start the exact image and check health, web and bundled AI
         env:
@@ -179,7 +179,7 @@ jobs:
         run: |
           docker buildx imagetools create \
             --tag "$IMAGE:sha-$GITHUB_SHA" \
-            --tag "$IMAGE:2.9.2-ai-preview.6" \
+            --tag "$IMAGE:2.9.2-ai-preview.7" \
             --tag "$IMAGE:ai-dev" \
             "$IMAGE:build-$GITHUB_SHA-amd64" \
             "$IMAGE:build-$GITHUB_SHA-arm64"
