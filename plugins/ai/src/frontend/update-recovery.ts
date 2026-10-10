@@ -130,15 +130,15 @@ export function isObservedAutomaticReplacement(
   const latest = after.status;
   return Boolean(
     before?.canManage &&
-      before.installed &&
-      after.canManage &&
-      after.installed &&
-      previous?.currentRevision &&
-      latest?.currentRevision &&
-      previous.currentRevision !== latest.currentRevision &&
-      latest.phase === "updated" &&
-      latest.lastSuccessAt &&
-      previous.lastSuccessAt !== latest.lastSuccessAt,
+    before.installed &&
+    after.canManage &&
+    after.installed &&
+    previous?.currentRevision &&
+    latest?.currentRevision &&
+    previous.currentRevision !== latest.currentRevision &&
+    latest.phase === "updated" &&
+    latest.lastSuccessAt &&
+    previous.lastSuccessAt !== latest.lastSuccessAt,
   );
 }
 

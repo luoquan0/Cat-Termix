@@ -245,9 +245,16 @@ describe("Docker replacement browser recovery", () => {
     expect(isObservedAutomaticReplacement(before, after)).toBe(true);
     expect(isObservedAutomaticReplacement(null, after)).toBe(false);
     expect(isObservedAutomaticReplacement(after, after)).toBe(false);
-    expect(isObservedAutomaticReplacement(before, updaterInfo({
-      ...baseStatus, phase: "checking", currentRevision: newRevision,
-    }))).toBe(false);
+    expect(
+      isObservedAutomaticReplacement(
+        before,
+        updaterInfo({
+          ...baseStatus,
+          phase: "checking",
+          currentRevision: newRevision,
+        }),
+      ),
+    ).toBe(false);
 
     let response = before;
     let clock = now;
@@ -266,8 +273,9 @@ describe("Docker replacement browser recovery", () => {
       clock += 12000;
       await vi.advanceTimersByTimeAsync(2100);
       expect(reload).toHaveBeenCalledOnce();
-      expect(window.sessionStorage.getItem(UPDATE_RESTART_SUCCESS_KEY))
-        .toContain(newRevision);
+      expect(
+        window.sessionStorage.getItem(UPDATE_RESTART_SUCCESS_KEY),
+      ).toContain(newRevision);
     } finally {
       stop();
       vi.useRealTimers();
