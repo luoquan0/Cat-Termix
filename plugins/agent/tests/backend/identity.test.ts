@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
+import { generateKeyPairSync, randomBytes, sign, type KeyObject } from "node:crypto";
 import type { Request } from "express";
 import type { PluginContext } from "@termix/plugin-sdk/backend";
 import {
@@ -25,7 +25,7 @@ function fakeContext(): PluginContext {
 }
 function signedRequest(
   publicPath: string,
-  privateKey: ReturnType<typeof generateKeyPairSync>["privateKey"],
+  privateKey: KeyObject,
   deviceId: string,
   body: Buffer = Buffer.alloc(0),
   nonce = randomBytes(18).toString("base64url"),

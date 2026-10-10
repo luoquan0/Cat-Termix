@@ -1,7 +1,7 @@
 import express, { type NextFunction, type Request, type Response, type Router } from "express";
 import type { PluginContext, PluginHostSummary } from "@termix/plugin-sdk/backend";
 import { AgentError, AgentStore, SCOPES, allowsTransport, projectFolder, projectId, requireScope, sha256, validateTransportPolicy, type AgentScope, type Device, type TransportPolicy } from "./identity.js";
-import { AgentOperations, serverHostId } from "./operations.js";
+import { AgentOperations } from "./operations.js";
 
 type Incoming = Request & { userId?: string; sessionId?: string; apiKeyId?: string; pendingTOTP?: boolean };
 type AgentRequest = Incoming & { device?: Device; rawBuffer?: Buffer; jsonBody?: Record<string, unknown> };
@@ -93,8 +93,10 @@ export async function activate(ctx: PluginContext) {
     if (req.method !== "GET" && req.method !== "HEAD" &&
       !Buffer.isBuffer(req.body))
       return fail(400, "INVALID_INPUT", "缺少原始正文");
-    req.rawBuffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
-    if (!req.path.startsWith("/files/upload") && req.rawBuffer.length) req.jsonBody = jsonParse(req.rawBuffer);
+    const incoming = req as AgentRequest;
+    incoming.rawBuffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    if (!req.path.startsWith("/files/upload") && incoming.rawBuffer.length)
+      incoming.jsonBody = jsonParse(incoming.rawBuffer);
     // Express requires next() to dispatch after this async middleware.
     (res.locals as { agentValidated?: boolean }).agentValidated = true;
     next();
