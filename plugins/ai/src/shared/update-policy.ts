@@ -119,8 +119,15 @@ export function resolveUpdateRequestProgress(
   } else if (accepted && request.action === "check" && doneCheck) {
     // A later automatic update may have already advanced the phase.
     state = "completed";
-  } else if (!accepted && now - at > 10 * 60_000) {
-    // The helper refuses manual requests older than ten minutes.
+  } else if (
+    (!accepted && now - at > 10 * 60_000) ||
+    (accepted &&
+      request.action === "check" &&
+      now - at > 3 * 60_000 &&
+      (!Number.isFinite(heartbeat) || now - heartbeat > 180000))
+  ) {
+    // The helper rejects unaccepted requests older than ten minutes.
+    // Its heartbeat also detects an interrupted, already-started check.
     state = "timed_out";
   } else if (accepted) {
     state = "running";

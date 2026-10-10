@@ -65,7 +65,8 @@ export function UpdateSettings() {
   const requestActive =
     info?.request?.state === "queued" ||
     info?.request?.state === "running";
-  const phaseActive = activePhases.has(info?.status?.phase ?? "");
+  const phaseActive =
+    Boolean(info?.installed) && activePhases.has(info?.status?.phase ?? "");
   const isWorking = busyAction !== null || requestActive || phaseActive;
 
   // The helper polls for manual requests every 15 seconds. Poll the
@@ -131,7 +132,7 @@ export function UpdateSettings() {
                 : t("ai.updateApplying");
   } else if (request?.state === "timed_out") {
     feedback = t("ai.updateCheckTimedOut");
-  } else if (request?.state === "failed" || phase === "error") {
+  } else if (request?.state === "failed") {
     feedback = t("ai.updateCheckFailed");
   } else if (request?.state === "completed") {
     feedback =
@@ -144,6 +145,8 @@ export function UpdateSettings() {
           : phase === "current"
             ? t("ai.updateLatest")
             : t("ai.updateApplied");
+  } else if (phase === "error") {
+    feedback = t("ai.updateCheckFailed");
   } else if (phase === "checking") {
     feedback = t("ai.updateCheckingUpstream");
   } else if (phase === "downloading") {
@@ -166,7 +169,7 @@ export function UpdateSettings() {
   const failed =
     request?.state === "failed" ||
     request?.state === "timed_out" ||
-    phase === "error";
+    (!request && phase === "error");
   const lastCheckAt = info?.status?.lastCheckAt;
   const lastCheck =
     lastCheckAt && Number.isFinite(Date.parse(lastCheckAt))
