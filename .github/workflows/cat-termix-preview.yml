@@ -156,7 +156,22 @@ jobs:
           # The host's mapped loopback port reaches the container through Docker
           # bridge NAT and is NOT a loopback Agent client. Run protocol smoke
           # from inside the container instead of weakening HTTP/CIDR security.
-          docker exec cat-termix-smoke wget -q -O - http://127.0.0.1:8080/agent/v1/health | tee /tmp/cat-termix-image/agent-health.json
+          # /health can become available before bundled plugins finish activation.
+          # Wait for the plugin router itself, not just the core process.
+          agent_ready=false
+          for attempt in $(seq 1 60); do
+            if docker exec cat-termix-smoke wget -q -O - http://127.0.0.1:8080/agent/v1/health > /tmp/cat-termix-image/agent-health.json; then
+              agent_ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$agent_ready" != true ]; then
+            echo "Agent route was not ready after 120 seconds" >&2
+            docker exec cat-termix-smoke wget -S -O - http://127.0.0.1:8080/agent/v1/health || true
+            docker logs cat-termix-smoke | tail -n 150
+            exit 1
+          fi
           docker cp docker/agent/preview-smoke.mjs cat-termix-smoke:/tmp/agent-preview-smoke.mjs
           docker exec -e CAT_TERMIX_SMOKE_URL=http://127.0.0.1:8080 cat-termix-smoke node /tmp/agent-preview-smoke.mjs
           grep -q '"status":"ok"' /tmp/cat-termix-image/agent-health.json
