@@ -533,6 +533,25 @@ export function validateTransportPolicy(raw: unknown): TransportPolicy {
     return fail(400, "INVALID_HTTP_POLICY", "启用 HTTP 时必须指定来源 IP");
   return { allowHttp: v.allowHttp, allowedCidrs };
 }
+export function resolveTransportPolicy(
+  saved: TransportPolicy,
+  environment: NodeJS.ProcessEnv,
+): TransportPolicy {
+  if (environment.CLOUDSSH_AGENT_HTTP_POLICY_LOCKED !== "true") return saved;
+  try {
+    return validateTransportPolicy({
+      allowHttp: environment.CLOUDSSH_AGENT_ALLOW_HTTP === "true",
+      allowedCidrs: (environment.CLOUDSSH_AGENT_HTTP_ALLOWED_CIDRS ?? "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean),
+    });
+  } catch {
+    // An invalid administrator-supplied deployment lock must NEVER widen HTTP.
+    return { allowHttp: false, allowedCidrs: [] };
+  }
+}
+
 export function allowsTransport(
   secure: boolean,
   ip: string,

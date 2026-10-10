@@ -10,6 +10,7 @@ import type { PluginContext } from "@termix/plugin-sdk/backend";
 import {
   AgentStore,
   allowsTransport,
+  resolveTransportPolicy,
   canonicalDeviceRequest,
   projectFolder,
   projectId,
@@ -204,6 +205,19 @@ describe("Local Agent HTTP and project scope", () => {
     expect(allowsTransport(false, "192.168.7.9", policy)).toBe(true);
     expect(allowsTransport(false, "192.168.7.10", policy)).toBe(false);
     expect(allowsTransport(true, "203.0.113.7", policy)).toBe(true);
+  });
+  it("applies an environment-locked policy to the actual transport gate", () => {
+    const saved = { allowHttp: true, allowedCidrs: ["10.0.0.1/32"] };
+    expect(resolveTransportPolicy(saved, {})).toEqual(saved);
+    expect(resolveTransportPolicy(saved, {
+      CLOUDSSH_AGENT_HTTP_POLICY_LOCKED: "true",
+      CLOUDSSH_AGENT_ALLOW_HTTP: "false",
+    })).toEqual({ allowHttp: false, allowedCidrs: [] });
+    expect(resolveTransportPolicy(saved, {
+      CLOUDSSH_AGENT_HTTP_POLICY_LOCKED: "true",
+      CLOUDSSH_AGENT_ALLOW_HTTP: "true",
+      CLOUDSSH_AGENT_HTTP_ALLOWED_CIDRS: "203.0.113.0/24",
+    })).toEqual({ allowHttp: false, allowedCidrs: [] });
   });
   it("keeps folders stable and rejects unknown IDs", () => {
     expect(projectFolder(projectId("Production / Linux"))).toBe(

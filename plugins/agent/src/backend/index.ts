@@ -17,10 +17,10 @@ import {
   projectId,
   requireScope,
   sha256,
+  resolveTransportPolicy,
   validateTransportPolicy,
   type AgentScope,
   type Device,
-  type TransportPolicy,
 } from "./identity.js";
 import { AgentOperations } from "./operations.js";
 
@@ -141,6 +141,10 @@ export async function activate(ctx: PluginContext) {
   await operations.restore();
   ctx.disposables.add(() => operations.stop());
   const router = ctx.http.router<Router>({ public: ["/v1/*"], rawBody: true });
+  const locked = () => process.env.CLOUDSSH_AGENT_HTTP_POLICY_LOCKED === "true";
+  const currentPolicy = async () =>
+    resolveTransportPolicy((await store.read()).transport, process.env);
+
 
   // Signed paths accept exact old /agent/v1 URLs. Everything is parsed as raw
   // bytes before comparing the SHA-256 included in the Ed25519 signature.
@@ -151,7 +155,7 @@ export async function activate(ctx: PluginContext) {
   router.use("/v1", (req, res, next) => {
     void Promise.resolve()
       .then(async () => {
-        const policy = (await store.read()).transport;
+        const policy = await currentPolicy();
         if (!allowsTransport(secure(req), requestIp(req), policy))
           return fail(
             426,
@@ -176,16 +180,7 @@ export async function activate(ctx: PluginContext) {
       })
       .catch(next);
   });
-  // This check is separate from the async route registration above to avoid
-  // bypassing the transport policy on any public entrypoint.
-  const before = safe(async (req, res) => {
-    if (!(res.locals as { agentValidated?: boolean }).agentValidated)
-      fail(426, "HTTPS_REQUIRED", "Agent 传输策略未通过");
-  });
-  void before;
-
-  // Express middleware is mounted with next() below; standalone JSON admin
-  // routes use core authentication rather than any device signature.
+  // Administrative routes use the core web session, never a device identity.
   router.use("/admin", express.json({ limit: "1mb" }));
   const manage = safe(async (req, res) => {
     void res;
@@ -586,6 +581,11 @@ export async function activate(ctx: PluginContext) {
     if (!req.sessionId || req.apiKeyId || req.pendingTOTP)
       fail(401, "INTERACTIVE_SESSION_REQUIRED", "仅允许网页登录会话管理设备");
     if (
+      operation === "transport" &&
+      !(await ctx.rbac.has("admin.settings.manage"))
+    )
+      fail(403, "ADMIN_REQUIRED", "只有实例管理员可以修改传输策略");
+    if (
       !(await ctx.rbac.has(
         operation === "transport" ? "manage_http" : "manage",
       ))
@@ -748,16 +748,8 @@ export async function activate(ctx: PluginContext) {
     }),
   );
 
-  const locked = () => process.env.CLOUDSSH_AGENT_HTTP_POLICY_LOCKED === "true";
   const policySnapshot = async (req: Request) => {
-    const policy: TransportPolicy = locked()
-      ? {
-          allowHttp: process.env.CLOUDSSH_AGENT_ALLOW_HTTP === "true",
-          allowedCidrs: (process.env.CLOUDSSH_AGENT_HTTP_ALLOWED_CIDRS || "")
-            .split(",")
-            .filter(Boolean),
-        }
-      : (await store.read()).transport;
+    const policy = await currentPolicy();
     return {
       ...policy,
       locked: locked(),
