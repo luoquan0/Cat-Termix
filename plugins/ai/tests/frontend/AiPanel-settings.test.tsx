@@ -202,9 +202,10 @@ describe("compact chat settings and a clean composer", () => {
     const settings = screen.getByRole("button", { name: "ai.chatSettings" });
     fireEvent.click(settings);
     const modal = screen.getByRole("dialog", { name: "ai.chatSettings" });
-    fireEvent.change(within(modal).getByRole("textbox", {
-      name: "ai.addCustomModelId",
-    }), { target: { value: "my-model" } });
+    fireEvent.change(
+      within(modal).getByRole("textbox", { name: "ai.addCustomModelId" }),
+      { target: { value: "my-model" } },
+    );
     fireEvent.click(within(modal).getByRole("button", { name: "ai.addModel" }));
     fireEvent.click(within(modal).getByRole("button", { name: "ai.save" }));
     await waitFor(() =>
@@ -213,12 +214,13 @@ describe("compact chat settings and a clean composer", () => {
         expect.objectContaining({ enabledModels: ["my-model"] }),
       ),
     );
+    await within(modal).findByText("ai.providerUpdated");
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
     await waitFor(() =>
       expect(
         screen.getByRole("combobox", { name: "ai.modelPicker" }).textContent,
       ).toContain("my-model"),
     );
-    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
     fireEvent.click(screen.getByRole("button", { name: "ai.reviewMode" }));
     expect(screen.getAllByRole("combobox")).toHaveLength(2);
     expect(screen.getByText("ai.autoModeCompact")).toBeTruthy();
@@ -282,24 +284,27 @@ describe("compact chat settings and a clean composer", () => {
       },
     ]);
     api.getAiProviderModels.mockResolvedValue([
-      "auto-model", "other-model", "third-model",
+      "auto-model",
+      "other-model",
+      "third-model",
     ]);
     render(<AiPanel />);
     await ready();
     fireEvent.click(screen.getByRole("button", { name: "ai.chatSettings" }));
     const settings = screen.getByRole("dialog", { name: "ai.chatSettings" });
-    fireEvent.click(await within(settings).findByRole("checkbox", {
-      name: "other-model",
-    }));
-    fireEvent.click(within(settings).getByRole("checkbox", {
-      name: "third-model",
-    }));
+    fireEvent.click(
+      await within(settings).findByRole("checkbox", { name: "other-model" }),
+    );
+    fireEvent.click(
+      within(settings).getByRole("checkbox", { name: "third-model" }),
+    );
     fireEvent.click(within(settings).getByRole("button", { name: "ai.save" }));
     await waitFor(() =>
       expect(api.updateAiProvider).toHaveBeenCalledWith(1, {
         enabledModels: ["auto-model", "other-model", "third-model"],
       }),
     );
+    await within(settings).findByText("ai.providerUpdated");
     fireEvent.click(screen.getByRole("button", { name: "common.close" }));
     const composerPicker = screen.getByRole("combobox", {
       name: "ai.modelPicker",
@@ -318,9 +323,8 @@ describe("compact chat settings and a clean composer", () => {
       ),
     );
     fireEvent.click(screen.getByRole("button", { name: "ai.newConversation" }));
-    expect(screen.getByRole("combobox", {
-      name: "ai.modelPicker",
-    }).textContent).toContain("third-model");
+    expect(
+      screen.getByRole("combobox", { name: "ai.modelPicker" }).textContent,
+    ).toContain("third-model");
   });
-
 });
