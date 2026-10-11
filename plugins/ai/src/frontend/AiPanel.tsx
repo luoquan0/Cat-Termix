@@ -87,7 +87,18 @@ export function AiPanel({
   terminalContext,
   getTerminalSessionId,
 }: AiPanelProps) {
-  const { t } = useTranslation();
+  const { t: translate } = useTranslation();
+  // The plugin host may return a new translation function each render.
+  // Keep a stable delegate for effect/callback dependencies while still using
+  // the latest language. An unstable t caused model discovery and the panel
+  // initialization effect to repeatedly run until the JS heap was exhausted.
+  const translationRef = useRef(translate);
+  translationRef.current = translate;
+  const t = useCallback(
+    (key: string, options?: Record<string, unknown> | string) =>
+      translationRef.current(key, options),
+    [],
+  );
   const { state, send, stop, reset, setState } = useAiStream();
 
   const [providers, setProviders] = useState<AiProvider[]>([]);

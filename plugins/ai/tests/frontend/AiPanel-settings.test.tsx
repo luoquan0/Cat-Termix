@@ -93,6 +93,9 @@ describe("compact chat settings and a clean composer", () => {
     render(<AiPanel hostId={1} getTerminalSessionId={sessionId} />);
     const composer = await ready();
     expect(composer.value).toBe("");
+    // The SDK test host intentionally returns a fresh translation function on
+    // every render. That must not re-run setup or provider discovery forever.
+    expect(api.getAiStatus).toHaveBeenCalledTimes(1);
     expect(sessionId).not.toHaveBeenCalled();
     expect(api.fetch).not.toHaveBeenCalled();
     expect(screen.queryByText("ai.attachTerminalOutput")).toBeNull();
