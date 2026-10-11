@@ -54,7 +54,7 @@ jobs:
       - name: AI regression tests
         run: |
           mkdir -p /tmp/cat-termix-reports
-          npm test --workspace @termix-plugin/ai 2>&1 | tee /tmp/cat-termix-reports/ai-tests.log
+          npm test --workspace @termix-plugin/ai -- --maxWorkers=2 2>&1 | tee /tmp/cat-termix-reports/ai-tests.log
       - name: Agent device and policy regression tests
         run: npm test --workspace @termix-plugin/agent
       - name: Terminal regression tests
@@ -144,7 +144,10 @@ jobs:
           mkdir -p /tmp/cat-termix-image
           trap 'docker logs cat-termix-smoke > /tmp/cat-termix-image/container.log 2>&1 || true; docker rm -fv cat-termix-smoke >/dev/null 2>&1 || true' EXIT
           docker run -d --name cat-termix-smoke -p 127.0.0.1:19080:8080 "$IMAGE@$DIGEST"
-          test "$(docker exec cat-termix-smoke node -p process.arch)" = "${{ matrix.arch }}"
+          # Node calls linux/amd64 "x64", while the OCI manifest calls it amd64.
+          node_arch="${{ matrix.arch }}"
+          if [ "$node_arch" = "amd64" ]; then node_arch=x64; fi
+          test "$(docker exec cat-termix-smoke node -p process.arch)" = "$node_arch"
           ready=false
           for attempt in $(seq 1 60); do
             if docker exec cat-termix-smoke wget -q -O /dev/null http://localhost:30001/health && curl -fsS http://127.0.0.1:19080/ > /tmp/cat-termix-image/index.html; then
