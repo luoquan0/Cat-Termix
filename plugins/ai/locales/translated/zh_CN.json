@@ -228,7 +228,8 @@
       "xhigh": "极高"
     },
     "enabledModels": "启用模型",
-    "enabledModelsHint": "聊天切换菜单只显示该渠道勾选的模型，默认模型保存时会同时启用。",
+    "enabledModelsHint": "保存后，外侧聊天模型菜单只显示该渠道已勾选的模型。",
+    "chatModelSelectionHint": "在这里勾选本渠道要启用的多个模型并保存，随后可以在外侧聊天输入框切换；每条消息只使用一个模型。",
     "enabledModelsCount": "已启用 {{count}} 个模型",
     "enabledModelsInvalid": "最多选择 100 个模型，每个模型 ID 需为 1-200 个有效字符。",
     "enableAllModels": "全选",
