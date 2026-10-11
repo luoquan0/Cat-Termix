@@ -70,15 +70,17 @@ beforeEach(() => {
   api.getAiProviderModels
     .mockReset()
     .mockResolvedValue(["default-model", "other-model"]);
-  api.updateAiProvider.mockReset().mockImplementation(
-    async (_id: number, patch: { enabledModels: string[] }) => ({
-      ...provider,
-      enabledModels: patch.enabledModels,
-      defaultModel: patch.enabledModels.includes("default-model")
-        ? "default-model"
-        : (patch.enabledModels[0] ?? null),
-    }),
-  );
+  api.updateAiProvider
+    .mockReset()
+    .mockImplementation(
+      async (_id: number, patch: { enabledModels: string[] }) => ({
+        ...provider,
+        enabledModels: patch.enabledModels,
+        defaultModel: patch.enabledModels.includes("default-model")
+          ? "default-model"
+          : (patch.enabledModels[0] ?? null),
+      }),
+    );
 });
 afterEach(cleanup);
 
@@ -89,13 +91,17 @@ describe("multi-model chat settings", () => {
     expect(
       screen.queryByRole("combobox", { name: "ai.modelPicker" }),
     ).toBeNull();
-    expect(screen.getByRole("combobox", { name: "ai.selectProvider" }))
-      .toBeTruthy();
-    expect(screen.getByRole("button", { name: "ai.save" }))
-      .toHaveProperty("disabled", true);
+    expect(
+      screen.getByRole("combobox", { name: "ai.selectProvider" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "ai.save" })).toHaveProperty(
+      "disabled",
+      true,
+    );
     fireEvent.click(screen.getByRole("button", { name: "ai.reviewMode" }));
-    expect(screen.getByRole("button", { name: "ai.autoModeCompact" }))
-      .toHaveProperty("disabled", false);
+    expect(
+      screen.getByRole("button", { name: "ai.autoModeCompact" }),
+    ).toHaveProperty("disabled", false);
   });
 
   it("saves several models without switching the current model", async () => {
@@ -113,9 +119,12 @@ describe("multi-model chat settings", () => {
       }),
     );
     expect(await screen.findByText("ai.providerUpdated")).toBeTruthy();
-    expect(screen.getByRole("checkbox", { name: "other-model" }))
-      .toHaveProperty("checked", true);
-    expect(screen.getByTestId("active-model").textContent).toBe("default-model");
+    expect(
+      screen.getByRole("checkbox", { name: "other-model" }),
+    ).toHaveProperty("checked", true);
+    expect(screen.getByTestId("active-model").textContent).toBe(
+      "default-model",
+    );
   });
 
   it("falls back when the active model is disabled", async () => {
@@ -152,9 +161,12 @@ describe("multi-model chat settings", () => {
     api.getAiProviderModels.mockRejectedValue(new Error("offline"));
     render(<Harness enabledModels={["default-model"]} />);
     expect(await screen.findByText("ai.modelDiscoveryFallback")).toBeTruthy();
-    fireEvent.change(screen.getByRole("textbox", {
-      name: "ai.addCustomModelId",
-    }), { target: { value: "private-model" } });
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "ai.addCustomModelId",
+      }),
+      { target: { value: "private-model" } },
+    );
     fireEvent.click(screen.getByRole("button", { name: "ai.addModel" }));
     fireEvent.click(screen.getByRole("button", { name: "ai.save" }));
     await waitFor(() =>
@@ -173,8 +185,9 @@ describe("multi-model chat settings", () => {
     await waitFor(() =>
       expect(api.getAiProviderModels).toHaveBeenCalledTimes(2),
     );
-    expect(screen.getByRole("checkbox", { name: "private-model" }))
-      .toHaveProperty("checked", true);
+    expect(
+      screen.getByRole("checkbox", { name: "private-model" }),
+    ).toHaveProperty("checked", true);
   });
 
   it("does not discard the pending model list when a save fails", async () => {
@@ -188,10 +201,13 @@ describe("multi-model chat settings", () => {
       "textContent",
       "403 Forbidden",
     );
-    expect(screen.getByRole("checkbox", { name: "other-model" }))
-      .toHaveProperty("checked", true);
-    expect(screen.getByRole("button", { name: "ai.save" }))
-      .toHaveProperty("disabled", false);
+    expect(
+      screen.getByRole("checkbox", { name: "other-model" }),
+    ).toHaveProperty("checked", true);
+    expect(screen.getByRole("button", { name: "ai.save" })).toHaveProperty(
+      "disabled",
+      false,
+    );
   });
 
   it("locks channel editing during an active run", async () => {
@@ -203,8 +219,9 @@ describe("multi-model chat settings", () => {
     expect(
       screen.getByRole("checkbox", { name: "default-model" }),
     ).toHaveProperty("disabled", true);
-    expect(
-      screen.getByRole("button", { name: "ai.save" }),
-    ).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "ai.save" })).toHaveProperty(
+      "disabled",
+      true,
+    );
   });
 });
