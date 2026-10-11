@@ -83,7 +83,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("multi-model chat settings", () => {
-  it("keeps review mode and replaces the single-model picker with checkboxes", async () => {
+  it("shows checkboxes instead of the old single-model picker", async () => {
     render(<Harness />);
     await screen.findByRole("checkbox", { name: "other-model" });
     expect(
@@ -98,12 +98,14 @@ describe("multi-model chat settings", () => {
       .toHaveProperty("disabled", false);
   });
 
-  it("enables multiple channel models with a single save, without switching the current model", async () => {
+  it("saves several models without switching the current model", async () => {
     render(<Harness enabledModels={["default-model"]} />);
     fireEvent.click(
       await screen.findByRole("checkbox", { name: "other-model" }),
     );
-    expect(screen.getByTestId("active-model").textContent).toBe("default-model");
+    expect(screen.getByTestId("active-model").textContent).toBe(
+      "default-model",
+    );
     fireEvent.click(screen.getByRole("button", { name: "ai.save" }));
     await waitFor(() =>
       expect(api.updateAiProvider).toHaveBeenCalledWith(1, {
@@ -116,21 +118,23 @@ describe("multi-model chat settings", () => {
     expect(screen.getByTestId("active-model").textContent).toBe("default-model");
   });
 
-  it("removing the active model falls back to a remaining enabled model", async () => {
+  it("falls back when the active model is disabled", async () => {
     render(<Harness enabledModels={["default-model", "other-model"]} />);
     fireEvent.click(
       await screen.findByRole("checkbox", { name: "default-model" }),
     );
     fireEvent.click(screen.getByRole("button", { name: "ai.save" }));
     await waitFor(() =>
-      expect(screen.getByTestId("active-model").textContent).toBe("other-model"),
+      expect(screen.getByTestId("active-model").textContent).toBe(
+        "other-model",
+      ),
     );
     expect(api.updateAiProvider).toHaveBeenCalledWith(1, {
       enabledModels: ["other-model"],
     });
   });
 
-  it("clearing the list clears the active chat model and prevents a stale selection", async () => {
+  it("clearing the list also clears the active model", async () => {
     render(<Harness enabledModels={["default-model"]} />);
     fireEvent.click(screen.getByRole("button", { name: "ai.clearModels" }));
     fireEvent.click(screen.getByRole("button", { name: "ai.save" }));
@@ -160,7 +164,7 @@ describe("multi-model chat settings", () => {
     );
   });
 
-  it("allows refreshing the upstream list without losing saved models", async () => {
+  it("refreshes discovery without losing saved models", async () => {
     render(<Harness enabledModels={["default-model", "private-model"]} />);
     await waitFor(() =>
       expect(api.getAiProviderModels).toHaveBeenCalledTimes(1),

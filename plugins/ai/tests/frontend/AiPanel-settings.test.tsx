@@ -1,4 +1,13 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import {
   cleanup,
   fireEvent,
@@ -272,7 +281,7 @@ describe("compact chat settings and a clean composer", () => {
     fireEvent.click(screen.getByRole("button", { name: "ai.newConversation" }));
     expect(screen.getByText("ai.autoModeCompact")).toBeTruthy();
   });
-  it("saves several checked models in chat settings and allows switching outside", async () => {
+  it("lets the outer chat switch among saved models", async () => {
     api.getAiProviders.mockResolvedValue([
       {
         id: 1,

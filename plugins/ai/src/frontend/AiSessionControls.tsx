@@ -10,7 +10,11 @@ import {
   SelectValue,
 } from "@termix/plugin-sdk/ui";
 import { AiEnabledModels } from "./AiEnabledModels";
-import { getAiProviderModels, updateAiProvider, type AiProvider } from "./ai-api";
+import {
+  getAiProviderModels,
+  updateAiProvider,
+  type AiProvider,
+} from "./ai-api";
 import { providerModelOptions } from "../shared/model-selection";
 
 export type ApprovalMode = "review" | "auto";
