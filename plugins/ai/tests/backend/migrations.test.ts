@@ -46,6 +46,7 @@ describe("ai adoption migration", () => {
     });
 
     expect(tables(db.sqlite)).toEqual([
+      "p_ai_chat_preferences",
       "p_ai_conversations",
       "p_ai_messages",
       "p_ai_model_contexts",
@@ -59,6 +60,9 @@ describe("ai adoption migration", () => {
     // The key stays until core's boot migration moves it into ctx.secrets.
     expect(provider).toMatchObject({ label: "Local", api_key: "enc-key" });
 
+    expect(indexes(db.sqlite, "p_ai_chat_preferences")).toEqual([
+      "idx_ai_chat_preferences_user",
+    ]);
     expect(indexes(db.sqlite, "p_ai_providers")).toEqual([
       "idx_ai_providers_user_label",
     ]);
@@ -84,6 +88,7 @@ describe("ai adoption migration", () => {
     db = await createTestDb(pluginDir);
 
     expect(tables(db.sqlite)).toEqual([
+      "p_ai_chat_preferences",
       "p_ai_conversations",
       "p_ai_messages",
       "p_ai_model_contexts",
