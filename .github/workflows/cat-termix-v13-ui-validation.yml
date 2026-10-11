@@ -1,0 +1,61 @@
+name: Cat-Termix v13 UI Validation
+
+# Isolated GitHub-hosted checks for the multi-model settings fix.
+# Do not publish or promote the rolling image from this workflow.
+on:
+  push:
+    branches: [fix/chat-multi-model-settings]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cat-termix-v13-ui-validation
+  cancel-in-progress: true
+
+jobs:
+  check:
+    if: github.repository == 'luoquan0/Cat-Termix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      HUSKY: "0"
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Verify the changed files are formatted
+        run: |
+          npx prettier --check \
+            plugins/ai/locales/en.json \
+            plugins/ai/locales/translated/zh_CN.json \
+            plugins/ai/src/frontend/AiEnabledModels.tsx \
+            plugins/ai/src/frontend/AiPanel.tsx \
+            plugins/ai/src/frontend/AiSessionControls.tsx \
+            plugins/ai/src/frontend/ContextControls.tsx \
+            plugins/ai/tests/frontend/AiPanel-settings.test.tsx \
+            plugins/ai/tests/frontend/AiSessionControls.test.tsx
+      - name: Lint changed frontend and tests
+        run: |
+          npx eslint \
+            plugins/ai/src/frontend/AiEnabledModels.tsx \
+            plugins/ai/src/frontend/AiPanel.tsx \
+            plugins/ai/src/frontend/AiSessionControls.tsx \
+            plugins/ai/src/frontend/ContextControls.tsx \
+            plugins/ai/tests/frontend/AiPanel-settings.test.tsx \
+            plugins/ai/tests/frontend/AiSessionControls.test.tsx
+      - name: Type check the project and AI plugin
+        run: |
+          npm run type-check
+          npm run typecheck --workspace @termix-plugin/ai
+      - name: AI regression suite
+        run: npm test --workspace @termix-plugin/ai -- --maxWorkers=2
+      - name: Build complete application and bundled plugins
+        run: npm run build
