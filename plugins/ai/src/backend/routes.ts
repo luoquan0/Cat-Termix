@@ -1,3 +1,4 @@
+import { parseEnabledModels } from "../shared/model-selection.js";
 import { activeAiRequests, maintenance } from "./update-activity.js";
 import type { Request, Response, Router } from "express";
 import type { PluginContext } from "@termix/plugin-sdk/backend";
@@ -263,7 +264,10 @@ export function registerAiRoutes(
         !isReasoningEffort(patch.reasoningEffort)
       )
         return res.status(400).json({ error: "Invalid reasoning effort" });
-      if (patch.providerEfforts !== undefined)
+      if (
+        patch.providerEfforts !== undefined ||
+        patch.providerModels !== undefined
+      )
         return res
           .status(400)
           .json({ error: "Provider defaults are edited separately" });
@@ -277,6 +281,21 @@ export function registerAiRoutes(
           if (!provider?.enabled)
             return res.status(404).json({ error: "Provider not found" });
         }
+        const current = await repository.getChatPreferences(userId);
+        const selectedId =
+          patch.providerId === undefined
+            ? current.providerId
+            : patch.providerId;
+        const allowed = selectedId
+          ? current.providerModels?.[String(selectedId)]
+          : undefined;
+        if (patch.model && allowed && !allowed.includes(patch.model))
+          return res
+            .status(400)
+            .json({
+              error: "Model is not enabled for this channel",
+              code: "MODEL_NOT_ENABLED",
+            });
         const preferences = await repository.saveChatPreferences(userId, patch);
         res.json({ preferences });
       } catch (error) {
@@ -297,6 +316,7 @@ export function registerAiRoutes(
       ...provider,
       defaultReasoningEffort:
         state.providerEfforts[String(provider.id)] ?? "auto",
+      enabledModels: state.providerModels?.[String(provider.id)] ?? null,
     };
   }
 
@@ -381,6 +401,7 @@ export function registerAiRoutes(
         apiKey,
         defaultModel,
         defaultReasoningEffort,
+        enabledModels,
       } = req.body ?? {};
       if (
         defaultReasoningEffort !== undefined &&
@@ -388,6 +409,31 @@ export function registerAiRoutes(
       ) {
         return res.status(400).json({ error: "Invalid reasoning effort" });
       }
+
+      let selectedModels: string[] | undefined;
+      try {
+        if (enabledModels !== undefined)
+          selectedModels = parseEnabledModels(enabledModels);
+      } catch (error) {
+        return res.status(400).json({ error: (error as Error).message });
+      }
+      if (
+        defaultModel !== undefined &&
+        defaultModel !== null &&
+        (typeof defaultModel !== "string" ||
+          defaultModel.length > 200 ||
+          /[\x00-\x1f\x7f]/.test(defaultModel))
+      )
+        return res.status(400).json({ error: "Invalid default model" });
+      if (
+        selectedModels &&
+        typeof defaultModel === "string" &&
+        defaultModel.trim() &&
+        !selectedModels.includes(defaultModel.trim())
+      )
+        return res
+          .status(400)
+          .json({ error: "Default model must be enabled for this channel" });
 
       if (!isAiProviderType(providerType)) {
         return res.status(400).json({ error: "Unknown provider type" });
@@ -413,17 +459,31 @@ export function registerAiRoutes(
           baseUrl: typeof baseUrl === "string" ? baseUrl.trim() : null,
           apiKey: typeof apiKey === "string" ? apiKey.trim() : null,
           defaultModel:
-            typeof defaultModel === "string" ? defaultModel.trim() : null,
+            typeof defaultModel === "string"
+              ? defaultModel.trim() || null
+              : (selectedModels?.[0] ?? null),
         });
 
-        if (defaultReasoningEffort !== undefined) {
-          const state = await repository.getChatPreferences(userId);
-          await repository.saveChatPreferences(userId, {
-            providerEfforts: {
-              ...state.providerEfforts,
-              [created.id]: defaultReasoningEffort as ReasoningEffort,
-            },
-          });
+        if (
+          defaultReasoningEffort !== undefined ||
+          selectedModels !== undefined
+        ) {
+          await repository.saveChatPreferences(userId, (state) => ({
+            providerEfforts:
+              defaultReasoningEffort === undefined
+                ? state.providerEfforts
+                : {
+                    ...state.providerEfforts,
+                    [created.id]: defaultReasoningEffort as ReasoningEffort,
+                  },
+            providerModels:
+              selectedModels === undefined
+                ? state.providerModels
+                : {
+                    ...state.providerModels,
+                    [created.id]: selectedModels,
+                  },
+          }));
         }
 
         await audit({
@@ -486,33 +546,81 @@ export function registerAiRoutes(
       )
         return res.status(400).json({ error: "Invalid reasoning effort" });
 
+      let selectedModels: string[] | undefined;
+      try {
+        if (body.enabledModels !== undefined)
+          selectedModels = parseEnabledModels(body.enabledModels);
+      } catch (error) {
+        return res.status(400).json({ error: (error as Error).message });
+      }
+      if (
+        body.defaultModel !== undefined &&
+        body.defaultModel !== null &&
+        (typeof body.defaultModel !== "string" ||
+          body.defaultModel.length > 200 ||
+          /[\x00-\x1f\x7f]/.test(body.defaultModel))
+      )
+        return res.status(400).json({ error: "Invalid default model" });
+
       const text = (value: unknown) =>
         typeof value === "string" ? value.trim() : undefined;
 
       try {
+        const existing = await repository.findProvider(id, userId);
+        if (!existing)
+          return res.status(404).json({ error: "Provider not found" });
+        const saved = await repository.getChatPreferences(userId);
+        const selection = selectedModels ?? saved.providerModels?.[String(id)];
+        let nextDefault =
+          body.defaultModel === undefined
+            ? existing.defaultModel
+            : text(body.defaultModel) || null;
+        if (selection && nextDefault && !selection.includes(nextDefault)) {
+          if (body.defaultModel !== undefined)
+            return res
+              .status(400)
+              .json({
+                error: "Default model must be enabled for this channel",
+              });
+          nextDefault = selection[0] ?? null;
+        }
         const updated = await repository.updateProvider(id, userId, {
           providerType: body.providerType as string | undefined,
           label: text(body.label) || undefined,
           baseUrl:
             body.baseUrl === null ? null : (text(body.baseUrl) ?? undefined),
           apiKey: body.apiKey === null ? "" : text(body.apiKey),
-          defaultModel:
-            body.defaultModel === null
-              ? null
-              : (text(body.defaultModel) ?? undefined),
+          defaultModel: nextDefault,
           enabled: typeof body.enabled === "boolean" ? body.enabled : undefined,
         });
         if (!updated)
           return res.status(404).json({ error: "Provider not found" });
 
-        if (body.defaultReasoningEffort !== undefined) {
-          const state = await repository.getChatPreferences(userId);
-          await repository.saveChatPreferences(userId, {
-            providerEfforts: {
-              ...state.providerEfforts,
-              [id]: body.defaultReasoningEffort as ReasoningEffort,
-            },
-          });
+        if (
+          body.defaultReasoningEffort !== undefined ||
+          selectedModels !== undefined
+        ) {
+          await repository.saveChatPreferences(userId, (state) => ({
+            providerEfforts:
+              body.defaultReasoningEffort === undefined
+                ? state.providerEfforts
+                : {
+                    ...state.providerEfforts,
+                    [id]: body.defaultReasoningEffort as ReasoningEffort,
+                  },
+            providerModels:
+              selectedModels === undefined
+                ? state.providerModels
+                : {
+                    ...state.providerModels,
+                    [id]: selectedModels,
+                  },
+            ...(state.providerId === id &&
+            selectedModels &&
+            !selectedModels.includes(state.model)
+              ? { model: nextDefault ?? selectedModels[0] ?? "" }
+              : {}),
+          }));
         }
 
         await audit({
@@ -563,6 +671,18 @@ export function registerAiRoutes(
         const deleted = await repository.deleteProvider(id, userId);
         if (!deleted)
           return res.status(404).json({ error: "Provider not found" });
+
+        await repository.saveChatPreferences(userId, (state) => {
+          const providerEfforts = { ...state.providerEfforts };
+          const providerModels = { ...state.providerModels };
+          delete providerEfforts[String(id)];
+          delete providerModels[String(id)];
+          return {
+            providerEfforts,
+            providerModels,
+            ...(state.providerId === id ? { providerId: null, model: "" } : {}),
+          };
+        });
 
         await audit({
           action: "delete_ai_provider",
@@ -1144,6 +1264,16 @@ export function registerAiRoutes(
           if (!chosenModel) {
             return res.status(400).json({ error: "No model selected" });
           }
+
+          const configuredModels = (await repository.getChatPreferences(userId))
+            .providerModels?.[String(resolvedProviderId)];
+          if (configuredModels && !configuredModels.includes(chosenModel))
+            return res
+              .status(400)
+              .json({
+                error: "Model is not enabled for this channel",
+                code: "MODEL_NOT_ENABLED",
+              });
 
           // Resolve or create the conversation before the stream opens, so a
           // failure here is still a normal JSON error the client can render.

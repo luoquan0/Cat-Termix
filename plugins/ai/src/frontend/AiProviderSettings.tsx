@@ -1,3 +1,8 @@
+import { AiEnabledModels } from "./AiEnabledModels";
+import {
+  parseEnabledModels,
+  providerModelOptions,
+} from "../shared/model-selection";
 import { getErrorMessage } from "./errors";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "@termix/plugin-sdk/frontend";
@@ -84,6 +89,9 @@ function AiProviderEditForm({
   const { t } = useTranslation();
   const [label, setLabel] = useState(provider.label);
   const [defaultModel, setDefaultModel] = useState(provider.defaultModel ?? "");
+  const [enabledModels, setEnabledModels] = useState<string[] | null>(
+    provider.enabledModels ?? null,
+  );
   const [defaultReasoningEffort, setDefaultReasoningEffort] =
     useState<ReasoningEffort>(provider.defaultReasoningEffort ?? "auto");
   const [models, setModels] = useState<string[]>([]);
@@ -127,6 +135,15 @@ function AiProviderEditForm({
         label: label.trim(),
         defaultModel: defaultModel.trim() || null,
         defaultReasoningEffort,
+        enabledModels: parseEnabledModels([
+          ...new Set([
+            ...providerModelOptions(
+              { enabledModels, defaultModel: null },
+              models,
+            ),
+            ...(defaultModel.trim() ? [defaultModel.trim()] : []),
+          ]),
+        ]),
       });
       toast.success(t("ai.providerUpdated"));
       onSaved();
@@ -185,6 +202,9 @@ function AiProviderEditForm({
                 return;
               }
               setDefaultModel(value);
+              setEnabledModels((current) =>
+                current === null ? null : [...new Set([...current, value])],
+              );
             }}
           >
             <SelectTrigger
@@ -217,6 +237,17 @@ function AiProviderEditForm({
           </p>
         )}
       </div>
+
+      <AiEnabledModels
+        models={models}
+        selected={providerModelOptions({ enabledModels, defaultModel }, models)}
+        disabled={saving}
+        onChange={(selection) => {
+          setEnabledModels(selection);
+          if (!selection.includes(defaultModel))
+            setDefaultModel(selection[0] ?? "");
+        }}
+      />
 
       <div className="space-y-1.5">
         <Label htmlFor={`ai-provider-thinking-${provider.id}`}>
@@ -273,6 +304,7 @@ export function AiProviderSettings({
   const [baseUrl, setBaseUrl] = useState("http://localhost:11434");
   const [apiKey, setApiKey] = useState("");
   const [defaultModel, setDefaultModel] = useState("");
+  const [enabledModels, setEnabledModels] = useState<string[] | null>(null);
   const [defaultReasoningEffort, setDefaultReasoningEffort] =
     useState<ReasoningEffort>("auto");
 
@@ -287,6 +319,7 @@ export function AiProviderSettings({
     setBaseUrl(spec.defaultBaseUrl ?? "");
     setApiKey("");
     setModels([]);
+    setEnabledModels(null);
     setDefaultModel("");
     setDefaultReasoningEffort("auto");
     setCustomModel(false);
@@ -344,11 +377,18 @@ export function AiProviderSettings({
         apiKey: apiKey.trim() || null,
         defaultModel: defaultModel.trim() || null,
         defaultReasoningEffort,
+        enabledModels: parseEnabledModels([
+          ...new Set([
+            ...(enabledModels ?? []),
+            ...(defaultModel.trim() ? [defaultModel.trim()] : []),
+          ]),
+        ]),
       });
       setAdding(false);
       setLabel("");
       setApiKey("");
       setDefaultModel("");
+      setEnabledModels(null);
       setDefaultReasoningEffort("auto");
       onChanged(created.id);
       onAdded?.();
@@ -392,6 +432,13 @@ export function AiProviderSettings({
               </div>
               <div className="flex gap-3 overflow-hidden whitespace-nowrap text-xs text-muted-foreground">
                 <span className="shrink-0">{provider.providerType}</span>
+                {Array.isArray(provider.enabledModels) && (
+                  <span className="shrink-0">
+                    {t("ai.enabledModelsCount", {
+                      count: provider.enabledModels.length,
+                    })}
+                  </span>
+                )}
                 {provider.defaultModel && (
                   <span className="truncate">{provider.defaultModel}</span>
                 )}
@@ -536,6 +583,9 @@ export function AiProviderSettings({
                     return;
                   }
                   setDefaultModel(value);
+                  setEnabledModels((current) => [
+                    ...new Set([...(current ?? []), value]),
+                  ]);
                 }}
               >
                 <SelectTrigger className="rounded-none">
@@ -568,6 +618,17 @@ export function AiProviderSettings({
               </p>
             )}
           </div>
+
+          <AiEnabledModels
+            models={models}
+            selected={enabledModels ?? (defaultModel ? [defaultModel] : [])}
+            disabled={saving}
+            onChange={(selection) => {
+              setEnabledModels(selection);
+              if (!selection.includes(defaultModel))
+                setDefaultModel(selection[0] ?? "");
+            }}
+          />
 
           <div className="space-y-1.5">
             <Label>{t("ai.defaultReasoningEffort")}</Label>

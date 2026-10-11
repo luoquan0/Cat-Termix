@@ -226,7 +226,17 @@
       "medium": "Medium",
       "high": "High",
       "xhigh": "Extra high"
-    }
+    },
+    "enabledModels": "Enabled models",
+    "enabledModelsHint": "Only checked models appear in this channel's chat picker. The default model is enabled when saved.",
+    "enabledModelsCount": "{{count}} models enabled",
+    "enabledModelsInvalid": "Select up to 100 valid model IDs (1-200 characters each).",
+    "enableAllModels": "Select all",
+    "clearModels": "Clear selection",
+    "searchModels": "Search models",
+    "addCustomModelId": "Custom model ID",
+    "addModel": "Add model",
+    "noEnabledModels": "No models enabled. Select models in this channel's settings."
   },
   "nav": {
     "ai": "AI"

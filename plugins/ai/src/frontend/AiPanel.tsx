@@ -35,6 +35,7 @@ import {
   DialogDescription,
 } from "@termix/plugin-sdk/ui";
 import {
+  AI_PROVIDERS_CHANGED_EVENT,
   deleteAiConversation,
   getAiConversation,
   getAiConversations,
@@ -110,6 +111,7 @@ export function AiPanel({
   const preferenceRef = useRef<AiChatPreferences>({
     ...DEFAULT_AI_PREFERENCES,
     providerEfforts: {},
+    providerModels: {},
   });
   const preferenceWriteRef = useRef<Promise<unknown>>(Promise.resolve());
   const initializedRef = useRef(false);
@@ -127,7 +129,11 @@ export function AiPanel({
       // an older request to overwrite the user's latest selection.
       // Channel defaults are administrator/user channel edits, not a writable
       // part of the chat preference PATCH API.
-      const { providerEfforts: _providerEfforts, ...writable } = updated;
+      const {
+        providerEfforts: _providerEfforts,
+        providerModels: _providerModels,
+        ...writable
+      } = updated;
       preferenceWriteRef.current = preferenceWriteRef.current
         .catch(() => undefined)
         .then(() => saveAiPreferences(writable))
@@ -233,6 +239,8 @@ export function AiPanel({
     providers.find((p) => p.id === providerId)?.defaultModel ?? "",
     model,
     selectModel,
+    true,
+    providers.find((provider) => provider.id === providerId)?.enabledModels,
   );
   const applyDetectedCapacity = useCallback((contextWindow: number) => {
     setContextConfig((previous) => ({
@@ -326,6 +334,14 @@ export function AiPanel({
       return [];
     }
   }, []);
+
+  useEffect(() => {
+    const reload = () => {
+      void loadProviders();
+    };
+    window.addEventListener(AI_PROVIDERS_CHANGED_EVENT, reload);
+    return () => window.removeEventListener(AI_PROVIDERS_CHANGED_EVENT, reload);
+  }, [loadProviders]);
 
   const refreshConversations = useCallback(async () => {
     try {

@@ -32,6 +32,8 @@ export type Device = {
   accessMode: "all" | "selected";
   projectIds: string[];
   hostIds: number[];
+  /** Missing on older grants: selected hosts stay a fixed snapshot. */
+  includeFutureHosts?: boolean;
   scopes: AgentScope[];
   maxConcurrentSessions: number;
   expiresAt: string | null;
@@ -39,6 +41,17 @@ export type Device = {
   revokedAt: string | null;
   lastUsedAt: string | null;
 };
+export type DeviceGrantInput = {
+  name?: string;
+  scopes: AgentScope[];
+  accessMode: "all" | "selected";
+  projectIds: string[];
+  hostIds: number[];
+  includeFutureHosts?: boolean;
+  maxConcurrentSessions?: number;
+  expiresAt?: string | null;
+};
+
 export type DeviceRequest = {
   requestId: string;
   deviceName: string;
@@ -74,6 +87,9 @@ export class AgentError extends Error {
     this.name = "AgentError";
   }
 }
+/** A denial proven to happen BEFORE any remote side effect. */
+export class AgentPreconditionError extends AgentError {}
+
 const fail = (status: number, code: string, message: string): never => {
   throw new AgentError(status, code, message);
 };
@@ -192,6 +208,61 @@ export function verifyDetached(
     idempotencyKey: signed.idempotencyKey,
   };
 }
+function normalizeGrant(input: DeviceGrantInput) {
+  if (
+    !Array.isArray(input.scopes) ||
+    !input.scopes.length ||
+    input.scopes.some((scope) => !SCOPES.includes(scope)) ||
+    !["all", "selected"].includes(input.accessMode) ||
+    !Array.isArray(input.projectIds) ||
+    input.projectIds.length > 1000 ||
+    input.projectIds.some(
+      (id) =>
+        typeof id !== "string" || !id.startsWith("folder:") || id.length > 2048,
+    ) ||
+    !Array.isArray(input.hostIds) ||
+    input.hostIds.length > 10000 ||
+    input.hostIds.some((id) => !Number.isSafeInteger(id) || id <= 0) ||
+    (input.includeFutureHosts !== undefined &&
+      typeof input.includeFutureHosts !== "boolean") ||
+    (input.accessMode === "selected" && !input.projectIds.length)
+  )
+    fail(400, "INVALID_GRANT", "Invalid device permission or host selection");
+  const maxConcurrentSessions = input.maxConcurrentSessions ?? 1;
+  if (
+    !Number.isInteger(maxConcurrentSessions) ||
+    maxConcurrentSessions < 1 ||
+    maxConcurrentSessions > 20
+  )
+    fail(400, "INVALID_GRANT", "Concurrent sessions must be between 1 and 20");
+  if (
+    input.expiresAt !== undefined &&
+    input.expiresAt !== null &&
+    (typeof input.expiresAt !== "string" ||
+      !Number.isFinite(Date.parse(input.expiresAt)) ||
+      Date.parse(input.expiresAt) <= Date.now())
+  )
+    fail(400, "INVALID_GRANT", "Invalid expiration time");
+  if (
+    input.name !== undefined &&
+    (typeof input.name !== "string" ||
+      !input.name.trim() ||
+      input.name.length > 64)
+  )
+    fail(400, "INVALID_GRANT", "Invalid device name");
+  return {
+    accessMode: input.accessMode,
+    projectIds:
+      input.accessMode === "all" ? [] : [...new Set(input.projectIds)],
+    hostIds: input.accessMode === "all" ? [] : [...new Set(input.hostIds)],
+    includeFutureHosts:
+      input.accessMode === "all" || input.includeFutureHosts === true,
+    scopes: [...new Set(input.scopes)],
+    maxConcurrentSessions,
+    expiresAt: input.expiresAt ?? null,
+  };
+}
+
 function blank(): AgentState {
   return {
     devices: [],
@@ -214,11 +285,12 @@ export class AgentStore {
   async read(): Promise<AgentState> {
     const stored = await this.ctx.kv.get("agent-v1-state");
     if (!stored || typeof stored !== "object") return blank();
-    const value = stored as AgentState;
+    const value = structuredClone(stored as AgentState);
     return {
       ...blank(),
       ...value,
-      devices: value.devices ?? [],
+      // Old revoked rows are no longer exposed and are pruned on the next write.
+      devices: (value.devices ?? []).filter((device) => !device.revokedAt),
       requests: value.requests ?? [],
       nonces: value.nonces ?? {},
       idempotency: value.idempotency ?? {},
@@ -299,6 +371,15 @@ export class AgentStore {
         request.status === "pending"
       )
         return { status: "expired" };
+      if (
+        request.status === "approved" &&
+        !data.devices.some(
+          (device) =>
+            device.id === request.deviceId &&
+            (!device.expiresAt || Date.parse(device.expiresAt) > Date.now()),
+        )
+      )
+        return { status: "denied" };
       return {
         status: request.status,
         deviceId: request.status === "approved" ? request.deviceId : undefined,
@@ -320,19 +401,7 @@ export class AgentStore {
       return device;
     });
   }
-  async approve(
-    userId: string,
-    code: string,
-    input: {
-      name?: string;
-      scopes: AgentScope[];
-      accessMode: "all" | "selected";
-      projectIds: string[];
-      hostIds: number[];
-      maxConcurrentSessions?: number;
-      expiresAt?: string | null;
-    },
-  ) {
+  async approve(userId: string, code: string, input: DeviceGrantInput) {
     const hash = sha256(code.toUpperCase().replace(/[^A-Z0-9]/g, ""));
     return this.update((data) => {
       const request = data.requests.find(
@@ -343,38 +412,14 @@ export class AgentStore {
       );
       if (!request)
         return fail(404, "DEVICE_CODE_INVALID", "设备码已过期或不存在");
-      if (
-        !Array.isArray(input.scopes) ||
-        input.scopes.length < 1 ||
-        input.scopes.some((s) => !SCOPES.includes(s)) ||
-        !["all", "selected"].includes(input.accessMode)
-      )
-        return fail(400, "INVALID_GRANT", "设备授权范围无效");
-      const maxConcurrentSessions = input.maxConcurrentSessions ?? 1;
-      if (
-        !Number.isInteger(maxConcurrentSessions) ||
-        maxConcurrentSessions < 1 ||
-        maxConcurrentSessions > 20
-      )
-        return fail(400, "INVALID_GRANT", "会话数必须为 1–20");
-      if (
-        input.expiresAt &&
-        (!Number.isFinite(Date.parse(input.expiresAt)) ||
-          Date.parse(input.expiresAt) <= Date.now())
-      )
-        return fail(400, "INVALID_GRANT", "过期时间无效");
+      const grant = normalizeGrant(input);
       const device: Device = {
         id: randomUUID(),
         name: input.name || request.deviceName,
         ownerId: userId,
         publicKey: request.publicKey,
         fingerprint: request.fingerprint,
-        accessMode: input.accessMode,
-        projectIds: input.accessMode === "all" ? [] : input.projectIds,
-        hostIds: input.accessMode === "all" ? [] : input.hostIds,
-        scopes: [...new Set(input.scopes)],
-        maxConcurrentSessions,
-        expiresAt: input.expiresAt ?? null,
+        ...grant,
         createdAt: new Date().toISOString(),
         revokedAt: null,
         lastUsedAt: null,
@@ -382,6 +427,18 @@ export class AgentStore {
       data.devices.push(device);
       request.status = "approved";
       request.deviceId = device.id;
+      return device;
+    });
+  }
+  async updateGrant(userId: string, id: string, input: DeviceGrantInput) {
+    return this.update((data) => {
+      const device = data.devices.find(
+        (row) => row.id === id && row.ownerId === userId,
+      );
+      if (!device) return fail(404, "DEVICE_NOT_FOUND", "Device not found");
+      const grant = normalizeGrant(input);
+      Object.assign(device, grant);
+      if (input.name !== undefined) device.name = input.name.trim();
       return device;
     });
   }
@@ -401,7 +458,12 @@ export class AgentStore {
         (x) => x.id === id && x.ownerId === userId && !x.revokedAt,
       );
       if (!device) return fail(404, "DEVICE_NOT_FOUND", "设备不存在");
-      device.revokedAt = new Date().toISOString();
+      data.devices = data.devices.filter((row) => row.id !== id);
+      data.requests = data.requests.filter((row) => row.deviceId !== id);
+      for (const key of Object.keys(data.nonces))
+        if (key.startsWith("device:" + id + ":")) delete data.nonces[key];
+      for (const key of Object.keys(data.idempotency))
+        if (key.startsWith(id + ":")) delete data.idempotency[key];
     });
   }
   async replay<T>(
@@ -439,7 +501,21 @@ export class AgentStore {
       return { cached: false as const };
     });
     if (reservation.cached) return reservation.value as T;
-    const result = await op();
+    let result: T;
+    try {
+      result = await op();
+    } catch (error) {
+      // Only a proven precondition denial may release the reservation. A lost
+      // connection or uncertain SSH/SFTP outcome MUST still fail closed (409).
+      if (error instanceof AgentPreconditionError) {
+        await this.update((data) => {
+          const entry = data.idempotency[cacheKey];
+          if (entry?.pending && entry.hash === hash)
+            delete data.idempotency[cacheKey];
+        });
+      }
+      throw error;
+    }
     await this.update((data) => {
       const entry = data.idempotency[cacheKey];
       if (!entry || entry.hash !== hash || !entry.pending)
@@ -584,5 +660,9 @@ export function projectFolder(id: string): string | null {
 }
 export function requireScope(device: Device, scope: AgentScope): void {
   if (!device.scopes.includes(scope))
-    fail(403, "SCOPE_DENIED", "此设备没有所需权限：" + scope);
+    throw new AgentPreconditionError(
+      403,
+      "SCOPE_DENIED",
+      "此设备没有所需权限：" + scope,
+    );
 }

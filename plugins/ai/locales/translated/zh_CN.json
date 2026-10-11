@@ -226,7 +226,17 @@
       "medium": "中",
       "high": "高",
       "xhigh": "极高"
-    }
+    },
+    "enabledModels": "启用模型",
+    "enabledModelsHint": "聊天切换菜单只显示该渠道勾选的模型，默认模型保存时会同时启用。",
+    "enabledModelsCount": "已启用 {{count}} 个模型",
+    "enabledModelsInvalid": "最多选择 100 个模型，每个模型 ID 需为 1-200 个有效字符。",
+    "enableAllModels": "全选",
+    "clearModels": "清空选择",
+    "searchModels": "搜索模型",
+    "addCustomModelId": "自定义模型 ID",
+    "addModel": "添加模型",
+    "noEnabledModels": "该渠道尚未启用模型，请先在渠道设置中勾选。"
   },
   "nav": {
     "ai": "AI"

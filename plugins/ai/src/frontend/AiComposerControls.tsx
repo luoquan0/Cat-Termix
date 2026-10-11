@@ -1,3 +1,4 @@
+import { providerModelOptions } from "../shared/model-selection";
 import { useEffect, useState } from "react";
 import { BrainCircuit, Layers3 } from "lucide-react";
 import { useTranslation } from "@termix/plugin-sdk/frontend";
@@ -39,6 +40,8 @@ export function AiComposerControls({
     let cancelled = false;
     void Promise.all(
       providers.map(async (provider) => {
+        if (Array.isArray(provider.enabledModels))
+          return [provider.id, provider.enabledModels] as const;
         try {
           return [provider.id, await getAiProviderModels(provider.id)] as const;
         } catch {
@@ -86,15 +89,11 @@ export function AiComposerControls({
         </SelectTrigger>
         <SelectContent className="z-[300] max-h-[min(65vh,380px)] min-w-[230px]">
           {providers.map((provider) => {
-            const options = [
-              ...new Set(
-                [
-                  provider.defaultModel,
-                  ...(catalog[provider.id] ?? []),
-                  ...(provider.id === providerId ? [model] : []),
-                ].filter((value): value is string => Boolean(value)),
-              ),
-            ];
+            const options = providerModelOptions(
+              provider,
+              catalog[provider.id] ?? [],
+              provider.id === providerId ? model : "",
+            );
             return (
               <SelectGroup key={provider.id}>
                 <SelectLabel>

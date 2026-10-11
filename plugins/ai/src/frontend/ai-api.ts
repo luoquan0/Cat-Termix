@@ -4,6 +4,7 @@ export type { AiChatPreferences, ReasoningEffort } from "../shared/reasoning";
 
 /** Fired when the AI status may have changed, so every surface re-reads it. */
 export const AI_STATUS_CHANGED_EVENT = "termix-ai:status-changed";
+export const AI_PROVIDERS_CHANGED_EVENT = "termix-ai:providers-changed";
 
 export function notifyAiStatusChanged(): void {
   window.dispatchEvent(new Event(AI_STATUS_CHANGED_EVENT));
@@ -45,6 +46,7 @@ export interface AiProvider {
   apiKeyPrefix: string | null;
   defaultModel: string | null;
   defaultReasoningEffort?: ReasoningEffort;
+  enabledModels?: string[] | null;
   enabled: boolean;
   createdAt: string;
 }
@@ -134,9 +136,12 @@ export async function createAiProvider(input: {
   apiKey?: string | null;
   defaultModel?: string | null;
   defaultReasoningEffort?: ReasoningEffort;
+  enabledModels?: string[];
 }): Promise<AiProvider> {
   try {
-    return (await api().post("/providers", input)).data.provider;
+    const provider = (await api().post("/providers", input)).data.provider;
+    window.dispatchEvent(new Event(AI_PROVIDERS_CHANGED_EVENT));
+    return provider;
   } catch (error) {
     throw apiError(error, "create AI provider");
   }
@@ -150,11 +155,15 @@ export async function updateAiProvider(
     apiKey: string | null;
     defaultModel: string | null;
     defaultReasoningEffort: ReasoningEffort;
+    enabledModels: string[];
     enabled: boolean;
   }>,
 ): Promise<AiProvider> {
   try {
-    return (await api().patch(`/providers/${id}`, input)).data.provider;
+    const provider = (await api().patch(`/providers/${id}`, input)).data
+      .provider;
+    window.dispatchEvent(new Event(AI_PROVIDERS_CHANGED_EVENT));
+    return provider;
   } catch (error) {
     throw apiError(error, "update AI provider");
   }
@@ -163,6 +172,7 @@ export async function updateAiProvider(
 export async function deleteAiProvider(id: number): Promise<void> {
   try {
     await api().delete(`/providers/${id}`);
+    window.dispatchEvent(new Event(AI_PROVIDERS_CHANGED_EVENT));
   } catch (error) {
     throw apiError(error, "delete AI provider");
   }

@@ -146,6 +146,27 @@ export async function createAiRepository(
     return (rows[0] as T) ?? null;
   }
 
+  const preferenceWrites = new Map<string, Promise<void>>();
+  async function writePreferences<T>(
+    userId: string,
+    run: () => Promise<T>,
+  ): Promise<T> {
+    const result = (preferenceWrites.get(userId) ?? Promise.resolve()).then(
+      run,
+    );
+    const settled = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    preferenceWrites.set(userId, settled);
+    try {
+      return await result;
+    } finally {
+      if (preferenceWrites.get(userId) === settled)
+        preferenceWrites.delete(userId);
+    }
+  }
+
   const repo = {
     /** Defaults follow the authenticated user, not a browser or conversation. */
     async getChatPreferences(userId: string): Promise<AiChatPreferences> {
@@ -163,33 +184,39 @@ export async function createAiRepository(
 
     async saveChatPreferences(
       userId: string,
-      patch: Partial<AiChatPreferences>,
+      patch:
+        | Partial<AiChatPreferences>
+        | ((current: AiChatPreferences) => Partial<AiChatPreferences>),
     ): Promise<AiChatPreferences> {
-      const previous = await repo.getChatPreferences(userId);
-      const next = normalizeAiPreferences({
-        ...previous,
-        ...patch,
-        providerEfforts: patch.providerEfforts ?? previous.providerEfforts,
-      });
-      const existing = await first<{ id: number }>(
-        chatPreferences,
-        eq(chatPreferences.userId, userId),
-      );
-      const drizzle = await client();
-      if (existing) {
-        await drizzle
-          .update(chatPreferences)
-          .set({ value: JSON.stringify(next), updatedAt: now() })
-          .where(eq(chatPreferences.userId, userId));
-      } else {
-        await insertId(chatPreferences, {
-          userId,
-          value: JSON.stringify(next),
-          updatedAt: now(),
+      return writePreferences(userId, async () => {
+        const previous = await repo.getChatPreferences(userId);
+        const changes = typeof patch === "function" ? patch(previous) : patch;
+        const next = normalizeAiPreferences({
+          ...previous,
+          ...changes,
+          providerEfforts: changes.providerEfforts ?? previous.providerEfforts,
+          providerModels: changes.providerModels ?? previous.providerModels,
         });
-      }
-      await db.persist();
-      return next;
+        const existing = await first<{ id: number }>(
+          chatPreferences,
+          eq(chatPreferences.userId, userId),
+        );
+        const drizzle = await client();
+        if (existing) {
+          await drizzle
+            .update(chatPreferences)
+            .set({ value: JSON.stringify(next), updatedAt: now() })
+            .where(eq(chatPreferences.userId, userId));
+        } else {
+          await insertId(chatPreferences, {
+            userId,
+            value: JSON.stringify(next),
+            updatedAt: now(),
+          });
+        }
+        await db.persist();
+        return next;
+      });
     },
 
     // --- providers ---

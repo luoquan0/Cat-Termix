@@ -19,8 +19,8 @@ import {
   sha256,
   resolveTransportPolicy,
   validateTransportPolicy,
-  type AgentScope,
   type Device,
+  type DeviceGrantInput,
 } from "./identity.js";
 import { AgentOperations } from "./operations.js";
 
@@ -667,54 +667,91 @@ export async function activate(ctx: PluginContext) {
       });
     }),
   );
+  async function grantInput(
+    userId: string,
+    input: Record<string, unknown>,
+    previous?: Device,
+  ): Promise<DeviceGrantInput> {
+    const accessMode = input.accessMode ?? previous?.accessMode;
+    const projectIds = input.projectIds ?? previous?.projectIds ?? [];
+    const scopes = input.scopes ?? previous?.scopes;
+    const includeFutureHosts =
+      input.includeFutureHosts ?? previous?.includeFutureHosts ?? false;
+    if (
+      (accessMode !== "all" && accessMode !== "selected") ||
+      !Array.isArray(projectIds) ||
+      projectIds.some((id) => typeof id !== "string") ||
+      !Array.isArray(scopes) ||
+      !scopes.length ||
+      scopes.some((scope) => !SCOPES.includes(scope)) ||
+      typeof includeFutureHosts !== "boolean"
+    )
+      return fail(
+        400,
+        "INVALID_GRANT",
+        "Invalid device permission or host selection",
+      );
+    const hosts = (await ctx.hosts.list()).filter(
+      (host) => host.userId === userId,
+    );
+    const ownedProjects = new Set(hosts.map((host) => projectId(host.folder)));
+    if (
+      accessMode === "selected" &&
+      (!projectIds.length ||
+        projectIds.some(
+          (id) => !ownedProjects.has(id) && !previous?.projectIds.includes(id),
+        ))
+    )
+      return fail(400, "INVALID_GRANT", "Select your own host folders");
+    const sameSelection =
+      previous?.accessMode === accessMode &&
+      previous.projectIds.length === new Set(projectIds).size &&
+      previous.projectIds.every((id) => projectIds.includes(id));
+    const preserveSnapshot =
+      sameSelection && !previous?.includeFutureHosts && !includeFutureHosts;
+    const hostIds = preserveSnapshot
+      ? previous!.hostIds.filter((id) => hosts.some((host) => host.id === id))
+      : hosts
+          .filter((host) => projectIds.includes(projectId(host.folder)))
+          .map((host) => host.id);
+    return {
+      accessMode,
+      scopes,
+      projectIds,
+      hostIds,
+      includeFutureHosts,
+      maxConcurrentSessions: (input.maxConcurrentSessions ??
+        previous?.maxConcurrentSessions ??
+        1) as number,
+      expiresAt: (input.expiresAt === undefined
+        ? (previous?.expiresAt ?? null)
+        : input.expiresAt) as string | null,
+      ...(input.name === undefined
+        ? {}
+        : { name: getString(input.name, "Device name", 64) }),
+    };
+  }
+
   router.post(
     "/admin/requests/:id/approve",
     manager(async (req, res, userId) => {
       sessionRequired(req, ctx);
       const b = req.body as Record<string, unknown>;
       const code = getString(b.code, "设备码", 32);
-      const mode = b.accessMode === "selected" ? "selected" : "all";
-      const requested = Array.isArray(b.projectIds)
-        ? b.projectIds.filter((x): x is string => typeof x === "string")
-        : [];
-      const hosts = (await ctx.hosts.list()).filter((x) => x.userId === userId);
-      const allowedProjects = new Set(hosts.map((x) => projectId(x.folder)));
-      if (
-        mode === "selected" &&
-        (!requested.length || requested.some((id) => !allowedProjects.has(id)))
-      )
-        fail(400, "INVALID_GRANT", "请选择有权管理的主机分类");
-      const permittedHostIds = hosts
-        .filter((x) => requested.includes(projectId(x.folder)))
-        .map((x) => x.id);
-      const scopes = Array.isArray(b.scopes)
-        ? b.scopes.filter(
-            (x): x is AgentScope =>
-              typeof x === "string" && SCOPES.some((value) => value === x),
-          )
-        : [];
+      const grant = await grantInput(userId, b);
       await ctx.audit.record({
         action: "agent_device_approval_intent",
         resourceType: "agent_device",
         details: JSON.stringify({
           fingerprintChecked: true,
-          scopes,
-          accessMode: mode,
-          projectIds: requested,
+          scopes: grant.scopes,
+          accessMode: grant.accessMode,
+          projectIds: grant.projectIds,
+          includeFutureHosts: grant.includeFutureHosts,
         }),
         success: true,
       });
-      const device = await store.approve(userId, code, {
-        scopes,
-        accessMode: mode,
-        projectIds: requested,
-        hostIds: permittedHostIds,
-        maxConcurrentSessions:
-          typeof b.maxConcurrentSessions === "number"
-            ? b.maxConcurrentSessions
-            : 1,
-        expiresAt: typeof b.expiresAt === "string" ? b.expiresAt : null,
-      });
+      const device = await store.approve(userId, code, grant);
       res.status(201).json({
         device: {
           id: device.id,
@@ -732,6 +769,56 @@ export async function activate(ctx: PluginContext) {
       res.json({ denied: true });
     }),
   );
+  router.patch(
+    "/admin/devices/:id",
+    manager(async (req, res, userId) => {
+      sessionRequired(req, ctx);
+      const id = String(req.params.id);
+      const previous = (await store.read()).devices.find(
+        (row) => row.id === id && row.ownerId === userId,
+      );
+      if (!previous) return fail(404, "DEVICE_NOT_FOUND", "Device not found");
+      if (!req.body || typeof req.body !== "object" || Array.isArray(req.body))
+        return fail(400, "INVALID_GRANT", "Invalid device grant");
+      const grant = await grantInput(
+        userId,
+        req.body as Record<string, unknown>,
+        previous,
+      );
+      await ctx.audit.record({
+        action: "agent_device_grant_update_intent",
+        resourceType: "agent_device",
+        resourceId: id,
+        details: JSON.stringify({
+          scopes: grant.scopes,
+          accessMode: grant.accessMode,
+          projectIds: grant.projectIds,
+          includeFutureHosts: grant.includeFutureHosts,
+        }),
+        success: true,
+      });
+      const device = await store.updateGrant(userId, id, grant);
+      // A narrowing edit must not leave previously opened SSH sessions usable.
+      const narrowed =
+        device.maxConcurrentSessions < previous.maxConcurrentSessions ||
+        (device.expiresAt !== null &&
+          (!previous.expiresAt ||
+            Date.parse(device.expiresAt) < Date.parse(previous.expiresAt))) ||
+        previous.scopes.some((scope) => !device.scopes.includes(scope)) ||
+        (previous.accessMode === "all" && device.accessMode !== "all") ||
+        (device.accessMode === "selected" &&
+          (previous.projectIds.some(
+            (project) => !device.projectIds.includes(project),
+          ) ||
+            (previous.includeFutureHosts === true &&
+              !device.includeFutureHosts) ||
+            previous.hostIds.some((host) => !device.hostIds.includes(host))));
+      if (narrowed) await operations.disconnectDevice(id);
+      const { publicKey: _key, ...safeDevice } = device;
+      void _key;
+      res.json({ device: safeDevice });
+    }),
+  );
   router.delete(
     "/admin/devices/:id",
     manager(async (req, res, userId) => {
@@ -743,6 +830,7 @@ export async function activate(ctx: PluginContext) {
         success: true,
       });
       await store.revoke(userId, String(req.params.id));
+      await operations.disconnectDevice(String(req.params.id));
       res.json({ revoked: true });
     }),
   );

@@ -8,6 +8,7 @@ export function useAiModels(
   model: string,
   onModelChange: (model: string) => void,
   enabled = true,
+  enabledModels?: string[] | null,
 ) {
   const [models, setModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -18,6 +19,20 @@ export function useAiModels(
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
+    if (Array.isArray(enabledModels)) {
+      setModels(enabledModels);
+      setLoadingModels(false);
+      setModelError(false);
+      const next = enabledModels.includes(defaultModel)
+        ? defaultModel
+        : (enabledModels[0] ?? "");
+      if (
+        !enabledModels.includes(modelRef.current) &&
+        modelRef.current !== next
+      )
+        onModelChange(next);
+      return;
+    }
     setModels(defaultModel ? [defaultModel] : []);
     setLoadingModels(Boolean(providerId));
     setModelError(false);
@@ -43,7 +58,14 @@ export function useAiModels(
     return () => {
       cancelled = true;
     };
-  }, [providerId, defaultModel, enabled, onModelChange, refreshIndex]);
+  }, [
+    providerId,
+    defaultModel,
+    enabled,
+    enabledModels,
+    onModelChange,
+    refreshIndex,
+  ]);
   return {
     models,
     loadingModels,

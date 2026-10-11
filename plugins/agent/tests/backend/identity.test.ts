@@ -9,6 +9,8 @@ import type { Request } from "express";
 import type { PluginContext } from "@termix/plugin-sdk/backend";
 import {
   AgentStore,
+  AgentPreconditionError,
+  requireScope,
   allowsTransport,
   resolveTransportPolicy,
   canonicalDeviceRequest,
@@ -229,5 +231,135 @@ describe("Local Agent HTTP and project scope", () => {
     );
     expect(projectFolder(projectId(null))).toBeNull();
     expect(() => projectFolder("unknown-project")).toThrow();
+  });
+});
+
+describe("v12 editable and removable device grants", () => {
+  async function paired() {
+    const ctx = fakeContext();
+    const store = new AgentStore(ctx);
+    const keys = generateKeyPairSync("ed25519");
+    const { code, requestId } = await store.createRequest(
+      "Client",
+      keys.publicKey.export({ format: "pem", type: "spki" }).toString(),
+    );
+    const device = await store.approve("u1", code, {
+      scopes: ["files:read"],
+      accessMode: "selected",
+      projectIds: [projectId("lab")],
+      hostIds: [1],
+    });
+    return { ctx, store, keys, device, requestId };
+  }
+
+  it("edits scopes and future hosts without rotating the paired identity", async () => {
+    const { store, keys, device } = await paired();
+    expect(device.includeFutureHosts).toBe(false);
+    await expect(
+      store.updateGrant("other-user", device.id, {
+        ...device,
+        scopes: ["files:write"],
+      }),
+    ).rejects.toMatchObject({ code: "DEVICE_NOT_FOUND" });
+    const updated = await store.updateGrant("u1", device.id, {
+      ...device,
+      scopes: ["files:read", "files:write"],
+      includeFutureHosts: true,
+    });
+    expect(updated).toMatchObject({
+      id: device.id,
+      publicKey: device.publicKey,
+      fingerprint: device.fingerprint,
+      includeFutureHosts: true,
+    });
+    const authenticated = await store.authenticate(
+      signedRequest("/agent/v1/servers", keys.privateKey, device.id),
+      Buffer.alloc(0),
+    );
+    expect(authenticated.scopes).toEqual(["files:read", "files:write"]);
+    await store.updateGrant("u1", device.id, {
+      ...updated,
+      scopes: ["files:read"],
+    });
+    const narrowed = await store.authenticate(
+      signedRequest("/agent/v1/servers", keys.privateKey, device.id),
+      Buffer.alloc(0),
+    );
+    expect(() => requireScope(narrowed, "files:write")).toThrow(
+      AgentPreconditionError,
+    );
+  });
+
+  it("removes revoked records, enrollment references and replay state, then denies the old key", async () => {
+    const { store, keys, device, requestId } = await paired();
+    await store.authenticate(
+      signedRequest("/agent/v1/servers", keys.privateKey, device.id),
+      Buffer.alloc(0),
+    );
+    await store.replay(device.id, "mutation", "hash", async () => ({
+      ok: true,
+    }));
+    await store.revoke("u1", device.id);
+    const state = await store.read();
+    expect(state.devices).toEqual([]);
+    expect(state.requests.some((row) => row.requestId === requestId)).toBe(
+      false,
+    );
+    expect(
+      Object.keys(state.nonces).some((key) =>
+        key.startsWith("device:" + device.id + ":"),
+      ),
+    ).toBe(false);
+    expect(Object.keys(state.idempotency)).toEqual([]);
+    await expect(
+      store.authenticate(
+        signedRequest("/agent/v1/servers", keys.privateKey, device.id),
+        Buffer.alloc(0),
+      ),
+    ).rejects.toMatchObject({ code: "DEVICE_NOT_AUTHORIZED" });
+  });
+
+  it("rejects invalid edits without changing the previous permission", async () => {
+    const { store, device } = await paired();
+    await expect(
+      store.updateGrant("u1", device.id, { ...device, scopes: [] }),
+    ).rejects.toMatchObject({ code: "INVALID_GRANT" });
+    await expect(
+      store.updateGrant("u1", device.id, { ...device, expiresAt: "yesterday" }),
+    ).rejects.toMatchObject({ code: "INVALID_GRANT" });
+    expect((await store.read()).devices[0].scopes).toEqual(["files:read"]);
+  });
+
+  it("cleans historical revoked rows instead of displaying them forever", async () => {
+    const { ctx, store, device } = await paired();
+    const state = structuredClone(await store.read());
+    state.devices[0] = { ...device, revokedAt: new Date().toISOString() };
+    await ctx.kv.set("agent-v1-state", state);
+    expect((await store.read()).devices).toEqual([]);
+  });
+
+  it("allows a safely denied request to succeed after permissions are edited without a false 409", async () => {
+    const { store, device } = await paired();
+    let writes = 0;
+    await expect(
+      store.replay(device.id, "same-request", "same-hash", async () => {
+        requireScope(device, "files:write");
+        writes += 1;
+      }),
+    ).rejects.toMatchObject({ code: "SCOPE_DENIED" });
+    expect(writes).toBe(0);
+    const updated = await store.updateGrant("u1", device.id, {
+      ...device,
+      scopes: ["files:read", "files:write"],
+    });
+    const invoke = () =>
+      store.replay(device.id, "same-request", "same-hash", async () => {
+        requireScope(updated, "files:write");
+        writes += 1;
+        return { done: true };
+      });
+    expect(await invoke()).toEqual({ done: true });
+    expect(await invoke()).toEqual({ done: true });
+    expect(writes).toBe(1);
   });
 });
