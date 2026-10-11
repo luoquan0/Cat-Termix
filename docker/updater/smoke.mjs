@@ -13,6 +13,7 @@ import {
   replaceContainer,
   IMAGE,
   SOURCE,
+  matchesVerifiedImage,
 } from "./updater.mjs";
 const id = randomUUID().slice(0, 8),
   name = `cat-updater-smoke-${id}`;
@@ -165,20 +166,55 @@ try {
     throw new Error("Unexpected fixture registry request");
   }, dispatcher);
   const downloaded = await registry.release(image.Architecture);
-  fixtureImage = digest(configBytes);
-  await registry.load(downloaded, docker, stateDir);
-  const imported = await docker.call(
-    "GET",
-    `/images/${encodeURIComponent(downloaded.imageRef)}/json`,
-  );
-  assert.equal(imported.Id, fixtureImage);
+  fixtureImage = downloaded.imageRef;
+  const inspectionPath =
+    `/images/${encodeURIComponent(downloaded.imageRef)}/json`;
+  const differentDockerId = "sha256:" + "e".repeat(64);
+  let observedNormalizedId = false;
+  // Import real, digest-verified OCI bytes into Docker. On inspection simulate
+  // a normalized Docker image ID that differs from the OCI config digest.
+  const normalizingDocker = {
+    call: async (method, route, ...args) => {
+      const result = await docker.call(method, route, ...args);
+      if (method === "GET" && route === inspectionPath) {
+        observedNormalizedId = true;
+        return { ...result, Id: differentDockerId };
+      }
+      return result;
+    },
+  };
+  await registry.load(downloaded, normalizingDocker, stateDir);
+  assert.equal(observedNormalizedId, true);
+  assert.notEqual(differentDockerId, manifest.config.digest);
+  const imported = await docker.call("GET", inspectionPath);
+  assert.equal(matchesVerifiedImage(imported, downloaded), true);
   assert.deepEqual(imported.RootFS.Layers, [digest(layerBytes)]);
+
+  // Reject a Docker API import that succeeded but reports altered layers.
+  const alteredDocker = {
+    call: async (method, route, ...args) => {
+      const result = await docker.call(method, route, ...args);
+      return method === "GET" && route === inspectionPath
+        ? {
+            ...result,
+            RootFS: {
+              ...result.RootFS,
+              Layers: [digest(Buffer.from("wrong layer"))],
+            },
+          }
+        : result;
+    },
+  };
+  await assert.rejects(
+    registry.load(downloaded, alteredDocker, stateDir),
+    /Imported image metadata or layer verification failed/,
+  );
   assert.ok(
     calls.length >= 4 &&
       calls.every((c) => c.options.dispatcher === dispatcher),
   );
   console.log(
-    "Verified OCI layer download and real Docker import through proxy-aware transport: passed",
+    "Verified OCI import, normalized Docker ID and altered layer rejection: passed",
   );
 
   console.log(
@@ -187,7 +223,7 @@ try {
 } finally {
   if (fixtureImage)
     await docker
-      .call("DELETE", `/images/${fixtureImage}?force=1`)
+      .call("DELETE", `/images/${encodeURIComponent(fixtureImage)}?force=1`)
       .catch(() => {});
   const filters = encodeURIComponent(JSON.stringify({ label: [label] }));
   const containers = await docker.call(

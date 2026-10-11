@@ -15,7 +15,7 @@ import { createGunzip } from "node:zlib";
 
 export const IMAGE = "ghcr.io/luoquan0/cat-termix";
 export const SOURCE = "https://github.com/luoquan0/Cat-Termix";
-export const VERSION = "1";
+export const VERSION = "2";
 const ACCEPT =
   "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -55,6 +55,40 @@ export function verifyDigest(bytes, digest) {
     "sha256:" + createHash("sha256").update(bytes).digest("hex") !== digest
   )
     throw new Error("Image digest verification failed");
+}
+
+/**
+ * Docker may normalize an OCI config during /images/load. The resulting
+ * Docker image ID can differ from the SHA256 of the verified OCI config blob.
+ * Confirm the loaded image by its platform, signed-by-digest layer contents,
+ * repository source, revision and all config labels instead.
+ *
+ * The registry config and compressed/uncompressed layers are all SHA256
+ * verified before loading; this check is additional post-import validation.
+ */
+export function matchesVerifiedImage(image, release) {
+  const config = release?.config;
+  const labels = config?.config?.Labels;
+  const expectedLayers = config?.rootfs?.diff_ids;
+  const actualLayers = image?.RootFS?.Layers;
+  return (
+    /^sha256:[a-f0-9]{64}$/.test(image?.Id ?? "") &&
+    image.Os === config?.os &&
+    image.Architecture === config?.architecture &&
+    labels?.["org.opencontainers.image.source"] === SOURCE &&
+    labels?.["org.opencontainers.image.revision"] === release?.revision &&
+    Array.isArray(expectedLayers) &&
+    Array.isArray(actualLayers) &&
+    actualLayers.length === expectedLayers.length &&
+    expectedLayers.every(
+      (digest, index) =>
+        /^sha256:[a-f0-9]{64}$/.test(digest) &&
+        actualLayers[index] === digest,
+    ) &&
+    Object.entries(labels).every(
+      ([key, value]) => image?.Config?.Labels?.[key] === value,
+    )
+  );
 }
 export async function atomicJson(file, data, mode = 0o644) {
   await fs.mkdir(path.dirname(file), { recursive: true });
@@ -384,8 +418,8 @@ export class Registry {
         "GET",
         `/images/${encodeURIComponent(release.imageRef)}/json`,
       );
-      if (image.Id !== release.manifest.config.digest)
-        throw new Error("Imported image ID mismatch");
+      if (!matchesVerifiedImage(image, release))
+        throw new Error("Imported image metadata or layer verification failed");
     } finally {
       await fs.rm(temp, { recursive: true, force: true });
     }
@@ -693,18 +727,17 @@ export async function main() {
           old.Config.Labels?.["org.opencontainers.image.revision"],
       });
       const release = await registry.release(oldImage.Architecture);
+      // A normalized Docker ID is not always the registry config digest.
+      const alreadyCurrent = matchesVerifiedImage(oldImage, release);
       lastCheck = Date.now();
       await status({
-        phase:
-          old.Image === release.manifest.config.digest
-            ? "current"
-            : "available",
+        phase: alreadyCurrent ? "current" : "available",
         availableRevision: release.revision,
         lastCheckAt: new Date(lastCheck).toISOString(),
         message: "",
       });
       if (
-        old.Image === release.manifest.config.digest ||
+        alreadyCurrent ||
         (manual && request.action === "check") ||
         (!manual && !policy.enabled)
       )

@@ -136,7 +136,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=2.9.2-ai-preview.13
+            org.opencontainers.image.version=2.9.2-ai-preview.14
             org.opencontainers.image.title=Cat-Termix AI Preview
       - name: Start the exact image and check health, web and bundled AI
         env:
@@ -191,6 +191,18 @@ jobs:
           docker exec cat-termix-smoke test -s /app/dist/plugins/ssh-terminal/dist/frontend.js
           printf '%s\n' "$IMAGE@$DIGEST" > /tmp/cat-termix-image/image.txt
           echo "Native ${{ matrix.arch }} startup checks passed: $IMAGE@$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/setup-node@v4
+        if: matrix.arch == 'arm64'
+        with:
+          node-version: 26
+          cache: npm
+      - name: Native ARM64 updater OCI import and rollback smoke
+        if: matrix.arch == 'arm64'
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          node --test docker/updater/updater.test.mjs
+          node docker/updater/smoke.mjs | tee /tmp/cat-termix-image/updater-smoke.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -218,7 +230,7 @@ jobs:
           set -euo pipefail
           docker buildx imagetools create \
             --tag "$IMAGE:sha-$GITHUB_SHA" \
-            --tag "$IMAGE:2.9.2-ai-preview.13" \
+            --tag "$IMAGE:2.9.2-ai-preview.14" \
             "$IMAGE:build-$GITHUB_SHA-amd64" \
             "$IMAGE:build-$GITHUB_SHA-arm64"
           mkdir -p /tmp/cat-termix-release
@@ -228,10 +240,10 @@ jobs:
             ([.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "amd64")] | length) == 1 and
             ([.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "arm64")] | length) == 1
           ' /tmp/cat-termix-release/index.json
-          printf 'Source: %s\nPreview image: %s\nPinned tag: %s\nRolling ai-dev: unchanged\nArchitectures: linux/amd64, linux/arm64\n' "$GITHUB_SHA" "$IMAGE:2.9.2-ai-preview.13" "$IMAGE:sha-$GITHUB_SHA" | tee /tmp/cat-termix-release/release.txt >> "$GITHUB_STEP_SUMMARY"
+          printf 'Source: %s\nPreview image: %s\nPinned tag: %s\nRolling ai-dev: unchanged\nArchitectures: linux/amd64, linux/arm64\n' "$GITHUB_SHA" "$IMAGE:2.9.2-ai-preview.14" "$IMAGE:sha-$GITHUB_SHA" | tee /tmp/cat-termix-release/release.txt >> "$GITHUB_STEP_SUMMARY"
       - name: Check anonymous image access
         run: |
-          if DOCKER_CONFIG="$(mktemp -d)" docker manifest inspect "$IMAGE:2.9.2-ai-preview.13" > /tmp/cat-termix-release/anonymous-manifest.json; then
+          if DOCKER_CONFIG="$(mktemp -d)" docker manifest inspect "$IMAGE:2.9.2-ai-preview.14" > /tmp/cat-termix-release/anonymous-manifest.json; then
             echo "Anonymous pull: available" | tee /tmp/cat-termix-release/access.txt >> "$GITHUB_STEP_SUMMARY"
           else
             echo "Anonymous pull: requires GHCR login or changing package visibility to public" | tee /tmp/cat-termix-release/access.txt >> "$GITHUB_STEP_SUMMARY"

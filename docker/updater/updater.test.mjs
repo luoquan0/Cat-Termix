@@ -6,6 +6,8 @@ import {
   SOURCE,
   validatePolicy,
   verifyDigest,
+  matchesVerifiedImage,
+  VERSION,
   Registry,
   replacementConfig,
   defaults,
@@ -32,6 +34,91 @@ test("digest verification detects corrupted downloads", () => {
   verifyDigest(b, d);
   assert.throws(() => verifyDigest(Buffer.from("other"), d));
   assert.throws(() => verifyDigest(b, "md5:x"));
+});
+
+test("Docker-normalized image IDs are accepted only with exact verified metadata and layers", () => {
+  assert.equal(VERSION, "2");
+  const sha = (letter) => "sha256:" + letter.repeat(64);
+  const revision = "a".repeat(40);
+  const labels = {
+    "org.opencontainers.image.source": SOURCE,
+    "org.opencontainers.image.revision": revision,
+    "org.opencontainers.image.version": "2.9.2-ai-preview.14",
+  };
+  const release = {
+    revision,
+    manifest: { config: { digest: sha("b") } },
+    config: {
+      os: "linux",
+      architecture: "arm64",
+      rootfs: { diff_ids: [sha("c"), sha("d")] },
+      config: { Labels: labels },
+    },
+  };
+  const imported = {
+    Id: sha("e"),
+    Os: "linux",
+    Architecture: "arm64",
+    Config: { Labels: { ...labels, "docker.extra": "okay" } },
+    RootFS: { Layers: [sha("c"), sha("d")] },
+  };
+  assert.notEqual(imported.Id, release.manifest.config.digest);
+  assert.equal(matchesVerifiedImage(imported, release), true);
+  assert.equal(
+    matchesVerifiedImage(
+      { ...imported, Id: release.manifest.config.digest },
+      release,
+    ),
+    true,
+  );
+  for (const changed of [
+    { ...imported, Id: "not-a-sha256" },
+    { ...imported, Os: "windows" },
+    { ...imported, Architecture: "amd64" },
+    {
+      ...imported,
+      Config: {
+        Labels: {
+          ...labels,
+          "org.opencontainers.image.source": "https://other.example",
+        },
+      },
+    },
+    {
+      ...imported,
+      Config: {
+        Labels: {
+          ...labels,
+          "org.opencontainers.image.revision": "f".repeat(40),
+        },
+      },
+    },
+    {
+      ...imported,
+      Config: {
+        Labels: {
+          ...labels,
+          "org.opencontainers.image.version": "replaced",
+        },
+      },
+    },
+    { ...imported, RootFS: { Layers: [sha("c"), sha("f")] } },
+    { ...imported, RootFS: { Layers: [sha("d"), sha("c")] } },
+    { ...imported, RootFS: { Layers: [sha("c")] } },
+    { ...imported, RootFS: { Layers: [] } },
+    { ...imported, RootFS: null },
+    null,
+  ]) assert.equal(matchesVerifiedImage(changed, release), false);
+  assert.equal(
+    matchesVerifiedImage(imported, {
+      ...release,
+      config: {
+        ...release.config,
+        rootfs: { diff_ids: [sha("c"), "bad-digest"] },
+      },
+    }),
+    false,
+  );
 });
 test("proxy dispatcher is used for redirects but GHCR bearer tokens never leak across hosts", async () => {
   const calls = [],
