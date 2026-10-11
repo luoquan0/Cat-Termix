@@ -290,12 +290,10 @@ export function registerAiRoutes(
           ? current.providerModels?.[String(selectedId)]
           : undefined;
         if (patch.model && allowed && !allowed.includes(patch.model))
-          return res
-            .status(400)
-            .json({
-              error: "Model is not enabled for this channel",
-              code: "MODEL_NOT_ENABLED",
-            });
+          return res.status(400).json({
+            error: "Model is not enabled for this channel",
+            code: "MODEL_NOT_ENABLED",
+          });
         const preferences = await repository.saveChatPreferences(userId, patch);
         res.json({ preferences });
       } catch (error) {
@@ -577,11 +575,9 @@ export function registerAiRoutes(
             : text(body.defaultModel) || null;
         if (selection && nextDefault && !selection.includes(nextDefault)) {
           if (body.defaultModel !== undefined)
-            return res
-              .status(400)
-              .json({
-                error: "Default model must be enabled for this channel",
-              });
+            return res.status(400).json({
+              error: "Default model must be enabled for this channel",
+            });
           nextDefault = selection[0] ?? null;
         }
         const updated = await repository.updateProvider(id, userId, {
@@ -1268,12 +1264,10 @@ export function registerAiRoutes(
           const configuredModels = (await repository.getChatPreferences(userId))
             .providerModels?.[String(resolvedProviderId)];
           if (configuredModels && !configuredModels.includes(chosenModel))
-            return res
-              .status(400)
-              .json({
-                error: "Model is not enabled for this channel",
-                code: "MODEL_NOT_ENABLED",
-              });
+            return res.status(400).json({
+              error: "Model is not enabled for this channel",
+              code: "MODEL_NOT_ENABLED",
+            });
 
           // Resolve or create the conversation before the stream opens, so a
           // failure here is still a normal JSON error the client can render.
