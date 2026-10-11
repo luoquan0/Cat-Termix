@@ -20,3 +20,9 @@ afterAll(() => {
   else Reflect.deleteProperty(Element.prototype, "scrollIntoView");
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });''')
+
+for path in ['docker/nginx.conf', 'docker/nginx-https.conf']:
+    replace(path, 'location ^~ /plugin-api/agent/v1/ {', 'location ~* ^/plugin-api/agent/v1(?:/|$) {')
+    replace(path, '        location ^~ /plugin-api/ {', '        # Allow the case-insensitive Agent public guard above to take priority.\n        location /plugin-api/ {')
+replace('docker/agent/transport-config.test.mjs', '    for (const path of ["/agent/", "/plugin-api/agent/v1/"]) {\n      const start = config.indexOf(`location ^~ ${path} {`);\n      assert.ok(start >= 0, `Missing hardened ${path}`);', '    assert.ok(!config.includes("location ^~ /plugin-api/ {"), "A priority prefix must not bypass the case-insensitive Agent guard");\n    for (const location of ["location ^~ /agent/ {", "location ~* ^/plugin-api/agent/v1(?:/|$) {"]) {\n      const start = config.indexOf(location);\n      assert.ok(start >= 0, `Missing hardened ${location}`);')
+replace('docker/agent/transport-smoke.mjs', '["/agent/v1/health", "/plugin-api/agent/v1/health"]', '["/agent/v1/health", "/plugin-api/agent/v1/health", "/plugin-api/agent/V1/health", "/plugin-api/agent/v1"]')
