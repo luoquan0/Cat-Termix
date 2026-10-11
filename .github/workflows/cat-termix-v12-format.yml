@@ -27,12 +27,12 @@ jobs:
           for indent, message, code in [(12, 'Model is not enabled for this channel', True), (14, 'Default model must be enabled for this channel', False), (14, 'Model is not enabled for this channel', True)]:
               pad = ' ' * indent
               old = 'return res\n' + pad + '.status(400)\n' + pad + '.json({\n' + pad + '  error: "' + message + '",\n'
-              new = 'return res.status(400).json({\n' + ' ' * (indent - 2) + 'error: "' + message + '",\n'
+              new = 'return res.status(400).json({\n' + pad + 'error: "' + message + '",\n'
               if code:
                   old += pad + '  code: "MODEL_NOT_ENABLED",\n'
-                  new += ' ' * (indent - 2) + 'code: "MODEL_NOT_ENABLED",\n'
+                  new += pad + 'code: "MODEL_NOT_ENABLED",\n'
               old += pad + '});'
-              new += ' ' * (indent - 4) + '});'
+              new += ' ' * (indent - 2) + '});'
               assert text.count(old) == 1, (message, indent, text.count(old))
               text = text.replace(old, new)
           assert re.sub(r'\s+', '', before) == re.sub(r'\s+', '', text)
