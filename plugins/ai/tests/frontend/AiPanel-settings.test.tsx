@@ -297,7 +297,7 @@ describe("compact chat settings and a clean composer", () => {
       "third-model",
     ]);
     render(<AiPanel />);
-    await ready();
+    await screen.findByPlaceholderText("ai.inputPlaceholder");
     fireEvent.click(screen.getByRole("button", { name: "ai.chatSettings" }));
     const settings = screen.getByRole("dialog", { name: "ai.chatSettings" });
     fireEvent.click(

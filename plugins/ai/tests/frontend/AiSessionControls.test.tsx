@@ -217,8 +217,10 @@ describe("multi-model chat settings", () => {
       screen.getByRole("combobox", { name: "ai.selectProvider" }),
     ).toHaveProperty("disabled", true);
     expect(
-      screen.getByRole("checkbox", { name: "default-model" }),
-    ).toHaveProperty("disabled", true);
+      screen
+        .getByRole("checkbox", { name: "default-model" })
+        .closest("fieldset")?.disabled,
+    ).toBe(true);
     expect(screen.getByRole("button", { name: "ai.save" })).toHaveProperty(
       "disabled",
       true,
