@@ -1,17 +1,17 @@
-import { useState } from "react";
-import { useAiModels, type ModelDiscovery } from "./use-ai-models";
+import { useEffect, useState } from "react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { useTranslation } from "@termix/plugin-sdk/frontend";
 import {
   Button,
-  Input,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@termix/plugin-sdk/ui";
-import { RefreshCw } from "lucide-react";
-import { type AiProvider } from "./ai-api";
+import { AiEnabledModels } from "./AiEnabledModels";
+import { getAiProviderModels, updateAiProvider, type AiProvider } from "./ai-api";
+import { providerModelOptions } from "../shared/model-selection";
 
 export type ApprovalMode = "review" | "auto";
 export type ExecutionMode = "isolated" | "shared";
@@ -22,146 +22,202 @@ interface Props {
   onProviderChange: (id: number) => void;
   model: string;
   onModelChange: (model: string) => void;
-  discovery?: ModelDiscovery;
+  onProviderUpdated?: (provider: AiProvider) => void;
   disabled: boolean;
   executionMode?: ExecutionMode;
   onExecutionModeChange?: (mode: ExecutionMode) => void;
 }
 
-/** Visible provider/model picker, with upstream discovery and a custom ID escape hatch. */
+/** Configure a channel's available models here; choose one for each message in the composer. */
 export function AiSessionControls({
   providers,
   providerId,
   onProviderChange,
   model,
   onModelChange,
-  discovery,
+  onProviderUpdated,
   disabled,
   executionMode = "isolated",
   onExecutionModeChange,
 }: Props) {
   const { t } = useTranslation();
-  const [customModel, setCustomModel] = useState(false);
   const provider = providers.find((item) => item.id === providerId);
-  const defaultModel = provider?.defaultModel ?? "";
-  const restricted = Array.isArray(provider?.enabledModels);
-  const localDiscovery = useAiModels(
-    providerId,
-    defaultModel,
-    model,
-    onModelChange,
-    !discovery,
-    provider?.enabledModels,
-  );
-  const { models, loadingModels, modelError, refresh } =
-    discovery ?? localDiscovery;
+  const [discovered, setDiscovered] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [modelError, setModelError] = useState(false);
+  const [refreshIndex, setRefreshIndex] = useState(0);
+  const [draft, setDraft] = useState<{
+    providerId: number;
+    models: string[];
+  } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
 
-  const useCustomInput =
-    customModel || (Boolean(model) && !models.includes(model));
+  useEffect(() => {
+    let cancelled = false;
+    setDiscovered([]);
+    setModelError(false);
+    if (!providerId) {
+      setLoadingModels(false);
+      return;
+    }
+    setLoadingModels(true);
+    void getAiProviderModels(providerId)
+      .then((models) => {
+        if (!cancelled) setDiscovered(models);
+      })
+      .catch(() => {
+        if (!cancelled) setModelError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingModels(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [providerId, refreshIndex]);
+
+  const dirty = draft?.providerId === providerId;
+  const selected = dirty
+    ? draft.models
+    : provider
+      ? providerModelOptions(provider, discovered, model)
+      : [];
+
+  const saveModels = async () => {
+    if (!provider || !dirty || disabled || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    setSaved(false);
+    try {
+      // Persist through the same user-scoped channel settings as the provider editor.
+      // The backend updates the default model if the previous one was unchecked.
+      const updated = await updateAiProvider(provider.id, {
+        enabledModels: selected,
+      });
+      onProviderUpdated?.(updated);
+      if (!selected.includes(model))
+        onModelChange(updated.defaultModel ?? selected[0] ?? "");
+      setDraft(null);
+      setSaved(true);
+    } catch (error) {
+      setSaveError(
+        error instanceof Error ? error.message : t("ai.providerSaveFailed"),
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
-    <div className="space-y-2 px-3 pb-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Select
-          value={providerId ? String(providerId) : undefined}
-          onValueChange={(value) => {
-            setCustomModel(false);
-            onModelChange("");
-            onProviderChange(Number(value));
-          }}
-          disabled={disabled}
-        >
-          <SelectTrigger
-            className="h-8 min-w-0 flex-1 rounded-none text-xs"
-            aria-label={t("ai.selectProvider")}
-          >
-            <SelectValue placeholder={t("ai.selectProvider")} />
-          </SelectTrigger>
-          <SelectContent className="z-[300]">
-            {providers.map((item) => (
-              <SelectItem key={item.id} value={String(item.id)}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {models.length > 0 ? (
+    <div className="min-w-0 space-y-3 px-3 pb-3">
+      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+        <div className="min-w-0 space-y-1">
+          <p className="text-xs text-muted-foreground">
+            {t("ai.selectProvider")}
+          </p>
           <Select
-            value={useCustomInput ? "__custom__" : model || undefined}
+            value={providerId ? String(providerId) : undefined}
             onValueChange={(value) => {
-              if (value === "__custom__") {
-                setCustomModel(true);
-                if (models.includes(model)) onModelChange("");
-              } else {
-                setCustomModel(false);
-                onModelChange(value);
-              }
+              setDraft(null);
+              setSaveError(null);
+              setSaved(false);
+              onModelChange("");
+              onProviderChange(Number(value));
             }}
-            disabled={disabled || !providerId}
+            disabled={disabled || saving}
           >
             <SelectTrigger
-              className="h-8 min-w-0 flex-1 rounded-none text-xs"
-              aria-label={t("ai.modelPicker")}
+              className="h-9 w-full min-w-0 rounded-md text-sm"
+              aria-label={t("ai.selectProvider")}
             >
-              <SelectValue placeholder={t("ai.modelPlaceholder")} />
+              <SelectValue placeholder={t("ai.selectProvider")} />
             </SelectTrigger>
             <SelectContent className="z-[300]">
-              {models.map((name) => (
-                <SelectItem key={name} value={name}>
-                  {name}
+              {providers.map((item) => (
+                <SelectItem key={item.id} value={String(item.id)}>
+                  {item.label}
                 </SelectItem>
               ))}
-              {!restricted && (
-                <SelectItem value="__custom__">
-                  {t("ai.modelCustom")}
-                </SelectItem>
-              )}
             </SelectContent>
           </Select>
-        ) : null}
-        {!restricted && (!models.length || useCustomInput) && (
-          <Input
-            className="h-8 min-w-0 flex-1 rounded-none text-xs"
-            value={model}
-            onChange={(event) => {
-              setCustomModel(true);
-              onModelChange(event.target.value);
-            }}
-            placeholder={t("ai.modelPlaceholder")}
-            aria-label={
-              models.length ? t("ai.modelCustomInput") : t("ai.modelPicker")
-            }
-            disabled={disabled || !providerId}
-            autoComplete="off"
-          />
-        )}
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-8 shrink-0"
-          title={t("ai.modelRefresh")}
-          aria-label={t("ai.modelRefresh")}
-          disabled={disabled || !providerId || loadingModels}
-          onClick={() => refresh()}
-        >
-          <RefreshCw
-            size={14}
-            className={loadingModels ? "animate-spin" : ""}
-          />
-        </Button>
+        </div>
+        <div className="flex min-w-0 items-center justify-between gap-2 sm:justify-end">
+          <span className="text-xs text-muted-foreground">
+            {t("ai.enabledModelsCount", { count: selected.length })}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-9 shrink-0"
+            title={t("ai.modelRefresh")}
+            aria-label={t("ai.modelRefresh")}
+            disabled={disabled || saving || !providerId || loadingModels}
+            onClick={() => setRefreshIndex((value) => value + 1)}
+          >
+            <RefreshCw
+              size={14}
+              className={loadingModels ? "animate-spin" : ""}
+            />
+          </Button>
+        </div>
       </div>
+      {provider && (
+        <>
+          <p className="break-words text-xs text-muted-foreground">
+            {t("ai.chatModelSelectionHint")}
+          </p>
+          <AiEnabledModels
+            models={discovered}
+            selected={selected}
+            disabled={disabled || saving}
+            onChange={(models) => {
+              setDraft({ providerId: provider.id, models });
+              setSaveError(null);
+              setSaved(false);
+            }}
+          />
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              disabled={disabled || saving || !dirty}
+              onClick={() => void saveModels()}
+            >
+              {saving && <Loader2 size={14} className="animate-spin" />}
+              {t("ai.save")}
+            </Button>
+            {saved && (
+              <span role="status" className="text-xs text-muted-foreground">
+                {t("ai.providerUpdated")}
+              </span>
+            )}
+          </div>
+        </>
+      )}
+      {modelError && (
+        <p className="break-words text-xs text-muted-foreground">
+          {t("ai.modelDiscoveryFallback")}
+        </p>
+      )}
+      {saveError && (
+        <p role="alert" className="break-words text-xs text-destructive">
+          {saveError}
+        </p>
+      )}
       {onExecutionModeChange && (
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <Select
             value={executionMode}
-            disabled={disabled}
+            disabled={disabled || saving}
             onValueChange={(value) =>
               onExecutionModeChange(value as ExecutionMode)
             }
           >
             <SelectTrigger
-              className="h-8 w-full text-xs"
+              className="h-9 w-full min-w-0 text-sm"
               aria-label={t("ai.executionMode")}
             >
               <SelectValue />
@@ -173,7 +229,7 @@ export function AiSessionControls({
               <SelectItem value="shared">{t("ai.executionShared")}</SelectItem>
             </SelectContent>
           </Select>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="break-words text-[11px] text-muted-foreground">
             {t(
               executionMode === "shared"
                 ? "ai.sharedExecutionHint"
@@ -182,14 +238,9 @@ export function AiSessionControls({
           </p>
         </div>
       )}
-      {restricted && !models.length && (
+      {provider && selected.length === 0 && (
         <p className="text-xs text-muted-foreground">
           {t("ai.noEnabledModels")}
-        </p>
-      )}
-      {modelError && (
-        <p className="text-[11px] text-muted-foreground">
-          {t("ai.modelDiscoveryFallback")}
         </p>
       )}
     </div>

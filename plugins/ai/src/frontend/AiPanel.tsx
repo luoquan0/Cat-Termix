@@ -234,7 +234,7 @@ export function AiPanel({
   const { search: searchMentions } = useMentions(Boolean(providerId));
 
   const mentionMatches = mention ? searchMentions(mention.query) : [];
-  const modelDiscovery = useAiModels(
+  useAiModels(
     providerId,
     providers.find((p) => p.id === providerId)?.defaultModel ?? "",
     model,
@@ -784,7 +784,7 @@ export function AiPanel({
 
       <Dialog open={showSettings} onOpenChange={setShowSettings}>
         <DialogContent
-          className="z-[220] w-[calc(100vw-2rem)] sm:max-w-[560px] max-h-[80dvh] overflow-y-auto gap-2 p-3"
+          className="z-[220] box-border w-[calc(100vw-1.5rem)] max-w-[900px] min-w-0 max-h-[90dvh] gap-3 overflow-x-hidden overflow-y-auto p-4 sm:max-w-[900px] sm:p-5"
           onCloseAutoFocus={(event) => {
             event.preventDefault();
             settingsButtonRef.current?.focus();
@@ -793,7 +793,7 @@ export function AiPanel({
         >
           <DialogTitle>{t("ai.chatSettings")}</DialogTitle>
           <DialogDescription>{t("ai.settingsDialogHint")}</DialogDescription>
-          <section aria-label={t("ai.sessionSettings")}>
+          <section className="min-w-0" aria-label={t("ai.sessionSettings")}>
             <h3 className="px-3 py-2 text-xs font-medium">
               {t("ai.sessionSettings")}
             </h3>
@@ -804,7 +804,13 @@ export function AiPanel({
                 onProviderChange={selectProvider}
                 model={model}
                 onModelChange={selectModel}
-                discovery={modelDiscovery}
+                onProviderUpdated={(updated) =>
+                  setProviders((previous) =>
+                    previous.map((item) =>
+                      item.id === updated.id ? updated : item,
+                    ),
+                  )
+                }
                 disabled={executing}
                 executionMode={executionMode}
                 onExecutionModeChange={
@@ -830,7 +836,7 @@ export function AiPanel({
             onRefresh={modelContext.refresh}
           />
           <details
-            className="border-t border-border p-3"
+            className="min-w-0 border-t border-border p-3"
             open={!providers.length}
           >
             <summary className="cursor-pointer text-xs font-medium">

@@ -30,7 +30,7 @@ export function AiEnabledModels({
   }
   return (
     <fieldset
-      className="space-y-2 rounded-md border border-border p-3"
+      className="min-w-0 space-y-2 rounded-md border border-border p-3"
       disabled={disabled}
     >
       <legend className="px-1 text-sm font-medium">
@@ -45,7 +45,7 @@ export function AiEnabledModels({
         aria-label={t("ai.searchModels")}
         placeholder={t("ai.searchModels")}
       />
-      <div className="max-h-40 space-y-1 overflow-y-auto">
+      <div className="min-w-0 max-h-48 space-y-1 overflow-y-auto">
         {choices
           .filter((model) => model.toLowerCase().includes(search.toLowerCase()))
           .map((model) => (
@@ -64,7 +64,7 @@ export function AiEnabledModels({
                   )
                 }
               />
-              <span className="break-all">{model}</span>
+              <span className="min-w-0 break-all">{model}</span>
             </label>
           ))}
       </div>
@@ -91,8 +91,9 @@ export function AiEnabledModels({
           {t("ai.enabledModelsCount", { count: selected.length })}
         </span>
       </div>
-      <div className="flex gap-2">
+      <div className="flex min-w-0 gap-2">
         <Input
+          className="min-w-0 flex-1"
           value={custom}
           maxLength={200}
           onChange={(event) => setCustom(event.target.value)}
