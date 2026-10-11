@@ -228,7 +228,8 @@
       "xhigh": "Extra high"
     },
     "enabledModels": "Enabled models",
-    "enabledModelsHint": "Only checked models appear in this channel's chat picker. The default model is enabled when saved.",
+    "enabledModelsHint": "After saving, only checked models from this channel appear in the chat model menu.",
+    "chatModelSelectionHint": "Select and save all models available for this channel, then switch between them in the chat composer. Each message uses one model.",
     "enabledModelsCount": "{{count}} models enabled",
     "enabledModelsInvalid": "Select up to 100 valid model IDs (1-200 characters each).",
     "enableAllModels": "Select all",

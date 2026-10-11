@@ -100,7 +100,7 @@ export function ContextControls({
   };
   return (
     <section
-      className="space-y-3 border-t border-border p-3"
+      className="min-w-0 space-y-3 border-t border-border p-3"
       aria-label={t("ai.contextSettings")}
     >
       <h3 className="text-xs font-medium">{t("ai.contextSettings")}</h3>
@@ -184,7 +184,7 @@ export function ContextControls({
         />
         {t("ai.contextAutomatic")}
       </label>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
         {(
           [
             ["contextWindow", "ai.contextCapacity", 8192, 2000000, 1024],
@@ -199,7 +199,7 @@ export function ContextControls({
             ["keepRecentTurns", "ai.contextRecent", 1, 20, 1],
           ] as const
         ).map(([key, label, min, max, step]) => (
-          <label key={key} className="space-y-1 text-[11px]">
+          <label key={key} className="min-w-0 space-y-1 text-[11px]">
             <span>{t(label)}</span>
             <ContextNumber
               label={t(label)}
@@ -264,7 +264,7 @@ function ContextNumber({
       min={min}
       max={max}
       step={step}
-      className="h-8"
+      className="h-8 w-full min-w-0"
       disabled={disabled}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => {
