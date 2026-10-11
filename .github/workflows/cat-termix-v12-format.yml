@@ -1,0 +1,67 @@
+name: Cat-Termix v12 Format Repair
+on:
+  push:
+    branches: [cat-termix-v12-format]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a21d5e6c10a43e3bce49e3d2c170fee3e0b50c67
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Apply only the three verified formatting replacements
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          path = Path('plugins/ai/src/backend/routes.ts')
+          before = path.read_text()
+          text = before
+          for indent, message, code in [(12, 'Model is not enabled for this channel', True), (14, 'Default model must be enabled for this channel', False), (14, 'Model is not enabled for this channel', True)]:
+              pad = ' ' * indent
+              old = 'return res\n' + pad + '.status(400)\n' + pad + '.json({\n' + pad + '  error: "' + message + '",\n'
+              new = 'return res.status(400).json({\n' + ' ' * (indent - 2) + 'error: "' + message + '",\n'
+              if code:
+                  old += pad + '  code: "MODEL_NOT_ENABLED",\n'
+                  new += ' ' * (indent - 2) + 'code: "MODEL_NOT_ENABLED",\n'
+              old += pad + '});'
+              new += ' ' * (indent - 4) + '});'
+              assert text.count(old) == 1, (message, indent, text.count(old))
+              text = text.replace(old, new)
+          assert re.sub(r'\s+', '', before) == re.sub(r'\s+', '', text)
+          path.write_text(text)
+          PY
+          test "$(git hash-object plugins/ai/src/backend/routes.ts)" = 9f612231b7ed79f2c61be51ea94e1e6360b7b546
+          git add plugins/ai/src/backend/routes.ts
+          mkdir -p /tmp/v12-format
+          git diff --cached --binary > /tmp/v12-format/format.patch
+          git write-tree > /tmp/v12-format/tree.txt
+      - name: Retain isolated formatted candidate without changing release branches
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          export GIT_AUTHOR_NAME='github-actions[bot]' GIT_COMMITTER_NAME='github-actions[bot]'
+          export GIT_AUTHOR_EMAIL='41898282+github-actions[bot]@users.noreply.github.com'
+          export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+          tree=$(cat /tmp/v12-format/tree.txt)
+          candidate=$(printf 'style(ai): apply exact CI formatting repair\n' | git commit-tree "$tree" -p a21d5e6c10a43e3bce49e3d2c170fee3e0b50c67)
+          echo "$candidate" > /tmp/v12-format/commit.txt
+          basic=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$basic"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $basic" push https://github.com/luoquan0/Cat-Termix.git "$candidate:refs/heads/cat-termix-v12-formatted-$GITHUB_RUN_ID"
+          printf 'Candidate: %s\nTree: %s\n' "$candidate" "$tree" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cat-termix-v12-format-${{ github.run_id }}
+          path: /tmp/v12-format
+          retention-days: 7
