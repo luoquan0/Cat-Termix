@@ -50,7 +50,11 @@ type ManagedDevice = {
   id: string;
   name: string;
   fingerprint: string;
-  accessMode: string;
+  accessMode: "all" | "selected";
+  projectIds: string[];
+  includeFutureHosts?: boolean;
+  maxConcurrentSessions: number;
+  expiresAt: string | null;
   scopes: string[];
   revokedAt: string | null;
 };
@@ -69,6 +73,8 @@ function LocalAgentPanel() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [code, setCode] = useState("");
   const [lookup, setLookup] = useState<Lookup | null>(null);
+  const [editing, setEditing] = useState<ManagedDevice | null>(null);
+  const [includeFutureHosts, setIncludeFutureHosts] = useState(true);
   const [accessMode, setAccessMode] = useState<"all" | "selected">("all");
   const [selected, setSelected] = useState<string[]>([]);
   const [scopes, setScopes] = useState<string[]>(
@@ -84,7 +90,7 @@ function LocalAgentPanel() {
       app().api.get<{ devices: ManagedDevice[] }>("/admin/devices"),
       app().api.get<{ projects: Project[] }>("/admin/projects"),
     ]);
-    setDevices(deviceList.data.devices);
+    setDevices(deviceList.data.devices.filter((device) => !device.revokedAt));
     setProjects(projectList.data.projects);
   }
   useEffect(() => {
@@ -169,6 +175,8 @@ function LocalAgentPanel() {
                   "/admin/requests/resolve",
                   { code },
                 );
+                setEditing(null);
+                setIncludeFutureHosts(true);
                 setLookup(result.data);
               })
             }
@@ -176,11 +184,16 @@ function LocalAgentPanel() {
             {t("agent.verify")}
           </Action>
         </div>
-        {lookup && (
+        {(lookup || editing) && (
           <div className="space-y-3 border-t pt-3">
-            <p className="font-semibold">{lookup.deviceName}</p>
+            <p className="font-semibold">
+              {editing
+                ? t("agent.edit") + ": " + editing.name
+                : lookup?.deviceName}
+            </p>
             <p className="break-all font-mono text-xs">
-              {t("agent.fingerprint")}: {lookup.fingerprint}
+              {t("agent.fingerprint")}:{" "}
+              {editing?.fingerprint ?? lookup?.fingerprint}
             </p>
             <fieldset>
               <legend className="font-semibold">{t("agent.scopes")}</legend>
@@ -239,6 +252,25 @@ function LocalAgentPanel() {
                     {project.name} ({project.hostIds.length})
                   </label>
                 ))}
+              {accessMode === "selected" && (
+                <label className="flex gap-2 items-center">
+                  <input
+                    type="checkbox"
+                    checked={includeFutureHosts}
+                    onChange={(event) =>
+                      setIncludeFutureHosts(event.target.checked)
+                    }
+                  />
+                  {t("agent.includeFutureHosts")}
+                </label>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  accessMode === "all"
+                    ? "agent.allFutureHint"
+                    : "agent.futureHint",
+                )}
+              </p>
             </fieldset>
             <label className="flex gap-2 items-center">
               {t("agent.maxSessions")}
@@ -269,19 +301,27 @@ function LocalAgentPanel() {
                 }
                 onClick={() =>
                   void run(async () => {
-                    await app().api.post(
-                      "/admin/requests/" + lookup.requestId + "/approve",
-                      {
-                        code,
-                        scopes,
-                        accessMode,
-                        projectIds: selected,
-                        maxConcurrentSessions: maxSessions,
-                        expiresAt: expires
-                          ? new Date(expires).toISOString()
-                          : null,
-                      },
-                    );
+                    const grant = {
+                      scopes,
+                      accessMode,
+                      projectIds: selected,
+                      includeFutureHosts,
+                      maxConcurrentSessions: maxSessions,
+                      expiresAt: expires
+                        ? new Date(expires).toISOString()
+                        : null,
+                    };
+                    if (editing)
+                      await app().api.patch(
+                        "/admin/devices/" + editing.id,
+                        grant,
+                      );
+                    else if (lookup)
+                      await app().api.post(
+                        "/admin/requests/" + lookup.requestId + "/approve",
+                        { ...grant, code },
+                      );
+                    setEditing(null);
                     setLookup(null);
                     setCode("");
                     await refresh();
@@ -289,22 +329,24 @@ function LocalAgentPanel() {
                   })
                 }
               >
-                {t("agent.approve")}
+                {t(editing ? "agent.saveGrant" : "agent.approve")}
               </Action>
               <Action
                 disabled={busy}
                 onClick={() =>
                   void run(async () => {
-                    await app().api.post(
-                      "/admin/requests/" + lookup.requestId + "/deny",
-                      { code },
-                    );
+                    if (lookup)
+                      await app().api.post(
+                        "/admin/requests/" + lookup.requestId + "/deny",
+                        { code },
+                      );
+                    setEditing(null);
                     setLookup(null);
                     setCode("");
                   })
                 }
               >
-                {t("agent.deny")}
+                {t(editing ? "agent.cancel" : "agent.deny")}
               </Action>
             </div>
           </div>
@@ -336,20 +378,49 @@ function LocalAgentPanel() {
                 {device.scopes.join(" · ")}
               </p>
             </div>
-            {!device.revokedAt && (
+            <div className="flex shrink-0 flex-col gap-2">
+              <Action
+                disabled={busy}
+                onClick={() => {
+                  setLookup(null);
+                  setEditing(device);
+                  setAccessMode(device.accessMode);
+                  setSelected(device.projectIds ?? []);
+                  setScopes([...device.scopes]);
+                  setIncludeFutureHosts(device.includeFutureHosts === true);
+                  setMaxSessions(device.maxConcurrentSessions ?? 1);
+                  const date = device.expiresAt
+                    ? new Date(device.expiresAt)
+                    : null;
+                  setExpires(
+                    date && Number.isFinite(date.getTime())
+                      ? new Date(
+                          date.getTime() - date.getTimezoneOffset() * 60000,
+                        )
+                          .toISOString()
+                          .slice(0, 16)
+                      : "",
+                  );
+                  setError("");
+                  setNotice("");
+                }}
+              >
+                {t("agent.edit")}
+              </Action>
               <Action
                 disabled={busy}
                 onClick={() => {
                   if (window.confirm(t("agent.confirmRevoke")))
                     void run(async () => {
                       await app().api.delete("/admin/devices/" + device.id);
+                      if (editing?.id === device.id) setEditing(null);
                       await refresh();
                     });
                 }}
               >
                 {t("agent.revoke")}
               </Action>
-            )}
+            </div>
           </div>
         ))}
       </section>

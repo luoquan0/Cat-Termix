@@ -3,6 +3,7 @@ import type { PluginContext } from "@termix/plugin-sdk/backend";
 import type { Client, ClientChannel, SFTPWrapper } from "ssh2";
 import {
   AgentError,
+  AgentPreconditionError,
   type Device,
   projectId,
   requireScope,
@@ -60,6 +61,8 @@ type Runtime = {
 };
 type JobController = { cancel: () => void };
 function error(status: number, code: string, message: string): never {
+  if (code === "SERVER_DENIED" || code === "INVALID_SERVER_ID")
+    throw new AgentPreconditionError(status, code, message);
   throw new AgentError(status, code, message);
 }
 function allowedInt(
@@ -182,8 +185,9 @@ export class AgentOperations {
         (host) =>
           host.userId === device.ownerId &&
           (device.accessMode === "all" ||
-            (device.hostIds.includes(host.id) &&
-              device.projectIds.includes(getHostProject(host.folder)))),
+            (device.projectIds.includes(getHostProject(host.folder)) &&
+              (device.includeFutureHosts === true ||
+                device.hostIds.includes(host.id)))),
       );
     });
   }
@@ -434,6 +438,14 @@ export class AgentOperations {
               failure ? reject(failure) : resolve(channel),
           );
         });
+        if (session.state === "CLOSED") {
+          stream.end();
+          throw new AgentPreconditionError(
+            401,
+            "DEVICE_NOT_AUTHORIZED",
+            "Device access was revoked",
+          );
+        }
         this.activeSessions.set(session.id, {
           stream,
           dispose: connection.dispose,
@@ -516,7 +528,8 @@ export class AgentOperations {
       await this.openSession(session);
       session.state = "RUNNING";
     } catch (failure) {
-      session.state = "FAILED";
+      if ((session.state as Session["state"]) !== "CLOSED")
+        session.state = "FAILED";
       session.failureReason =
         failure instanceof Error ? failure.message.slice(0, 200) : "连接失败";
     }
@@ -707,6 +720,34 @@ export class AgentOperations {
     await this.persistSession(id);
     return this.publicSession(session);
   }
+  async disconnectDevice(deviceId: string) {
+    for (const job of this.jobs.values()) {
+      if (
+        job.deviceId !== deviceId ||
+        !["QUEUED", "RUNNING"].includes(job.state)
+      )
+        continue;
+      this.cancelRequests.add(job.id);
+      this.activeJobs.get(job.id)?.cancel();
+      if (job.state === "QUEUED") {
+        job.state = "CANCELED";
+        job.finishedAt = new Date().toISOString();
+      }
+    }
+    for (const session of this.sessions.values()) {
+      if (session.deviceId !== deviceId) continue;
+      session.state = "CLOSED";
+      session.writeLease = null;
+      session.attachments = [];
+      session.updatedAt = new Date().toISOString();
+      const runtime = this.activeSessions.get(session.id);
+      this.activeSessions.delete(session.id);
+      runtime?.dispose();
+      await this.persistSession(session.id);
+    }
+    await this.saveJobs();
+  }
+
   async stop() {
     for (const ctl of this.activeJobs.values()) ctl.cancel();
     this.activeJobs.clear();

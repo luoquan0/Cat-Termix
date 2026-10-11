@@ -42,14 +42,16 @@ export function AiSessionControls({
 }: Props) {
   const { t } = useTranslation();
   const [customModel, setCustomModel] = useState(false);
-  const defaultModel =
-    providers.find((item) => item.id === providerId)?.defaultModel ?? "";
+  const provider = providers.find((item) => item.id === providerId);
+  const defaultModel = provider?.defaultModel ?? "";
+  const restricted = Array.isArray(provider?.enabledModels);
   const localDiscovery = useAiModels(
     providerId,
     defaultModel,
     model,
     onModelChange,
     !discovery,
+    provider?.enabledModels,
   );
   const { models, loadingModels, modelError, refresh } =
     discovery ?? localDiscovery;
@@ -109,11 +111,15 @@ export function AiSessionControls({
                   {name}
                 </SelectItem>
               ))}
-              <SelectItem value="__custom__">{t("ai.modelCustom")}</SelectItem>
+              {!restricted && (
+                <SelectItem value="__custom__">
+                  {t("ai.modelCustom")}
+                </SelectItem>
+              )}
             </SelectContent>
           </Select>
         ) : null}
-        {(!models.length || useCustomInput) && (
+        {!restricted && (!models.length || useCustomInput) && (
           <Input
             className="h-8 min-w-0 flex-1 rounded-none text-xs"
             value={model}
@@ -175,6 +181,11 @@ export function AiSessionControls({
             )}
           </p>
         </div>
+      )}
+      {restricted && !models.length && (
+        <p className="text-xs text-muted-foreground">
+          {t("ai.noEnabledModels")}
+        </p>
       )}
       {modelError && (
         <p className="text-[11px] text-muted-foreground">

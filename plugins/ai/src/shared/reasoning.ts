@@ -1,3 +1,5 @@
+import { parseEnabledModels } from "./model-selection.js";
+
 /** Portable request-level reasoning settings. "auto" leaves the provider's
  * existing behavior untouched; unsupported modes are never guessed. */
 export const REASONING_EFFORTS = [
@@ -22,6 +24,8 @@ export interface AiChatPreferences {
   reasoningEffort: ReasoningEffort;
   /** User-owned default effort per configured provider ID. */
   providerEfforts: Record<string, ReasoningEffort>;
+  /** Missing channel keys retain legacy discovery. [] explicitly disables all models. */
+  providerModels?: Record<string, string[]>;
 }
 
 export const DEFAULT_AI_PREFERENCES: AiChatPreferences = {
@@ -30,11 +34,16 @@ export const DEFAULT_AI_PREFERENCES: AiChatPreferences = {
   approvalMode: "review",
   reasoningEffort: "auto",
   providerEfforts: {},
+  providerModels: {},
 };
 
 export function normalizeAiPreferences(input: unknown): AiChatPreferences {
   if (!input || typeof input !== "object" || Array.isArray(input))
-    return { ...DEFAULT_AI_PREFERENCES, providerEfforts: {} };
+    return {
+      ...DEFAULT_AI_PREFERENCES,
+      providerEfforts: {},
+      providerModels: {},
+    };
   const obj = input as Record<string, unknown>;
   const effortEntries = Object.entries(
     obj.providerEfforts &&
@@ -43,6 +52,21 @@ export function normalizeAiPreferences(input: unknown): AiChatPreferences {
       ? obj.providerEfforts
       : {},
   ).filter(([id, effort]) => /^\d+$/.test(id) && isReasoningEffort(effort));
+  const modelEntries = Object.entries(
+    obj.providerModels &&
+      typeof obj.providerModels === "object" &&
+      !Array.isArray(obj.providerModels)
+      ? obj.providerModels
+      : {},
+  )
+    .filter(([id]) => /^[1-9]\d*$/.test(id))
+    .map(([id, models]) => {
+      try {
+        return [id, parseEnabledModels(models)];
+      } catch {
+        return [id, []];
+      } // Corrupt saved restrictions fail closed.
+    });
   return {
     providerId:
       typeof obj.providerId === "number" &&
@@ -56,5 +80,6 @@ export function normalizeAiPreferences(input: unknown): AiChatPreferences {
       ? obj.reasoningEffort
       : "auto",
     providerEfforts: Object.fromEntries(effortEntries),
+    providerModels: Object.fromEntries(modelEntries),
   };
 }

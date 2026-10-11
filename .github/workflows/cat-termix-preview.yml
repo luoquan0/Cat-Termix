@@ -1,7 +1,7 @@
 name: Cat-Termix Preview
 
-# Stable AMD64/ARM64 publication is handled by the separately verified
-# cat-termix-arm64.yml; this preview workflow must never publish ai-dev.
+# Native AMD64/ARM64 candidates are tested before fixed preview publication.
+# This workflow must never publish ai-dev or change a previous fixed release.
 
 on:
   push:
@@ -55,8 +55,10 @@ jobs:
         run: |
           mkdir -p /tmp/cat-termix-reports
           npm test --workspace @termix-plugin/ai -- --maxWorkers=2 2>&1 | tee /tmp/cat-termix-reports/ai-tests.log
-      - name: Agent device and policy regression tests
-        run: npm test --workspace @termix-plugin/agent
+      - name: Agent device, editable grants and transport regression tests
+        run: |
+          npm test --workspace @termix-plugin/agent
+          node --test docker/agent/transport-config.test.mjs
       - name: Terminal regression tests
         run: npm test --workspace @termix-plugin/ssh-terminal 2>&1 | tee /tmp/cat-termix-reports/terminal-tests.log
       - name: Update helper tests and Docker rollback smoke
@@ -134,7 +136,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=2.9.2-ai-preview.11
+            org.opencontainers.image.version=2.9.2-ai-preview.12
             org.opencontainers.image.title=Cat-Termix AI Preview
       - name: Start the exact image and check health, web and bundled AI
         env:
@@ -181,6 +183,8 @@ jobs:
             docker logs cat-termix-smoke | tail -n 150
             exit 1
           fi
+          # Exercise the real external bridge path, including mixed-case aliases.
+          node docker/agent/transport-smoke.mjs | tee /tmp/cat-termix-image/agent-transport.log
           docker cp docker/agent/preview-smoke.mjs cat-termix-smoke:/tmp/agent-preview-smoke.mjs
           docker exec -e CAT_TERMIX_SMOKE_URL=http://127.0.0.1:8080 cat-termix-smoke node /tmp/agent-preview-smoke.mjs
           grep -q '"status":"ok"' /tmp/cat-termix-image/agent-health.json
@@ -214,7 +218,7 @@ jobs:
           set -euo pipefail
           docker buildx imagetools create \
             --tag "$IMAGE:sha-$GITHUB_SHA" \
-            --tag "$IMAGE:2.9.2-ai-preview.11" \
+            --tag "$IMAGE:2.9.2-ai-preview.12" \
             "$IMAGE:build-$GITHUB_SHA-amd64" \
             "$IMAGE:build-$GITHUB_SHA-arm64"
           mkdir -p /tmp/cat-termix-release
@@ -224,10 +228,10 @@ jobs:
             ([.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "amd64")] | length) == 1 and
             ([.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "arm64")] | length) == 1
           ' /tmp/cat-termix-release/index.json
-          printf 'Source: %s\nPreview image: %s\nPinned tag: %s\nRolling ai-dev: unchanged\nArchitectures: linux/amd64, linux/arm64\n' "$GITHUB_SHA" "$IMAGE:2.9.2-ai-preview.11" "$IMAGE:sha-$GITHUB_SHA" | tee /tmp/cat-termix-release/release.txt >> "$GITHUB_STEP_SUMMARY"
+          printf 'Source: %s\nPreview image: %s\nPinned tag: %s\nRolling ai-dev: unchanged\nArchitectures: linux/amd64, linux/arm64\n' "$GITHUB_SHA" "$IMAGE:2.9.2-ai-preview.12" "$IMAGE:sha-$GITHUB_SHA" | tee /tmp/cat-termix-release/release.txt >> "$GITHUB_STEP_SUMMARY"
       - name: Check anonymous image access
         run: |
-          if DOCKER_CONFIG="$(mktemp -d)" docker manifest inspect "$IMAGE:2.9.2-ai-preview.11" > /tmp/cat-termix-release/anonymous-manifest.json; then
+          if DOCKER_CONFIG="$(mktemp -d)" docker manifest inspect "$IMAGE:2.9.2-ai-preview.12" > /tmp/cat-termix-release/anonymous-manifest.json; then
             echo "Anonymous pull: available" | tee /tmp/cat-termix-release/access.txt >> "$GITHUB_STEP_SUMMARY"
           else
             echo "Anonymous pull: requires GHCR login or changing package visibility to public" | tee /tmp/cat-termix-release/access.txt >> "$GITHUB_STEP_SUMMARY"

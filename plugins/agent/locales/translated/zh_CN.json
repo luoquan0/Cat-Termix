@@ -43,7 +43,13 @@
     "scopeWrite": "文件写入权限请按需单独授权。",
     "expires": "到期时间（可选）",
     "maxSessions": "最大并发会话数",
-    "confirmRevoke": "确认撤销此设备？",
-    "copy": "复制"
+    "confirmRevoke": "确定撤销并删除此设备？该设备的活动 SSH 连接将关闭，安全审计记录仍保留。",
+    "copy": "复制",
+    "edit": "修改授权",
+    "saveGrant": "保存授权",
+    "cancel": "取消",
+    "includeFutureHosts": "自动包含所选分类中以后新增的主机",
+    "allFutureHint": "包含当前及以后新增的所有自有主机，不包含其他用户的主机。",
+    "futureHint": "开启后，所选分类的新主机自动继承授权。旧版固定授权需手动勾选并保存，不会自动扩大。"
   }
 }

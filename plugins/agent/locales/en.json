@@ -43,7 +43,13 @@
     "scopeWrite": "File write permissions should be granted only when needed.",
     "expires": "Expiration (optional)",
     "maxSessions": "Maximum concurrent sessions",
-    "confirmRevoke": "Revoke this device?",
-    "copy": "Copy"
+    "confirmRevoke": "Revoke and remove this device? Its active SSH connections will be closed. Audit records are retained.",
+    "copy": "Copy",
+    "edit": "Edit permissions",
+    "saveGrant": "Save permissions",
+    "cancel": "Cancel",
+    "includeFutureHosts": "Include future hosts in the selected folders",
+    "allFutureHint": "Includes all hosts you own now and add later. Other users' hosts remain excluded.",
+    "futureHint": "When enabled, new hosts in these folders inherit this grant. Older fixed grants remain unchanged until you enable this option."
   }
 }

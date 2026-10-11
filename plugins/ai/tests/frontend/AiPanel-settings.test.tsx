@@ -11,6 +11,7 @@ import { AiPanel } from "../../src/frontend/AiPanel";
 
 const api = vi.hoisted(() => ({
   t: (key: string) => key,
+  AI_PROVIDERS_CHANGED_EVENT: "termix-ai:providers-changed",
   getAiProviders: vi.fn(),
   getAiPreferences: vi.fn(),
   saveAiPreferences: vi.fn(),
@@ -55,6 +56,7 @@ beforeEach(() => {
     approvalMode: "review",
     reasoningEffort: "auto",
     providerEfforts: {},
+    providerModels: { "1": ["auto-model"] },
   });
   api.saveAiPreferences.mockResolvedValue({});
   api.getAiModelContext.mockResolvedValue({
@@ -179,6 +181,16 @@ describe("compact chat settings and a clean composer", () => {
         }),
       ),
     );
+  });
+  it("never sends channel model configuration through chat preference writes", async () => {
+    render(<AiPanel />);
+    await ready();
+    fireEvent.click(screen.getByRole("button", { name: "ai.reviewMode" }));
+    await waitFor(() => expect(api.saveAiPreferences).toHaveBeenCalled());
+    for (const [body] of api.saveAiPreferences.mock.calls) {
+      expect(body).not.toHaveProperty("providerEfforts");
+      expect(body).not.toHaveProperty("providerModels");
+    }
   });
   it("restores channel, model, thinking and approval after reload", async () => {
     api.getAiPreferences.mockResolvedValue({

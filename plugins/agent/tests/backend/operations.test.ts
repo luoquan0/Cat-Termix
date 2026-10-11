@@ -1,7 +1,10 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
-import type { PluginContext } from "@termix/plugin-sdk/backend";
-import type { Device } from "../../src/backend/identity.js";
+import type {
+  PluginContext,
+  PluginHostSummary,
+} from "@termix/plugin-sdk/backend";
+import { projectId, type Device } from "../../src/backend/identity.js";
 import { AgentOperations, type Session } from "../../src/backend/operations.js";
 
 const DEVICE: Device = {
@@ -153,6 +156,80 @@ describe("Local Agent structured SSH tasks", () => {
       expect(ops.getJob(DEVICE, job.id).state).toBe("CANCELED");
     });
     expect(f.client.exec).not.toHaveBeenCalled();
+    await ops.stop();
+  });
+});
+
+describe("v12 future host permissions", () => {
+  it("sees new owned hosts in all mode and only opted-in selected folders", async () => {
+    const f = fixture();
+    const hosts: PluginHostSummary[] = [
+      {
+        id: 42,
+        userId: DEVICE.ownerId,
+        folder: "lab",
+        name: "old",
+        ip: "10.0.0.42",
+        port: 22,
+        username: "root",
+        tags: "",
+        authType: "password",
+      },
+    ];
+    f.ctx.hosts.list = vi.fn(async () => hosts);
+    const ops = new AgentOperations(f.ctx);
+    const fixed = {
+      ...DEVICE,
+      accessMode: "selected" as const,
+      projectIds: [projectId("lab")],
+      hostIds: [42],
+    };
+    expect((await ops.publicHosts(fixed)).map((row) => row.serverId)).toEqual([
+      "42",
+    ]);
+    hosts.push(
+      { ...hosts[0], id: 43, name: "new" },
+      { ...hosts[0], id: 44, folder: "other", name: "outside" },
+      { ...hosts[0], id: 45, userId: "another-user", name: "private" },
+    );
+    expect((await ops.publicHosts(DEVICE)).map((row) => row.serverId)).toEqual([
+      "42",
+      "43",
+      "44",
+    ]);
+    expect((await ops.publicHosts(fixed)).map((row) => row.serverId)).toEqual([
+      "42",
+    ]);
+    const dynamic = { ...fixed, includeFutureHosts: true };
+    expect((await ops.publicHosts(dynamic)).map((row) => row.serverId)).toEqual(
+      ["42", "43"],
+    );
+    expect(await ops.assertHost(dynamic, "43")).toBe(43);
+    await expect(ops.assertHost(dynamic, "44")).rejects.toMatchObject({
+      code: "SERVER_DENIED",
+    });
+    await expect(ops.assertHost(dynamic, "45")).rejects.toMatchObject({
+      code: "SERVER_DENIED",
+    });
+    hosts[1].folder = "other";
+    await expect(ops.assertHost(dynamic, "43")).rejects.toMatchObject({
+      code: "SERVER_DENIED",
+    });
+    await ops.stop();
+  });
+
+  it("closes existing connections and leases after a grant is narrowed or revoked", async () => {
+    const f = fixture();
+    const ops = new AgentOperations(f.ctx);
+    await ops.restore();
+    const session = await ops.createSession(DEVICE, { serverId: "42" });
+    await ops.disconnectDevice(DEVICE.id);
+    expect(ops.sessionStatus(DEVICE, session.id)).toMatchObject({
+      state: "CLOSED",
+      writeLease: null,
+      attachments: [],
+    });
+    expect(f.dispose).toHaveBeenCalled();
     await ops.stop();
   });
 });

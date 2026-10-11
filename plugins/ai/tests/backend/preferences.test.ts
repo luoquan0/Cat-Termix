@@ -113,3 +113,140 @@ describe("AI user defaults and channel thinking settings", () => {
     );
   });
 });
+
+describe("v12 multi-model channel persistence", () => {
+  async function create(label: string, enabledModels?: string[]) {
+    return server!.request("POST", "/providers", {
+      body: {
+        providerType: "openai",
+        label,
+        apiKey: "private-key-" + label,
+        defaultModel: "same",
+        ...(enabledModels === undefined ? {} : { enabledModels }),
+      },
+    });
+  }
+
+  it("persists multiple enabled models per channel without exposing API keys", async () => {
+    server = await startServer();
+    await server.enableFor("user-1");
+    const a = await create("A", ["same", "a-only"]);
+    const b = await create("B", ["same", "b-only"]);
+    expect(a.status).toBe(201);
+    expect(b.status).toBe(201);
+    const aId = a.body.provider.id as number;
+    const bId = b.body.provider.id as number;
+    const listed = (await server.request("GET", "/providers")).body.providers;
+    expect(
+      listed.find((row: { id: number }) => row.id === aId).enabledModels,
+    ).toEqual(["same", "a-only"]);
+    expect(
+      listed.find((row: { id: number }) => row.id === bId).enabledModels,
+    ).toEqual(["same", "b-only"]);
+    expect(JSON.stringify(listed)).not.toContain("private-key-");
+    expect(
+      (
+        await server.request("PUT", "/preferences", {
+          body: { providerId: aId, model: "a-only", approvalMode: "auto" },
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await server.request("GET", "/preferences")).body.preferences,
+    ).toMatchObject({
+      model: "a-only",
+      providerModels: { [aId]: ["same", "a-only"], [bId]: ["same", "b-only"] },
+    });
+    expect(
+      (
+        await server.request("PUT", "/preferences", {
+          body: { providerId: bId, model: "a-only" },
+        })
+      ).status,
+    ).toBe(400);
+    await server.enableFor("user-2");
+    expect(
+      (
+        await server.request("PATCH", `/providers/${aId}`, {
+          user: "user-2",
+          body: { enabledModels: ["other"] },
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (await server.request("GET", "/providers", { user: "user-2" })).body
+        .providers,
+    ).toEqual([]);
+  });
+
+  it("removes disabled models from defaults, supports zero enabled models, and keeps legacy discovery", async () => {
+    server = await startServer();
+    await server.enableFor("user-1");
+    const legacy = await create("Legacy");
+    expect(legacy.body.provider.enabledModels).toBeNull();
+    const created = await create("Configured", ["same", "second"]);
+    const id = created.body.provider.id as number;
+    await server.request("PUT", "/preferences", {
+      body: { providerId: id, model: "same" },
+    });
+    const patched = await server.request("PATCH", `/providers/${id}`, {
+      body: { enabledModels: ["second"] },
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.body.provider).toMatchObject({
+      enabledModels: ["second"],
+      defaultModel: "second",
+    });
+    expect(
+      (await server.request("GET", "/preferences")).body.preferences.model,
+    ).toBe("second");
+    const empty = await server.request("PATCH", `/providers/${id}`, {
+      body: { enabledModels: [] },
+    });
+    expect(empty.body.provider).toMatchObject({
+      enabledModels: [],
+      defaultModel: null,
+    });
+    expect(
+      (await server.request("PUT", "/preferences", { body: { model: "same" } }))
+        .status,
+    ).toBe(400);
+    expect(
+      (
+        await server.request("PUT", "/preferences", {
+          body: { providerModels: { [id]: ["same"] } },
+        })
+      ).status,
+    ).toBe(400);
+    await server.request("DELETE", `/providers/${id}`);
+    expect(
+      (await server.request("GET", "/preferences")).body.preferences
+        .providerModels,
+    ).not.toHaveProperty(String(id));
+  });
+
+  it("rejects malformed model lists and disabled default models before writes", async () => {
+    server = await startServer();
+    await server.enableFor("user-1");
+    for (const enabledModels of [
+      ["other"],
+      [""],
+      "not-a-list",
+      Array(101).fill("same"),
+    ]) {
+      const response = await server.request("POST", "/providers", {
+        body: {
+          providerType: "openai",
+          label: "invalid",
+          apiKey: "test",
+          defaultModel: "same",
+          enabledModels,
+        },
+      });
+      expect(response.status).toBe(400);
+    }
+    expect((await server.request("GET", "/providers")).body.providers).toEqual(
+      [],
+    );
+  });
+});

@@ -65,6 +65,7 @@ describe("AiProviderSettings", () => {
       expect(api.updateAiProvider).toHaveBeenCalledWith(7, {
         label: "Production Ollama",
         defaultModel: "qwen3:32b",
+        enabledModels: ["qwen3:32b"],
         defaultReasoningEffort: "auto",
       });
     });
@@ -96,5 +97,61 @@ describe("AiProviderSettings", () => {
     expect(
       await screen.findByText("Add llm.internal to the AI endpoint allowlist"),
     ).toBeTruthy();
+  });
+});
+
+describe("enabled channel model editor", () => {
+  it("preserves multiple selected models when discovery is unavailable", async () => {
+    api.getAiProviderModels.mockRejectedValue(new Error("offline"));
+    const onChanged = vi.fn();
+    render(
+      <AiProviderSettings
+        providers={[
+          { ...provider, enabledModels: ["llama3.1", "private-model"] },
+        ]}
+        onChanged={onChanged}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "ai.editProvider" }));
+    expect(
+      await screen.findByRole("checkbox", { name: "private-model" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "ai.save" }));
+    await waitFor(() =>
+      expect(api.updateAiProvider).toHaveBeenCalledWith(
+        7,
+        expect.objectContaining({
+          enabledModels: ["llama3.1", "private-model"],
+        }),
+      ),
+    );
+  });
+
+  it("saves several models and removes an unchecked default instead of re-enabling it", async () => {
+    api.getAiProviderModels.mockResolvedValue([
+      "llama3.1",
+      "qwen3:32b",
+      "model-c",
+    ]);
+    render(
+      <AiProviderSettings
+        providers={[{ ...provider, enabledModels: ["llama3.1"] }]}
+        onChanged={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "ai.editProvider" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "qwen3:32b" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "model-c" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "llama3.1" }));
+    fireEvent.click(screen.getByRole("button", { name: "ai.save" }));
+    await waitFor(() =>
+      expect(api.updateAiProvider).toHaveBeenCalledWith(
+        7,
+        expect.objectContaining({
+          enabledModels: ["qwen3:32b", "model-c"],
+          defaultModel: "qwen3:32b",
+        }),
+      ),
+    );
   });
 });
