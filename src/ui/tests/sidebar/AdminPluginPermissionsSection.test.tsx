@@ -10,8 +10,9 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock("@/api/plugins-api", () => api);
+const translate = vi.hoisted(() => (key: string) => key);
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({ t: translate }),
 }));
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
