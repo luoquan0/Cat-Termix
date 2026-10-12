@@ -1,4 +1,4 @@
-name: Cat-Termix Update Proxy Input v15 Promotion
+name: Cat-Termix Shared Terminal and Chat Resume v16 Promotion
 
 # Promotion runs only when this workflow is deliberately edited after
 # independent source tests, native container smoke and immutable GHCR staging.
@@ -24,13 +24,13 @@ defaults:
 
 env:
   IMAGE: ghcr.io/luoquan0/cat-termix
-  SOURCE_SHA: 6acb9a262cf02ed071e277565bddc8ea4acc6698
-  PREVIEW_DIGEST: sha256:d8af187321d990408de0f514d77e4e42f6779f16346102414ea317b9b7bfb553
-  PREVIOUS_DIGEST: sha256:3208ca12b90964b75b8cbd9ade840686488766d068153b0f29f4b94b3aa79b41
-  PREVIOUS_FIXED_TAG: "2.9.2-cat-termix.14"
-  RELEASE_IMAGE_TAG: "2.9.2-cat-termix.15"
-  RELEASE_TAG: "v2.9.2-cat-termix.15"
-  VERIFIED_RUN_ID: "38192172852"
+  SOURCE_SHA: eb41e1d673f3b9879a7d2e4b303c683a098170fe
+  PREVIEW_DIGEST: sha256:3e95c711b40f108c2abdc13a3d35b3e5ba09d95002f296fc330d704839bcd011
+  PREVIOUS_DIGEST: sha256:d8af187321d990408de0f514d77e4e42f6779f16346102414ea317b9b7bfb553
+  PREVIOUS_FIXED_TAG: "2.9.2-cat-termix.15"
+  RELEASE_IMAGE_TAG: "2.9.2-cat-termix.16"
+  RELEASE_TAG: "v2.9.2-cat-termix.16"
+  VERIFIED_RUN_ID: "38197416477"
 
 jobs:
   promote:
@@ -119,4 +119,4 @@ jobs:
           echo "Source: $SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
           echo "CI verification: https://github.com/$GITHUB_REPOSITORY/actions/runs/$VERIFIED_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
           echo "Docker image: $IMAGE:ai-dev and $IMAGE:$RELEASE_IMAGE_TAG" >> "$GITHUB_STEP_SUMMARY"
-          echo "GitHub Releases entry v2.9.2-cat-termix.15 requires repository-owner creation (403 from GitHub Actions)" >> "$GITHUB_STEP_SUMMARY"
+          echo "GitHub Releases entry v2.9.2-cat-termix.16 requires repository-owner creation (403 from GitHub Actions)" >> "$GITHUB_STEP_SUMMARY"
