@@ -84,6 +84,15 @@ export const CAPABILITY_IDS: readonly string[] = CAPABILITY_CATALOG.map(
  */
 export type Capability = string;
 
+/**
+ * Privilege escalation must NEVER be silently granted just because a plugin
+ * ships bundled with the application. Other bundled capabilities preserve
+ * their existing compatibility behavior.
+ */
+export function mayAutoGrantBundledCapability(capability: string): boolean {
+  return capability !== "ssh:sudo";
+}
+
 const BY_ID = new Map(
   CAPABILITY_CATALOG.map((capability) => [capability.id, capability]),
 );

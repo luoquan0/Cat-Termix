@@ -18,6 +18,7 @@ import {
 import { PluginLoader, type LoadedPlugin } from "./loader.js";
 import type { PluginPermissionContribution } from "./manifest.js";
 import { invalidatePluginPermissionCache } from "./permissions.js";
+import { mayAutoGrantBundledCapability } from "@termix/plugin-sdk/capabilities";
 import { setSshAuthTypeOwnerSource } from "../hosts/connect/auth-provider-registry.js";
 import { setHostProtocolSource } from "../hosts/protocol-auth/registry.js";
 import { setSecretResolverOwnerSource } from "../hosts/connect/secret-resolver-registry.js";
@@ -171,7 +172,8 @@ async function seedPlugins(loaded: LoadedPlugin[]): Promise<void> {
  * A capability the manifest no longer declares is revoked: leaving it granted
  * would mean an upgrade silently kept a permission the new version never
  * asked for. Bundled plugins have every declared capability granted
- * automatically, since shipping in the install is the consent.
+ * automatically, except capabilities requiring explicit admin consent
+ * (currently ssh:sudo); shipping an update never grants root execution.
  */
 async function syncCapabilityGrants(loaded: LoadedPlugin[]): Promise<void> {
   const { createCurrentPluginPermissionGrantRepository } =
@@ -196,6 +198,7 @@ async function syncCapabilityGrants(loaded: LoadedPlugin[]): Promise<void> {
     const granted = new Set(existing.map((grant) => grant.capability));
     for (const capability of declared) {
       if (granted.has(capability)) continue;
+      if (!mayAutoGrantBundledCapability(capability)) continue;
       await repository.grant({
         pluginId: plugin.id,
         capability,
