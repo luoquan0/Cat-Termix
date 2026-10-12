@@ -336,7 +336,8 @@ describe("compact chat settings and a clean composer", () => {
     expect(
       screen.getByRole("combobox", { name: "ai.modelPicker" }).textContent,
     ).toContain("third-model");
-  });  it("remembers shared terminal execution across a new conversation", async () => {
+  });
+  it("remembers shared terminal execution across a new conversation", async () => {
     render(<AiPanel hostId={1} getTerminalSessionId={() => "terminal-1"} />);
     const composer = await ready();
     fireEvent.click(screen.getByRole("button", { name: "ai.chatSettings" }));
@@ -422,7 +423,9 @@ describe("compact chat settings and a clean composer", () => {
     const composer = await ready();
     await waitFor(() => expect(api.getAiConversation).toHaveBeenCalledWith(7));
     expect(await screen.findByText("Earlier answer")).toBeTruthy();
-    fireEvent.change(composer, { target: { value: "Continue our discussion" } });
+    fireEvent.change(composer, {
+      target: { value: "Continue our discussion" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "ai.send" }));
     await waitFor(() => expect(api.fetch).toHaveBeenCalledTimes(2));
     expect(JSON.parse(api.fetch.mock.calls[1][1].body)).toMatchObject({
@@ -431,7 +434,14 @@ describe("compact chat settings and a clean composer", () => {
       hostId: 1,
     });
 
-    await waitFor(() => expect(api.saveActiveAiConversation).toHaveBeenCalledWith(1, 7));
+    await waitFor(() =>
+      expect(api.saveActiveAiConversation).toHaveBeenCalledWith(1, 7),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "ai.newConversation" }),
+      ).toHaveProperty("disabled", false),
+    );
     fireEvent.click(screen.getByRole("button", { name: "ai.newConversation" }));
     await waitFor(() =>
       expect(api.saveActiveAiConversation).toHaveBeenCalledWith(1, null),
@@ -455,6 +465,4 @@ describe("compact chat settings and a clean composer", () => {
     expect(api.getAiConversation).not.toHaveBeenCalled();
     expect(api.saveActiveAiConversation).not.toHaveBeenCalled();
   });
-
-
 });

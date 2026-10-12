@@ -951,42 +951,50 @@ export function registerAiRoutes(
     ctx.rbac.require("use") as never,
     gate,
     async (req: Request, res: Response) => {
-      const body = req.body as
-        | { hostId?: unknown; conversationId?: unknown }
-        | null;
+      const body = req.body as {
+        hostId?: unknown;
+        conversationId?: unknown;
+      } | null;
       const hostId = body?.hostId;
       const conversationId = body?.conversationId;
       if (
         !body ||
         typeof body !== "object" ||
         Array.isArray(body) ||
-        !(hostId === null ||
+        !(
+          hostId === null ||
           (typeof hostId === "number" &&
             Number.isSafeInteger(hostId) &&
-            hostId > 0)) ||
-        !(conversationId === null ||
+            hostId > 0)
+        ) ||
+        !(
+          conversationId === null ||
           (typeof conversationId === "number" &&
             Number.isSafeInteger(conversationId) &&
-            conversationId > 0))
+            conversationId > 0)
+        )
       )
         return res.status(400).json({ error: "Invalid active conversation" });
+      // Runtime validation above precedes this TypeScript narrowing.
+      const scopedHostId = hostId as number | null;
+      const scopedConversationId = conversationId as number | null;
       try {
         const userId = actor(ctx);
-        if (conversationId !== null) {
+        if (scopedConversationId !== null) {
           const conversation = await repository.findConversation(
-            conversationId,
+            scopedConversationId,
             userId,
           );
-          if (!conversation || (conversation.hostId ?? null) !== hostId)
+          if (!conversation || (conversation.hostId ?? null) !== scopedHostId)
             return res.status(404).json({ error: "Conversation not found" });
         }
-        const key = hostId === null ? "global" : String(hostId);
+        const key = scopedHostId === null ? "global" : String(scopedHostId);
         const preferences = await repository.saveChatPreferences(
           userId,
           (current) => {
             const active = { ...current.activeConversations };
-            if (conversationId === null) delete active[key];
-            else active[key] = conversationId;
+            if (scopedConversationId === null) delete active[key];
+            else active[key] = scopedConversationId;
             return { activeConversations: active };
           },
         );

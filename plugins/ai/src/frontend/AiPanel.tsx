@@ -301,7 +301,9 @@ export function AiPanel({
     setModel(defaults.model);
     setReasoningEffort(defaults.reasoningEffort);
     setExecutionMode(
-      getTerminalSessionId ? (defaults.executionMode ?? "isolated") : "isolated",
+      getTerminalSessionId
+        ? (defaults.executionMode ?? "isolated")
+        : "isolated",
     );
     rememberActiveConversation(null);
     jumpToLatest();
@@ -512,7 +514,9 @@ export function AiPanel({
         setApprovalMode(stored.approvalMode);
         setReasoningEffort(stored.reasoningEffort);
         setExecutionMode(
-          getTerminalSessionId ? (stored.executionMode ?? "isolated") : "isolated",
+          getTerminalSessionId
+            ? (stored.executionMode ?? "isolated")
+            : "isolated",
         );
         setModel(stored.model);
         const list = await loadProviders(stored.providerId ?? undefined);

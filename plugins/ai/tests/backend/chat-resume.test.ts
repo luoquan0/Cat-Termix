@@ -31,31 +31,37 @@ describe("persistent execution mode and per-host active conversations", () => {
       executionMode: "shared",
       activeConversations: { global: 9, "1": 10 },
     });
-    expect(
-      normalizeAiPreferences({ executionMode: "bad" }).executionMode,
-    ).toBe("isolated");
+    expect(normalizeAiPreferences({ executionMode: "bad" }).executionMode).toBe(
+      "isolated",
+    );
   });
 
   it("persists shared execution but rejects invalid or forbidden preferences", async () => {
     server = await startServer();
     await server.enableFor("user-1");
     expect(
-      (await server.request("PUT", "/preferences", {
-        body: { executionMode: "shared" },
-      })).status,
+      (
+        await server.request("PUT", "/preferences", {
+          body: { executionMode: "shared" },
+        })
+      ).status,
     ).toBe(200);
     expect(
       (await server.request("GET", "/preferences")).body.preferences,
     ).toMatchObject({ executionMode: "shared" });
     expect(
-      (await server.request("PUT", "/preferences", {
-        body: { executionMode: "bogus" },
-      })).status,
+      (
+        await server.request("PUT", "/preferences", {
+          body: { executionMode: "bogus" },
+        })
+      ).status,
     ).toBe(400);
     expect(
-      (await server.request("PUT", "/preferences", {
-        body: { activeConversations: { global: 999 } },
-      })).status,
+      (
+        await server.request("PUT", "/preferences", {
+          body: { activeConversations: { global: 999 } },
+        })
+      ).status,
     ).toBe(400);
     await server.enableFor("user-2");
     expect(
@@ -82,29 +88,37 @@ describe("persistent execution mode and per-host active conversations", () => {
     const ownHost = { hostId: 1, conversationId: hostChat.id };
     const ownGlobal = { hostId: null, conversationId: globalChat.id };
     expect(
-      (await server.request("PUT", "/conversations/active", {
-        body: ownHost,
-      })).status,
+      (
+        await server.request("PUT", "/conversations/active", {
+          body: ownHost,
+        })
+      ).status,
     ).toBe(200);
     expect(
-      (await server.request("PUT", "/conversations/active", {
-        body: ownGlobal,
-      })).status,
+      (
+        await server.request("PUT", "/conversations/active", {
+          body: ownGlobal,
+        })
+      ).status,
     ).toBe(200);
     expect(
       (await server.request("GET", "/preferences")).body.preferences
         .activeConversations,
     ).toEqual({ "1": hostChat.id, global: globalChat.id });
     expect(
-      (await server.request("PUT", "/conversations/active", {
-        body: { hostId: null, conversationId: hostChat.id },
-      })).status,
+      (
+        await server.request("PUT", "/conversations/active", {
+          body: { hostId: null, conversationId: hostChat.id },
+        })
+      ).status,
     ).toBe(404);
     expect(
-      (await server.request("PUT", "/conversations/active", {
-        user: "user-2",
-        body: ownHost,
-      })).status,
+      (
+        await server.request("PUT", "/conversations/active", {
+          user: "user-2",
+          body: ownHost,
+        })
+      ).status,
     ).toBe(404);
     for (const body of [
       { hostId: -1, conversationId: hostChat.id },
@@ -117,9 +131,11 @@ describe("persistent execution mode and per-host active conversations", () => {
         (await server.request("PUT", "/conversations/active", { body })).status,
       ).toBe(400);
     expect(
-      (await server.request("PUT", "/conversations/active", {
-        body: { hostId: 1, conversationId: null },
-      })).status,
+      (
+        await server.request("PUT", "/conversations/active", {
+          body: { hostId: 1, conversationId: null },
+        })
+      ).status,
     ).toBe(200);
     expect(
       (await server.request("GET", "/preferences")).body.preferences
