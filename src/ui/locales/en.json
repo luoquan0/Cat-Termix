@@ -1208,6 +1208,27 @@
     "hostsAvailable": "Hosts Available"
   },
   "admin": {
+    "pluginCapabilities": {
+      "section": "Plugin permissions",
+      "description": "Review and explicitly approve the capabilities plugins can use. Device grants are separate. Critical access, including root commands, remains off until approved here.",
+      "search": "Search plugins or capabilities",
+      "refresh": "Refresh",
+      "empty": "No matching plugins or insufficient administrator permissions.",
+      "disabled": "Disabled",
+      "critical": "Critical",
+      "granted": "Granted",
+      "notGranted": "Not granted",
+      "grant": "Grant",
+      "revoke": "Revoke",
+      "approved": "Capability granted and verified",
+      "revoked": "Capability revoked and verified",
+      "loadError": "Failed to load plugin permissions",
+      "saveError": "Failed to change or verify the plugin permission",
+      "loadOrSaveError": "Plugin permission status could not be verified. Refresh before proceeding.",
+      "confirmTitle": "Approve critical plugin capability?",
+      "confirmDescription": "Granting {{capability}} to {{plugin}} permits extremely sensitive operations, including root commands for ssh:sudo. Only approve fully trusted plugins. Device-level sudo:execute authorization is still required.",
+      "confirm": "Approve critical access"
+    },
     "sectionGeneral": "General",
     "sectionUsers": "Users",
     "sectionSessions": "Sessions",

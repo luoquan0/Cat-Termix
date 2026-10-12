@@ -243,3 +243,23 @@ export async function getPlugins(): Promise<PluginSummary[]> {
   const response = await rbacApi.get("/plugins");
   return Array.isArray(response.data) ? response.data : [];
 }
+
+/** Grant a manifest-declared capability install-wide (requires admin.plugins.manage). */
+export async function grantPluginCapability(
+  pluginId: string,
+  capability: string,
+): Promise<void> {
+  await rbacApi.post(`/plugins/${encodeURIComponent(pluginId)}/grants`, {
+    capability,
+  });
+}
+
+/** Revoke a capability immediately. The backend invalidates its permission cache. */
+export async function revokePluginCapability(
+  pluginId: string,
+  capability: string,
+): Promise<void> {
+  await rbacApi.delete(
+    `/plugins/${encodeURIComponent(pluginId)}/grants/${encodeURIComponent(capability)}`,
+  );
+}

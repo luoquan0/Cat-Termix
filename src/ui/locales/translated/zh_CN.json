@@ -1208,6 +1208,27 @@
     "hostsAvailable": "可提供的房东"
   },
   "admin": {
+    "pluginCapabilities": {
+      "section": "插件权限中心",
+      "description": "查看并单独批准插件可使用的能力。设备授权与插件授权相互独立；包含 root 命令在内的高危能力默认关闭，需在此确认后开启。",
+      "search": "搜索插件或权限",
+      "refresh": "刷新",
+      "empty": "没有匹配的插件，或当前账号缺少插件管理权限。",
+      "disabled": "已停用",
+      "critical": "严重风险",
+      "granted": "已批准",
+      "notGranted": "未批准",
+      "grant": "批准",
+      "revoke": "撤销",
+      "approved": "插件权限已批准并核实",
+      "revoked": "插件权限已撤销并核实",
+      "loadError": "加载插件权限失败",
+      "saveError": "修改或核实插件权限失败",
+      "loadOrSaveError": "无法核实插件权限状态，请刷新后再操作。",
+      "confirmTitle": "确认批准高危插件能力？",
+      "confirmDescription": "向 {{plugin}} 授予 {{capability}} 将允许极高权限操作；若为 ssh:sudo，则可在已授权主机执行 root 命令。请只批准完全可信的插件。设备仍须单独获得 sudo:execute 权限。",
+      "confirm": "确认批准高危权限"
+    },
     "sectionGeneral": "通用",
     "sectionUsers": "用户",
     "sectionSessions": "会话",

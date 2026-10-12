@@ -54,6 +54,7 @@ import {
 } from "@/main-axios";
 import { type AdminSection, type Host } from "@/types/ui-types";
 import { AdminSystemSettingsExtensions } from "@/settings/AdminSystemSettingsExtensions";
+import { AdminPluginPermissionsSection } from "./AdminPluginPermissionsSection";
 import {
   FeatureSettingsSection,
   featureSectionId,
@@ -112,6 +113,7 @@ export function AdminSettingsPanel({
     Set<AdminSection | FeatureSectionId>
   >(() => new Set(["general"]));
   const featureSettings = useFeatureSettings("admin");
+  const [pluginPermissionsOpen, setPluginPermissionsOpen] = useState(false);
   const [manageUser, setManageUser] = useState<AdminUser | null>(null);
   const [allowRegistration, setAllowRegistration] = useState(true);
   const [allowPasswordLogin, setAllowPasswordLogin] = useState(true);
@@ -791,6 +793,11 @@ export function AdminSettingsPanel({
       />
 
       <AdminSystemSettingsExtensions />
+
+      <AdminPluginPermissionsSection
+        open={pluginPermissionsOpen}
+        onToggle={() => setPluginPermissionsOpen((value) => !value)}
+      />
 
       <AdminUsersSection
         open={openSections.has("users")}
