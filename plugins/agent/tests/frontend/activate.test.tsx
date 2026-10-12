@@ -114,7 +114,7 @@ describe("copying the Local Agent install command", () => {
         expect.stringContaining("auth login --url"),
       ),
     );
-    expect(await screen.findByRole("status")).toHaveTextContent(
+    expect((await screen.findByRole("status")).textContent).toContain(
       "Copied to clipboard",
     );
   });
@@ -125,7 +125,7 @@ describe("copying the Local Agent install command", () => {
     const button = await showPanel();
     fireEvent.click(button);
     expect(copy).toHaveBeenCalledWith("copy");
-    expect(await screen.findByRole("status")).toHaveTextContent(
+    expect((await screen.findByRole("status")).textContent).toContain(
       "Copied to clipboard",
     );
     expect(document.querySelector("textarea")).toBeNull();
@@ -138,7 +138,7 @@ describe("copying the Local Agent install command", () => {
     setLegacyCopy(false);
     const button = await showPanel();
     fireEvent.click(button);
-    expect(await screen.findByRole("alert")).toHaveTextContent(
+    expect((await screen.findByRole("alert")).textContent).toContain(
       "Copy failed. Select the command and copy it manually.",
     );
     expect(screen.queryByRole("status")).toBeNull();
