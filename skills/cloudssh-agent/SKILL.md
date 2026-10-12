@@ -392,4 +392,12 @@ node <脚本> sessions detach --session <sessionId>
 
 ## Cat-Termix compatibility note
 
-This copied Skill is for the upcoming Cat-Termix local-agent preview. The new server uses an owner's folder-scoped host grants instead of the old team project model. Do not assume that legacy project identifiers or previous device approvals transfer between installs. First pair a new device and verify the returned projects and host IDs. Unavailable operations must fail rather than bypass authorizations.
+This Skill is compatible with the Cat-Termix Local Agent, which uses owner/folder-scoped
+host grants rather than the legacy team-project model. **Always run `auth status`
+first** and reuse an existing paired identity if its `baseUrl` matches the intended
+instance and the key remains accessible. Do not automatically re-pair, reset the
+profile, or re-create the device when it is already authorized. Only a new platform
+instance or a truly missing/revoked identity requires a new approval. Legacy project
+IDs and approvals from a *different* instance are not transferable. Verify available
+host IDs and permissions through `servers list`; unavailable operations must fail
+rather than bypass authorization.
