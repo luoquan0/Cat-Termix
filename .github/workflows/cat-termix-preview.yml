@@ -80,6 +80,33 @@ jobs:
           git diff --diff-filter=ACM --name-only -z 3ff60c1446a0ef4c5eea621e54ca41b4c18dba25 HEAD -- '*.ts' '*.tsx' '*.json' | xargs -0 -r npx prettier --write
           git diff --binary > /tmp/cat-termix-reports/format.patch
           git diff --exit-code
+      - name: Package validated CloudSSH Agent Skill
+        if: success()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+
+          root = Path("skills/cloudssh-agent")
+          names = ("SKILL.md", "agents/openai.yaml", "scripts/cloudssh.mjs")
+          assert (root / "SKILL.md").read_text(encoding="utf-8").startswith("---\nname: cloudssh-agent\n")
+          output = Path("/tmp/cat-termix-reports/skill.zip")
+          output.parent.mkdir(parents=True, exist_ok=True)
+          with ZipFile(output, "w", ZIP_DEFLATED, compresslevel=9) as archive:
+              for name in names:
+                  source = root / name
+                  assert source.is_file() and source.stat().st_size > 0, source
+                  archive.write(source, f"cloudssh-agent/{name}")
+          with ZipFile(output) as archive:
+              assert archive.testzip() is None
+              assert sorted(archive.namelist()) == sorted(f"cloudssh-agent/{name}" for name in names)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: cloudssh-agent-skill-${{ github.run_id }}
+          path: /tmp/cat-termix-reports/skill.zip
+          retention-days: 30
       - name: Archive exact source and reports
         if: always()
         run: |
