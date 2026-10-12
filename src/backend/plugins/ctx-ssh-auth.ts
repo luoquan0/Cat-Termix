@@ -302,8 +302,7 @@ export function createPluginSsh({ manifest, bag, audit }: Deps): PluginSsh {
       try {
         if (!Number.isSafeInteger(hostId) || hostId <= 0)
           throw new Error("INVALID_SUDO_HOST");
-        const { resolveHostById } =
-          await import("../hosts/host-resolver.js");
+        const { resolveHostById } = await import("../hosts/host-resolver.js");
         const host = await resolveHostById(hostId, userId);
         // Sharing a host (or admin bypass) does not share the owner's sudo
         // secret. Never return the decrypted credential to the plugin.

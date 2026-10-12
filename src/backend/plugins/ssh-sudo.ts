@@ -23,8 +23,7 @@ function shellQuote(text: string): string {
  */
 export function sudoCommandLine(command: string): string {
   return (
-    "sudo -k -S -p '' -- sh -c " +
-    shellQuote("exec 0</dev/null; " + command)
+    "sudo -k -S -p '' -- sh -c " + shellQuote("exec 0</dev/null; " + command)
   );
 }
 
@@ -104,7 +103,9 @@ export function runSudoCommand(
         channel.end(password + "\n");
       });
     } catch (error) {
-      finish(error instanceof Error ? error : new Error("Sudo SSH exec failed"));
+      finish(
+        error instanceof Error ? error : new Error("Sudo SSH exec failed"),
+      );
     }
   });
 }

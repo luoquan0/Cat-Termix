@@ -369,10 +369,17 @@ export async function activate(ctx: PluginContext) {
         requireScope(device, "sudo:execute");
       }
       const result = await mutation(req, device, () =>
-        operations.createJob(device, b.serverId, b.command, b.timeoutMs, b.sudo),
+        operations.createJob(
+          device,
+          b.serverId,
+          b.command,
+          b.timeoutMs,
+          b.sudo,
+        ),
       );
       await ctx.audit.record({
-        action: b.sudo === true ? "agent_sudo_job_started" : "agent_job_started",
+        action:
+          b.sudo === true ? "agent_sudo_job_started" : "agent_job_started",
         resourceType: "host",
         resourceId: String(b.serverId),
         success: true,

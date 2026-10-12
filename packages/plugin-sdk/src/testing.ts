@@ -997,6 +997,11 @@ export function createFakeContext(
     },
 
     ssh: {
+      // The test harness never decrypts sudo credentials; privileged calls
+      // must be explicitly mocked by the individual test.
+      execSudo: async () => {
+        throw new Error("sudo unsupported by the test SSH harness");
+      },
       connect: async (host, connectOptions) => {
         sshConnections.push({ host, options: connectOptions });
         return {

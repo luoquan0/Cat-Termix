@@ -169,9 +169,11 @@ describe("critical root execution authorization", () => {
     const devices = (await f.request("GET", "/admin/devices")).body.devices;
     expect(devices[0].scopes).not.toContain("sudo:execute");
     expect(
-      (await f.request("PATCH", path, {
-        scopes: ["files:read", "sudo:execute"],
-      })).status,
+      (
+        await f.request("PATCH", path, {
+          scopes: ["files:read", "sudo:execute"],
+        })
+      ).status,
     ).toBe(400);
     const payload = { serverId: "1", command: "id -u", sudo: true };
     const denied = await f.signedJob(payload, "sudo-grant-retry");
@@ -192,10 +194,7 @@ describe("critical root execution authorization", () => {
     await f.request("PATCH", path, {
       scopes: ["files:read", "jobs:execute"],
     });
-    const revoked = await f.signedJob(
-      payload,
-      "sudo-grant-after-revocation",
-    );
+    const revoked = await f.signedJob(payload, "sudo-grant-after-revocation");
     expect(revoked.status).toBe(403);
     expect(revoked.body.code).toBe("SCOPE_DENIED");
   });

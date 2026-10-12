@@ -350,70 +350,70 @@ export class AgentOperations {
             purpose: "agent-job",
             profile: "background",
           });
-        try {
-          await new Promise<void>((resolve, reject) => {
-            let settled = false;
-            const finish = (failure?: Error) => {
-              if (settled) return;
-              settled = true;
-              if (timer) clearTimeout(timer);
-              this.activeJobs.delete(job.id);
-              if (failure) reject(failure);
-              else resolve();
-            };
-            end = () => finish(new Error("Canceled"));
-            if (this.cancelRequests.has(job.id)) {
-              aborted = true;
-              finish(new Error("Canceled"));
-              return;
-            }
-            connection.client.exec(job.command, (err, stream) => {
-              if (err) {
-                finish(err);
-                return;
-              }
+          try {
+            await new Promise<void>((resolve, reject) => {
+              let settled = false;
+              const finish = (failure?: Error) => {
+                if (settled) return;
+                settled = true;
+                if (timer) clearTimeout(timer);
+                this.activeJobs.delete(job.id);
+                if (failure) reject(failure);
+                else resolve();
+              };
+              end = () => finish(new Error("Canceled"));
               if (this.cancelRequests.has(job.id)) {
                 aborted = true;
-                stream.close();
                 finish(new Error("Canceled"));
                 return;
               }
-              timer = setTimeout(() => {
-                timedOut = true;
-                stream.close();
-                finish(new Error("Timed out"));
-              }, job.timeoutMs);
-              this.activeJobs.set(job.id, {
-                cancel: () => {
+              connection.client.exec(job.command, (err, stream) => {
+                if (err) {
+                  finish(err);
+                  return;
+                }
+                if (this.cancelRequests.has(job.id)) {
                   aborted = true;
                   stream.close();
                   finish(new Error("Canceled"));
-                },
+                  return;
+                }
+                timer = setTimeout(() => {
+                  timedOut = true;
+                  stream.close();
+                  finish(new Error("Timed out"));
+                }, job.timeoutMs);
+                this.activeJobs.set(job.id, {
+                  cancel: () => {
+                    aborted = true;
+                    stream.close();
+                    finish(new Error("Canceled"));
+                  },
+                });
+                const append = (
+                  field: "stdout" | "stderr",
+                  chunk: Buffer | string,
+                ) => {
+                  const current = job[field];
+                  if (current.length < 65_536)
+                    job[field] = (current + chunk.toString()).slice(0, 65_536);
+                };
+                stream.on("data", (chunk: Buffer | string) =>
+                  append("stdout", chunk),
+                );
+                stream.stderr.on("data", (chunk: Buffer | string) =>
+                  append("stderr", chunk),
+                );
+                stream.on("exit", (code: number | null) => {
+                  job.exitCode = code;
+                });
+                stream.on("close", () => finish());
+                stream.on("error", (failure: Error) => finish(failure));
               });
-              const append = (
-                field: "stdout" | "stderr",
-                chunk: Buffer | string,
-              ) => {
-                const current = job[field];
-                if (current.length < 65_536)
-                  job[field] = (current + chunk.toString()).slice(0, 65_536);
-              };
-              stream.on("data", (chunk: Buffer | string) =>
-                append("stdout", chunk),
-              );
-              stream.stderr.on("data", (chunk: Buffer | string) =>
-                append("stderr", chunk),
-              );
-              stream.on("exit", (code: number | null) => {
-                job.exitCode = code;
-              });
-              stream.on("close", () => finish());
-              stream.on("error", (failure: Error) => finish(failure));
             });
-          });
-        } finally {
-          connection.dispose();
-        }
+          } finally {
+            connection.dispose();
+          }
         });
       }
       job.state = job.exitCode === 0 ? "SUCCEEDED" : "FAILED";

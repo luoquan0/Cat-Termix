@@ -61,17 +61,19 @@ function fixture() {
     asUser: async (_owner: string, fn: () => unknown) => fn(),
     ssh: {
       connect: vi.fn(async () => ({ client, dispose })),
-      execSudo: vi.fn(async (
-        _hostId: number,
-        _command: string,
-        options: {
-          onStdout?: (chunk: string) => void;
-          onStderr?: (chunk: string) => void;
+      execSudo: vi.fn(
+        async (
+          _hostId: number,
+          _command: string,
+          options: {
+            onStdout?: (chunk: string) => void;
+            onStderr?: (chunk: string) => void;
+          },
+        ) => {
+          options.onStdout?.("0\n");
+          return { exitCode: 0 };
         },
-      ) => {
-        options.onStdout?.("0\n");
-        return { exitCode: 0 };
-      }),
+      ),
     },
   } as unknown as PluginContext;
   return { ctx, stored, stream, client, dispose };

@@ -10,8 +10,10 @@ function fakeClient() {
   });
   const client = {
     exec: vi.fn(
-      (_command: string, callback: (error: Error | null, stream: unknown) => void) =>
-        callback(null, channel),
+      (
+        _command: string,
+        callback: (error: Error | null, stream: unknown) => void,
+      ) => callback(null, channel),
     ),
   };
   return { client, channel };
@@ -22,15 +24,10 @@ describe("core-owned sudo exec", () => {
     const f = fakeClient();
     const password = "VERY_PRIVATE_'_SUDO_PASS";
     const command = "id -u; printf '%s' done";
-    const running = runSudoCommand(
-      f.client as never,
-      command,
-      password,
-      {
-        onStdout: vi.fn(),
-        onStderr: vi.fn(),
-      },
-    );
+    const running = runSudoCommand(f.client as never, command, password, {
+      onStdout: vi.fn(),
+      onStderr: vi.fn(),
+    });
     const argv = f.client.exec.mock.calls[0][0];
     expect(argv).toContain("sudo -k -S -p '' -- sh -c");
     expect(argv).toContain("exec 0</dev/null;");

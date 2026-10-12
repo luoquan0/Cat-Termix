@@ -79,9 +79,7 @@ function LocalAgentPanel() {
   const [accessMode, setAccessMode] = useState<"all" | "selected">("all");
   const [selected, setSelected] = useState<string[]>([]);
   const [scopes, setScopes] = useState<string[]>(
-    scopeChoices.filter(
-      (x) => x !== "files:write" && x !== "sudo:execute",
-    ),
+    scopeChoices.filter((x) => x !== "files:write" && x !== "sudo:execute"),
   );
   const [maxSessions, setMaxSessions] = useState(1);
   const [expires, setExpires] = useState("");
@@ -220,21 +218,24 @@ function LocalAgentPanel() {
                             : prev.filter(
                                 (x) =>
                                   x !== scope &&
-                                  !(scope === "jobs:execute" && x === "sudo:execute"),
+                                  !(
+                                    scope === "jobs:execute" &&
+                                    x === "sudo:execute"
+                                  ),
                               ),
                         )
                       }
                     />
                     <span className="font-mono text-xs">
-                      {scope === "sudo:execute"
-                        ? t("agent.scopeSudo")
-                        : scope}
+                      {scope === "sudo:execute" ? t("agent.scopeSudo") : scope}
                     </span>
                   </label>
                 ))}
               </div>
               <p className="text-xs text-amber-600">{t("agent.scopeWrite")}</p>
-              <p className="text-xs text-red-600">{t("agent.scopeSudoWarning")}</p>
+              <p className="text-xs text-red-600">
+                {t("agent.scopeSudoWarning")}
+              </p>
             </fieldset>
             <fieldset className="space-y-2">
               <legend className="font-semibold">{t("agent.projects")}</legend>
