@@ -22,6 +22,10 @@ export interface AiChatPreferences {
   model: string;
   approvalMode: "review" | "auto";
   reasoningEffort: ReasoningEffort;
+  /** Shared execution is a user default, never a terminal-session ID. */
+  executionMode?: "isolated" | "shared";
+  /** Last opened conversation per host; "global" is the hostless assistant. */
+  activeConversations?: Record<string, number>;
   /** User-owned default effort per configured provider ID. */
   providerEfforts: Record<string, ReasoningEffort>;
   /** Missing channel keys retain legacy discovery. [] explicitly disables all models. */
@@ -33,6 +37,8 @@ export const DEFAULT_AI_PREFERENCES: AiChatPreferences = {
   model: "",
   approvalMode: "review",
   reasoningEffort: "auto",
+  executionMode: "isolated",
+  activeConversations: {},
   providerEfforts: {},
   providerModels: {},
 };
@@ -52,6 +58,20 @@ export function normalizeAiPreferences(input: unknown): AiChatPreferences {
       ? obj.providerEfforts
       : {},
   ).filter(([id, effort]) => /^\d+$/.test(id) && isReasoningEffort(effort));
+  const activeEntries = Object.entries(
+    obj.activeConversations &&
+      typeof obj.activeConversations === "object" &&
+      !Array.isArray(obj.activeConversations)
+      ? obj.activeConversations
+      : {},
+  )
+    .filter(
+      ([key, id]) =>
+        (key === "global" || /^[1-9]\d*$/.test(key)) &&
+        Number.isSafeInteger(id) &&
+        (id as number) > 0,
+    )
+    .slice(0, 100);
   const modelEntries = Object.entries(
     obj.providerModels &&
       typeof obj.providerModels === "object" &&
@@ -79,6 +99,8 @@ export function normalizeAiPreferences(input: unknown): AiChatPreferences {
     reasoningEffort: isReasoningEffort(obj.reasoningEffort)
       ? obj.reasoningEffort
       : "auto",
+    executionMode: obj.executionMode === "shared" ? "shared" : "isolated",
+    activeConversations: Object.fromEntries(activeEntries),
     providerEfforts: Object.fromEntries(effortEntries),
     providerModels: Object.fromEntries(modelEntries),
   };

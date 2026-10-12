@@ -42,6 +42,7 @@ import {
   getAiProviders,
   getAiPreferences,
   saveAiPreferences,
+  saveActiveAiConversation,
   getAiStatus,
   setAiOptIn,
   type AiConversation,
@@ -114,6 +115,7 @@ export function AiPanel({
     providerModels: {},
   });
   const preferenceWriteRef = useRef<Promise<unknown>>(Promise.resolve());
+  const activeWriteRef = useRef<Promise<unknown>>(Promise.resolve());
   const initializedRef = useRef(false);
   const enabledProviders = useMemo(
     () => providers.filter((provider) => provider.enabled),
@@ -132,6 +134,7 @@ export function AiPanel({
       const {
         providerEfforts: _providerEfforts,
         providerModels: _providerModels,
+        activeConversations: _activeConversations,
         ...writable
       } = updated;
       preferenceWriteRef.current = preferenceWriteRef.current
@@ -140,6 +143,27 @@ export function AiPanel({
         .catch(() => toast.error(t("ai.preferencesSaveFailed")));
     },
     [t],
+  );
+
+  const rememberActiveConversation = useCallback(
+    (id: number | null) => {
+      if (!initializedRef.current) return;
+      const key = hostId === undefined ? "global" : String(hostId);
+      const active = { ...preferenceRef.current.activeConversations };
+      if (id === null) delete active[key];
+      else active[key] = id;
+      preferenceRef.current = {
+        ...preferenceRef.current,
+        activeConversations: active,
+      };
+      // Serialize panel changes: a deliberate New Chat must not be overtaken
+      // by a slower previous history selection/save.
+      activeWriteRef.current = activeWriteRef.current
+        .catch(() => undefined)
+        .then(() => saveActiveAiConversation(hostId ?? null, id))
+        .catch(() => toast.error(t("ai.preferencesSaveFailed")));
+    },
+    [hostId, t],
   );
 
   const chooseModel = useCallback(
@@ -187,6 +211,11 @@ export function AiPanel({
     [persistPreference],
   );
   const [executionMode, setExecutionMode] = useState<ExecutionMode>("isolated");
+  const changeExecutionMode = (mode: ExecutionMode) => {
+    setExecutionMode(mode);
+    persistPreference({ executionMode: mode });
+    jumpToLatest();
+  };
   const [executingProposalId, setExecutingProposalId] = useState<number | null>(
     null,
   );
@@ -271,7 +300,10 @@ export function AiPanel({
     setProviderId(defaults.providerId);
     setModel(defaults.model);
     setReasoningEffort(defaults.reasoningEffort);
-    setExecutionMode("isolated");
+    setExecutionMode(
+      getTerminalSessionId ? (defaults.executionMode ?? "isolated") : "isolated",
+    );
+    rememberActiveConversation(null);
     jumpToLatest();
     setInput("");
     setMention(null);
@@ -355,7 +387,11 @@ export function AiPanel({
     }
   }, [hostId, t]);
 
-  const openConversation = async (id: number) => {
+  const openConversation = async (
+    id: number,
+    availableProviders: AiProvider[] = providers,
+    restoring = false,
+  ) => {
     if (executing || loadingConversationId !== null) return;
     const operation = ++historyOperationRef.current;
     setLoadingConversationId(id);
@@ -372,7 +408,11 @@ export function AiPanel({
       setPendingResolutions([]);
       // Approval remains the saved user preference across conversations.
       setApprovalMode(preferenceRef.current.approvalMode);
-      setExecutionMode("isolated");
+      setExecutionMode(
+        getTerminalSessionId
+          ? (preferenceRef.current.executionMode ?? "isolated")
+          : "isolated",
+      );
       jumpToLatest();
       setInput("");
       setMention(null);
@@ -380,7 +420,7 @@ export function AiPanel({
       runCountRef.current = saved.messages.length;
       if (
         saved.conversation.providerId &&
-        providers.some(
+        availableProviders.some(
           (item) => item.id === saved.conversation.providerId && item.enabled,
         )
       ) {
@@ -417,6 +457,12 @@ export function AiPanel({
       setShowHistory(false);
     } catch (error) {
       if (historyOperationRef.current === operation) {
+        if (
+          restoring &&
+          error instanceof Error &&
+          error.message === "Conversation not found"
+        )
+          rememberActiveConversation(null);
         setHistoryError(
           error instanceof Error ? error.message : t("ai.historyLoadFailed"),
         );
@@ -465,6 +511,9 @@ export function AiPanel({
         preferenceRef.current = stored;
         setApprovalMode(stored.approvalMode);
         setReasoningEffort(stored.reasoningEffort);
+        setExecutionMode(
+          getTerminalSessionId ? (stored.executionMode ?? "isolated") : "isolated",
+        );
         setModel(stored.model);
         const list = await loadProviders(stored.providerId ?? undefined);
         if (cancelled) return;
@@ -476,6 +525,12 @@ export function AiPanel({
         }
         initializedRef.current = true;
         void refreshConversations();
+        const lastId =
+          stored.activeConversations?.[
+            hostId === undefined ? "global" : String(hostId)
+          ];
+        if (lastId) await openConversation(lastId, list, true);
+        if (cancelled) return;
         // With nothing configured there is nothing to chat with, so go
         // straight to the form instead of showing a card that just vanishes.
         if (!cancelled && list.length === 0) setShowSettings(true);
@@ -492,6 +547,16 @@ export function AiPanel({
       cancelled = true;
     };
   }, [loadProviders, refreshConversations, t]);
+
+  // New stream conversations are assigned an ID by the server; remember the
+  // first committed ID so closing/reopening the panel restores this thread.
+  useEffect(() => {
+    const id = state.conversationId;
+    if (!initializedRef.current || !id) return;
+    const key = hostId === undefined ? "global" : String(hostId);
+    if (preferenceRef.current.activeConversations?.[key] !== id)
+      rememberActiveConversation(id);
+  }, [state.conversationId, hostId, rememberActiveConversation]);
 
   // The run's steps stay in the transcript, so the next message does not wipe
   // what the assistant already looked at.
@@ -814,12 +879,7 @@ export function AiPanel({
                 disabled={executing}
                 executionMode={executionMode}
                 onExecutionModeChange={
-                  getTerminalSessionId
-                    ? (mode) => {
-                        setExecutionMode(mode);
-                        jumpToLatest();
-                      }
-                    : undefined
+                  getTerminalSessionId ? changeExecutionMode : undefined
                 }
               />
             )}

@@ -69,6 +69,18 @@ export async function saveAiPreferences(
   }
 }
 
+/** Change only this user's active chat in a single host scope. */
+export async function saveActiveAiConversation(
+  hostId: number | null,
+  conversationId: number | null,
+): Promise<void> {
+  try {
+    await api().put("/conversations/active", { hostId, conversationId });
+  } catch (error) {
+    throw apiError(error, "save active AI conversation");
+  }
+}
+
 export interface AiConversation {
   id: number;
   title: string | null;

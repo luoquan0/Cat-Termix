@@ -265,8 +265,15 @@ export function registerAiRoutes(
       )
         return res.status(400).json({ error: "Invalid reasoning effort" });
       if (
+        patch.executionMode !== undefined &&
+        patch.executionMode !== "shared" &&
+        patch.executionMode !== "isolated"
+      )
+        return res.status(400).json({ error: "Invalid execution mode" });
+      if (
         patch.providerEfforts !== undefined ||
-        patch.providerModels !== undefined
+        patch.providerModels !== undefined ||
+        patch.activeConversations !== undefined
       )
         return res
           .status(400)
@@ -938,6 +945,61 @@ export function registerAiRoutes(
     },
   );
 
+  /** Persist the active chat per user and host, never across users or hosts. */
+  router.put(
+    "/conversations/active",
+    ctx.rbac.require("use") as never,
+    gate,
+    async (req: Request, res: Response) => {
+      const body = req.body as
+        | { hostId?: unknown; conversationId?: unknown }
+        | null;
+      const hostId = body?.hostId;
+      const conversationId = body?.conversationId;
+      if (
+        !body ||
+        typeof body !== "object" ||
+        Array.isArray(body) ||
+        !(hostId === null ||
+          (typeof hostId === "number" &&
+            Number.isSafeInteger(hostId) &&
+            hostId > 0)) ||
+        !(conversationId === null ||
+          (typeof conversationId === "number" &&
+            Number.isSafeInteger(conversationId) &&
+            conversationId > 0))
+      )
+        return res.status(400).json({ error: "Invalid active conversation" });
+      try {
+        const userId = actor(ctx);
+        if (conversationId !== null) {
+          const conversation = await repository.findConversation(
+            conversationId,
+            userId,
+          );
+          if (!conversation || (conversation.hostId ?? null) !== hostId)
+            return res.status(404).json({ error: "Conversation not found" });
+        }
+        const key = hostId === null ? "global" : String(hostId);
+        const preferences = await repository.saveChatPreferences(
+          userId,
+          (current) => {
+            const active = { ...current.activeConversations };
+            if (conversationId === null) delete active[key];
+            else active[key] = conversationId;
+            return { activeConversations: active };
+          },
+        );
+        res.json({
+          conversationId: preferences.activeConversations?.[key] ?? null,
+        });
+      } catch (error) {
+        logError("Failed to save active AI conversation", error);
+        res.status(500).json({ error: "Failed to save active conversation" });
+      }
+    },
+  );
+
   /**
    * @openapi
    * /plugin-api/ai/conversations:
@@ -1069,6 +1131,13 @@ export function registerAiRoutes(
         if (!deleted) {
           return res.status(404).json({ error: "Conversation not found" });
         }
+        await repository.saveChatPreferences(actor(ctx), (current) => ({
+          activeConversations: Object.fromEntries(
+            Object.entries(current.activeConversations ?? {}).filter(
+              ([, activeId]) => activeId !== id,
+            ),
+          ),
+        }));
         res.json({ success: true });
       } catch (err) {
         logError("Failed to delete AI conversation", err);

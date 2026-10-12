@@ -24,6 +24,7 @@ const api = vi.hoisted(() => ({
   getAiProviders: vi.fn(),
   getAiPreferences: vi.fn(),
   saveAiPreferences: vi.fn(),
+  saveActiveAiConversation: vi.fn(),
   updateAiProvider: vi.fn(),
   getAiProviderModels: vi.fn(),
   getAiModelContext: vi.fn(),
@@ -69,6 +70,7 @@ beforeEach(() => {
     providerModels: { "1": ["auto-model"] },
   });
   api.saveAiPreferences.mockResolvedValue({});
+  api.saveActiveAiConversation.mockResolvedValue(undefined);
   api.updateAiProvider.mockImplementation(
     async (id: number, patch: { enabledModels: string[] }) => ({
       id,
@@ -334,5 +336,125 @@ describe("compact chat settings and a clean composer", () => {
     expect(
       screen.getByRole("combobox", { name: "ai.modelPicker" }).textContent,
     ).toContain("third-model");
+  });  it("remembers shared terminal execution across a new conversation", async () => {
+    render(<AiPanel hostId={1} getTerminalSessionId={() => "terminal-1"} />);
+    const composer = await ready();
+    fireEvent.click(screen.getByRole("button", { name: "ai.chatSettings" }));
+    const mode = screen.getByRole("combobox", {
+      name: "ai.executionMode",
+    });
+    fireEvent.keyDown(mode, { key: "ArrowDown" });
+    fireEvent.click(
+      await screen.findByRole("option", { name: "ai.executionShared" }),
+    );
+    await waitFor(() =>
+      expect(api.saveAiPreferences).toHaveBeenCalledWith(
+        expect.objectContaining({ executionMode: "shared" }),
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    fireEvent.click(screen.getByRole("button", { name: "ai.newConversation" }));
+    fireEvent.click(screen.getByRole("button", { name: "ai.chatSettings" }));
+    expect(
+      screen.getByRole("combobox", { name: "ai.executionMode" }).textContent,
+    ).toContain("ai.executionShared");
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    fireEvent.change(composer, { target: { value: "Use this terminal" } });
+    fireEvent.click(screen.getByRole("button", { name: "ai.send" }));
+    await waitFor(() => expect(api.fetch).toHaveBeenCalledOnce());
+    expect(JSON.parse(api.fetch.mock.calls[0][1].body)).toMatchObject({
+      executionMode: "shared",
+      terminalSessionId: "terminal-1",
+    });
   });
+
+  it("restores the active host conversation after the panel is closed and reopened", async () => {
+    const saved = {
+      conversation: {
+        id: 7,
+        title: "Ongoing chat",
+        providerId: 1,
+        model: "auto-model",
+        hostId: 1,
+        contextState: null,
+      },
+      messages: [
+        {
+          id: 4,
+          conversationId: 7,
+          role: "user",
+          content: "Earlier question",
+          toolCalls: null,
+        },
+        {
+          id: 5,
+          conversationId: 7,
+          role: "assistant",
+          content: "Earlier answer",
+          toolCalls: null,
+        },
+      ],
+      proposals: [],
+    };
+    api.getAiConversation.mockResolvedValue(saved);
+    const first = render(
+      <AiPanel hostId={1} getTerminalSessionId={() => "terminal-1"} />,
+    );
+    const firstComposer = await ready();
+    fireEvent.change(firstComposer, { target: { value: "Hello" } });
+    fireEvent.click(screen.getByRole("button", { name: "ai.send" }));
+    await waitFor(() =>
+      expect(api.saveActiveAiConversation).toHaveBeenCalledWith(1, 7),
+    );
+    first.unmount();
+
+    api.getAiPreferences.mockResolvedValue({
+      providerId: 1,
+      model: "auto-model",
+      approvalMode: "review",
+      reasoningEffort: "auto",
+      executionMode: "shared",
+      activeConversations: { "1": 7 },
+      providerEfforts: {},
+      providerModels: {},
+    });
+    render(<AiPanel hostId={1} getTerminalSessionId={() => "terminal-1"} />);
+    const composer = await ready();
+    await waitFor(() => expect(api.getAiConversation).toHaveBeenCalledWith(7));
+    expect(await screen.findByText("Earlier answer")).toBeTruthy();
+    fireEvent.change(composer, { target: { value: "Continue our discussion" } });
+    fireEvent.click(screen.getByRole("button", { name: "ai.send" }));
+    await waitFor(() => expect(api.fetch).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(api.fetch.mock.calls[1][1].body)).toMatchObject({
+      conversationId: 7,
+      executionMode: "shared",
+      hostId: 1,
+    });
+
+    await waitFor(() => expect(api.saveActiveAiConversation).toHaveBeenCalledWith(1, 7));
+    fireEvent.click(screen.getByRole("button", { name: "ai.newConversation" }));
+    await waitFor(() =>
+      expect(api.saveActiveAiConversation).toHaveBeenCalledWith(1, null),
+    );
+    expect(screen.queryByText("Earlier answer")).toBeNull();
+  });
+
+  it("does not restore another host's conversation in this terminal", async () => {
+    api.getAiPreferences.mockResolvedValue({
+      providerId: 1,
+      model: "auto-model",
+      approvalMode: "review",
+      reasoningEffort: "auto",
+      executionMode: "shared",
+      activeConversations: { "1": 7 },
+      providerEfforts: {},
+      providerModels: {},
+    });
+    render(<AiPanel hostId={2} getTerminalSessionId={() => "terminal-2"} />);
+    await ready();
+    expect(api.getAiConversation).not.toHaveBeenCalled();
+    expect(api.saveActiveAiConversation).not.toHaveBeenCalled();
+  });
+
+
 });
