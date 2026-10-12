@@ -52,6 +52,8 @@
     "cancel": "Cancel",
     "includeFutureHosts": "Include future hosts in the selected folders",
     "allFutureHint": "Includes all hosts you own now and add later. Other users' hosts remain excluded.",
-    "futureHint": "When enabled, new hosts in these folders inherit this grant. Older fixed grants remain unchanged until you enable this option."
+    "futureHint": "When enabled, new hosts in these folders inherit this grant. Older fixed grants remain unchanged until you enable this option.",
+    "copySuccess": "Copied to clipboard",
+    "copyFailed": "Copy failed. Select the command and copy it manually."
   }
 }

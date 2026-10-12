@@ -55,6 +55,96 @@ describe("Local Agent frontend navigation", () => {
   });
 });
 
+describe("copying the Local Agent install command", () => {
+  const originalClipboard = Object.getOwnPropertyDescriptor(
+    navigator,
+    "clipboard",
+  );
+  const originalExecCommand = Object.getOwnPropertyDescriptor(
+    document,
+    "execCommand",
+  );
+
+  function setClipboard(writeText?: (value: string) => Promise<void>) {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: writeText ? { writeText } : undefined,
+    });
+  }
+
+  function setLegacyCopy(result: boolean) {
+    const execute = vi.fn(() => result);
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execute,
+    });
+    return execute;
+  }
+
+  afterEach(() => {
+    if (originalClipboard)
+      Object.defineProperty(navigator, "clipboard", originalClipboard);
+    else Reflect.deleteProperty(navigator, "clipboard");
+    if (originalExecCommand)
+      Object.defineProperty(document, "execCommand", originalExecCommand);
+    else Reflect.deleteProperty(document, "execCommand");
+  });
+
+  async function showPanel() {
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api: {
+        get: async (path: string) => ({
+          data: path === "/admin/devices" ? { devices: [] } : { projects: [] },
+        }),
+      } as never,
+    });
+    rendered.renderPanel("agent");
+    return screen.getByRole("button", { name: "Copy" });
+  }
+
+  it("uses the modern Clipboard API and confirms success", async () => {
+    const writeText = vi.fn(async () => {});
+    setClipboard(writeText);
+    const button = await showPanel();
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        expect.stringContaining("auth login --url"),
+      ),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Copied to clipboard",
+    );
+  });
+
+  it("copies on insecure HTTP where navigator.clipboard does not exist", async () => {
+    setClipboard();
+    const copy = setLegacyCopy(true);
+    const button = await showPanel();
+    fireEvent.click(button);
+    expect(copy).toHaveBeenCalledWith("copy");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Copied to clipboard",
+    );
+    expect(document.querySelector("textarea")).toBeNull();
+  });
+
+  it("reports failure instead of silently pretending the copy worked", async () => {
+    setClipboard(async () => {
+      throw new Error("clipboard permission denied");
+    });
+    setLegacyCopy(false);
+    const button = await showPanel();
+    fireEvent.click(button);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Copy failed. Select the command and copy it manually.",
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+});
+
 describe("editing a paired local client", () => {
   it("changes scopes and future host selection in place, then removes the revoked row", async () => {
     let devices = [

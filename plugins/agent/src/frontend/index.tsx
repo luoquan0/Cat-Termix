@@ -15,6 +15,37 @@ function errorMessage(error: unknown): string {
   };
   return value?.response?.data?.error ?? value?.message ?? "Request failed";
 }
+/** Use the secure Clipboard API where possible and an in-page fallback on HTTP. */
+async function copyLoginCommand(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch {
+      // Clipboard permission can be denied even in a secure context.
+    }
+  }
+
+  // navigator.clipboard is unavailable on non-local HTTP deployments.
+  const input = document.createElement("textarea");
+  const previousFocus = document.activeElement as HTMLElement | null;
+  input.value = value;
+  input.readOnly = true;
+  input.style.position = "fixed";
+  input.style.left = "-9999px";
+  document.body.appendChild(input);
+  try {
+    input.focus();
+    input.select();
+    if (!document.execCommand?.("copy")) {
+      throw new Error("Clipboard copy is not supported");
+    }
+  } finally {
+    input.remove();
+    previousFocus?.focus();
+  }
+}
+
 function Action({
   children,
   onClick,
@@ -151,7 +182,20 @@ function LocalAgentPanel() {
         </a>
         <div className="flex gap-2 items-center">
           <code className="flex-1 break-all rounded bg-muted p-2">{login}</code>
-          <Action onClick={() => void navigator.clipboard.writeText(login)}>
+          <Action
+            onClick={() => {
+              void copyLoginCommand(login).then(
+                () => {
+                  setError("");
+                  setNotice(t("agent.copySuccess"));
+                },
+                () => {
+                  setNotice("");
+                  setError(t("agent.copyFailed"));
+                },
+              );
+            }}
+          >
             {t("agent.copy")}
           </Action>
         </div>

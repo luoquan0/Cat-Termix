@@ -84,6 +84,96 @@ HTTP opt-in 只改变传输层准入，不改变 Ed25519 设备签名、nonce �
 项目隔离、凭据隔离、幂等键或审计。不要通过伪造 `X-Forwarded-Proto:https`
 或 SSH 隧道绕过传输策略。
 
+### Linux 无桌面环境：Secret Service 与首次配对
+
+Linux 上的设备私钥必须存入 **Secret Service**，不得因为没有桌面钥匙串而回退到
+明文文件。无桌面主机可按 [grawity/secretsd](https://github.com/grawity/secretsd)
+官方说明部署用户级 Secret Service daemon；`secret-tool`（`libsecret-tools`）
+是调用该服务的客户端，**两者都需要可用**。下列操作应在运行 Hermes / Node
+的同一个 Linux 用户下进行（仅 `apt`、`loginctl` 需要管理员权限）。
+
+1. 在 Ubuntu 上安装客户端和 daemon 依赖：
+
+   ```bash
+   sudo apt-get update
+   sudo apt-get install -y libsecret-tools python3-dbus python3-gi python3-platformdirs python3-xdg python3-cryptography
+   ```
+
+   按 secretsd 实际安装版本核对其依赖。推荐安装 `python3-prctl`；
+   其安装与配置步骤以官方 README 为准，不得把示例路径当作已安装的位置。
+
+2. 依照官方安装说明安装 secretsd，并配置当前用户的
+   `org.freedesktop.secrets` D-Bus 激活文件与 `secretsd.service` 用户服务。
+   使用独立的**用户私有**数据目录存放数据库及密钥：目录权限 `700`、
+   数据库权限 `600`、密钥文件权限 `400`，在用户服务中设置
+   `UMask=0077`。确保文件归该用户所有。请将配置文件中的实际数据库路径、
+   密钥来源和 daemon 可执行文件路径与本机安装结果核对，不要覆盖已有钥匙串。
+
+   ```bash
+   systemctl --user daemon-reload
+   systemctl --user enable --now secretsd.service
+   # 无交互登录时，按需由管理员启用 user lingering：
+   sudo loginctl enable-linger "$USER"
+   ```
+
+   确保 Hermes 进程和 secretsd 运行在**同一用户、同一 D-Bus 用户会话**
+   （必要时检查 `XDG_RUNTIME_DIR`、`DBUS_SESSION_BUS_ADDRESS`）。不要把
+   另一用户的密钥或会话总线暴露给 Hermes。
+
+3. 首先以无关紧要的一次性测试项验证读写和删除，不要把真实设备私钥写进测试
+   命令。以下测试项不是 CloudSSH 的真实设备凭据：
+
+   ```bash
+   printf '%s' 'temporary-test-only' | secret-tool store --label="CloudSSH one-time test" service cloudssh-secret-test account verification
+   test "$(secret-tool lookup service cloudssh-secret-test account verification)" = 'temporary-test-only'
+   secret-tool clear service cloudssh-secret-test account verification
+   command -v secret-tool
+   ```
+
+   同时确认 Hermes / Node 进程的 `PATH` 中也能找到 `secret-tool`，而不仅是
+   交互式 shell。读写或删除失败时先处理 Secret Service，不要继续设备配对。
+
+4. **始终先检查平台配置，不要直接重新配对：**
+
+   ```bash
+   node <skill目录>/scripts/cloudssh.mjs auth status
+   ```
+
+   如果输出 `configured: true`、`authenticated: true`，且 `baseUrl` 与
+   目标 CloudSSH 实例一致，则直接复用现有设备身份。不同实例须使用各自的
+   `CLOUDSSH_CONFIG_DIR`；`auth status` 只能核对本地配置，必要时通过
+   `servers list` 核对服务端授权。如果已有配置但私钥暂时不可读取，先排查
+   Secret Service，**不要**用新的 `auth login` 覆盖配置。
+
+5. 只有完全尚未配置，或确认原设备私钥已经不可恢复且需要重新审批时，
+   才在当前用户的交互式终端首次配对：
+
+   ```bash
+   node <skill目录>/scripts/cloudssh.mjs auth login --url https://<CloudSSH地址>
+   ```
+
+   仅当目标实例管理员明确开启可信内网 HTTP、来源 IP 被允许时，才改用：
+
+   ```bash
+   node <skill目录>/scripts/cloudssh.mjs auth login --url http://<内网地址> --allow-http
+   ```
+
+   将脚本显示的一次性设备码交给用户，要求其在**该目标实例**的网页
+   “Agent 接入”核对设备名称、完整公钥指纹后批准。批准后再次执行
+   `auth status`，确认 `configured: true`、`authenticated: true`，
+   且 `baseUrl` 与目标实例一致；再运行 `servers list` 验证授权范围。
+   首次批准是**设备身份**审批，并非每次执行命令都要再次批准。
+
+故障定位：`spawn secret-tool ENOENT` 表示找不到客户端，先检查 Hermes
+进程的 `PATH`。Secret Service 不可用或无法读取时，检查相同 Linux 用户的
+D-Bus 会话及 `systemctl --user status secretsd.service`。安全存储不可用就
+停止配对，**绝不能保存明文设备私钥**。
+
+安全局限：根据 secretsd 官方说明，数据库秘密值虽加密，元数据可能明文；
+secretsd 启动后集合始终处于解锁状态，**同一用户下的其他进程可能读取凭据**。
+用户私有目录权限不能替代进程隔离；不要将该 daemon 视为具有交互式锁定能力
+的完整密码管理器。
+
 ## 多个 CloudSSH 平台登录与切换（保留各自审批）
 
 这里的“平台”指不同的 CloudSSH 网页/API 地址，**不是**同一平台下的多台 SSH
