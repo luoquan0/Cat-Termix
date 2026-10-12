@@ -74,6 +74,63 @@ async function showSettings() {
 }
 
 describe("updater check feedback", () => {
+  it("preserves the complete proxy scheme while typing and on save", async () => {
+    await showSettings();
+    const input = screen.getByPlaceholderText(
+      "http://192.168.1.2:7890",
+    ) as HTMLInputElement;
+    for (const value of [
+      "h",
+      "ht",
+      "http",
+      "http:",
+      "http:/",
+      "http://",
+      "http://192.168.1.2:7890",
+    ]) {
+      fireEvent.change(input, { target: { value } });
+      await Promise.resolve();
+      expect(input.value).toBe(value);
+    }
+    // A new translation function is returned on each render by the test
+    // mock; it must not trigger another config fetch that erases typing.
+    expect(api.get).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "common.save" }));
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith("/updates", {
+        enabled: false,
+        intervalHours: 6,
+        proxyUrl: "http://192.168.1.2:7890",
+        keepProxy: false,
+      }),
+    );
+    expect(input.value).toBe("http://192.168.1.2:7890");
+  });
+
+  it("preserves an existing HTTP proxy and accepts an HTTPS replacement", async () => {
+    snapshot.policy.proxyUrl = "http://proxy.internal:7890";
+    snapshot.proxyConfigured = true;
+    await showSettings();
+    const input = screen.getByPlaceholderText(
+      "http://192.168.1.2:7890",
+    ) as HTMLInputElement;
+    expect(input.value).toBe("http://proxy.internal:7890");
+    fireEvent.change(input, {
+      target: { value: "https://secure-proxy.internal:8443" },
+    });
+    await Promise.resolve();
+    expect(input.value).toBe("https://secure-proxy.internal:8443");
+    fireEvent.click(screen.getByRole("button", { name: "common.save" }));
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith("/updates", {
+        enabled: false,
+        intervalHours: 6,
+        proxyUrl: "https://secure-proxy.internal:8443",
+        keepProxy: false,
+      }),
+    );
+  });
+
   it("spins immediately and keeps spinning after HTTP 202 until the helper finishes", async () => {
     await showSettings();
     const check = screen.getByRole("button", { name: "ai.updateCheck" });

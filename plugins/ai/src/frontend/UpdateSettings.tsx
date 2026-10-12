@@ -51,6 +51,8 @@ export function UpdateSettings() {
   }, []);
 
   useEffect(() => {
+    // Initialize once. Changes to translation functions must not reload
+    // saved settings and overwrite a proxy URL while it is being typed.
     let live = true;
     void aiApp()
       .api.get<UpdateInfo>("/updates")
@@ -64,12 +66,12 @@ export function UpdateSettings() {
         }
       })
       .catch(() => {
-        if (live) setError(t("ai.updateLoadError"));
+        if (live) setError("ai.updateLoadError");
       });
     return () => {
       live = false;
     };
-  }, [t]);
+  }, []);
 
   const requestActive =
     info?.request?.state === "queued" || info?.request?.state === "running";
@@ -145,7 +147,7 @@ export function UpdateSettings() {
         setPollError(true);
       }
     } catch {
-      setError(t("ai.updateActionError"));
+      setError("ai.updateActionError");
     } finally {
       setBusyAction(null);
     }
@@ -414,7 +416,7 @@ export function UpdateSettings() {
         )}
         {error && (
           <p role="alert" className="text-destructive">
-            {error}
+            {t(error)}
           </p>
         )}
       </div>
