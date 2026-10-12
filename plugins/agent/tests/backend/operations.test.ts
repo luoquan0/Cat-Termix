@@ -61,6 +61,17 @@ function fixture() {
     asUser: async (_owner: string, fn: () => unknown) => fn(),
     ssh: {
       connect: vi.fn(async () => ({ client, dispose })),
+      execSudo: vi.fn(async (
+        _hostId: number,
+        _command: string,
+        options: {
+          onStdout?: (chunk: string) => void;
+          onStderr?: (chunk: string) => void;
+        },
+      ) => {
+        options.onStdout?.("0\n");
+        return { exitCode: 0 };
+      }),
     },
   } as unknown as PluginContext;
   return { ctx, stored, stream, client, dispose };
@@ -156,6 +167,99 @@ describe("Local Agent structured SSH tasks", () => {
       expect(ops.getJob(DEVICE, job.id).state).toBe("CANCELED");
     });
     expect(f.client.exec).not.toHaveBeenCalled();
+    await ops.stop();
+  });
+});
+
+describe("root execution requires an explicit opt-in device grant", () => {
+  it("denies sudo by default without opening SSH and preserves ordinary job behavior", async () => {
+    const f = fixture();
+    const ops = new AgentOperations(f.ctx);
+    await ops.restore();
+    await expect(
+      ops.createJob(DEVICE, "42", "id -u", 30000, true),
+    ).rejects.toMatchObject({ code: "SCOPE_DENIED" });
+    expect(f.ctx.ssh.execSudo).not.toHaveBeenCalled();
+    expect(f.ctx.ssh.connect).not.toHaveBeenCalled();
+    await expect(
+      ops.createJob(
+        { ...DEVICE, scopes: ["sudo:execute"] },
+        "42",
+        "id -u",
+        30000,
+        true,
+      ),
+    ).rejects.toMatchObject({ code: "SCOPE_DENIED" });
+    await expect(
+      ops.createJob(DEVICE, "42", "id -u", 30000, "true"),
+    ).rejects.toMatchObject({ code: "INVALID_SUDO_FLAG" });
+    await ops.stop();
+  });
+
+  it("runs only the opted-in sudo job through core, without copying any password into the job", async () => {
+    const f = fixture();
+    const device: Device = {
+      ...DEVICE,
+      scopes: [...DEVICE.scopes, "sudo:execute"],
+    };
+    const ops = new AgentOperations(f.ctx);
+    await ops.restore();
+    const job = await ops.createJob(device, "42", "id -u", 30000, true);
+    await vi.waitFor(() => {
+      expect(ops.getJob(device, job.id)).toMatchObject({
+        sudo: true,
+        state: "SUCCEEDED",
+        stdout: "0\n",
+        exitCode: 0,
+      });
+    });
+    expect(f.ctx.ssh.execSudo).toHaveBeenCalledWith(
+      42,
+      "id -u",
+      expect.objectContaining({
+        timeoutMs: 30000,
+        signal: expect.any(AbortSignal),
+        onStdout: expect.any(Function),
+      }),
+    );
+    expect(f.ctx.ssh.connect).not.toHaveBeenCalled();
+    const result = JSON.stringify(ops.getJob(device, job.id));
+    expect(result).not.toContain("sudoPassword");
+    expect(result).not.toContain("secret");
+    await ops.stop();
+  });
+
+  it("aborts a running sudo job on device grant revocation", async () => {
+    const f = fixture();
+    let stopped = false;
+    f.ctx.ssh.execSudo = vi.fn(
+      async (
+        _hostId: number,
+        _command: string,
+        options: { signal: AbortSignal },
+      ) =>
+        new Promise<{ exitCode: number | null }>((_resolve, reject) => {
+          const stop = () => {
+            stopped = true;
+            reject(new Error("Sudo command canceled"));
+          };
+          if (options.signal.aborted) stop();
+          else options.signal.addEventListener("abort", stop, { once: true });
+        }),
+    );
+    const device: Device = {
+      ...DEVICE,
+      scopes: [...DEVICE.scopes, "sudo:execute"],
+    };
+    const ops = new AgentOperations(f.ctx);
+    await ops.restore();
+    const job = await ops.createJob(device, "42", "sleep 30", 30000, true);
+    await vi.waitFor(() => expect(f.ctx.ssh.execSudo).toHaveBeenCalled());
+    await ops.disconnectDevice(device.id);
+    await vi.waitFor(() => {
+      expect(ops.getJob(device, job.id).state).toBe("CANCELED");
+    });
+    expect(stopped).toBe(true);
     await ops.stop();
   });
 });

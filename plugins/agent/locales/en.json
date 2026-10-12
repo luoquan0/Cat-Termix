@@ -41,6 +41,8 @@
     "success": "Saved successfully",
     "fingerprint": "Fingerprint",
     "scopeWrite": "File write permissions should be granted only when needed.",
+    "scopeSudo": "sudo:execute (run commands as root)",
+    "scopeSudoWarning": "Root execution is disabled by default. Grant it only to a trusted device; it can modify or delete anything on authorized servers. The ssh:sudo plugin capability must also be approved.",
     "expires": "Expiration (optional)",
     "maxSessions": "Maximum concurrent sessions",
     "confirmRevoke": "Revoke and remove this device? Its active SSH connections will be closed. Audit records are retained.",

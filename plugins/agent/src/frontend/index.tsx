@@ -41,6 +41,7 @@ const scopeChoices = [
   "sessions:write",
   "sessions:close",
   "jobs:execute",
+  "sudo:execute",
   "servers:create",
   "quick-connections:create",
   "files:read",
@@ -78,7 +79,9 @@ function LocalAgentPanel() {
   const [accessMode, setAccessMode] = useState<"all" | "selected">("all");
   const [selected, setSelected] = useState<string[]>([]);
   const [scopes, setScopes] = useState<string[]>(
-    scopeChoices.filter((x) => x !== "files:write"),
+    scopeChoices.filter(
+      (x) => x !== "files:write" && x !== "sudo:execute",
+    ),
   );
   const [maxSessions, setMaxSessions] = useState(1);
   const [expires, setExpires] = useState("");
@@ -206,16 +209,32 @@ function LocalAgentPanel() {
                       onChange={(event) =>
                         setScopes((prev) =>
                           event.target.checked
-                            ? [...prev, scope]
-                            : prev.filter((x) => x !== scope),
+                            ? [
+                                ...prev,
+                                ...(scope === "sudo:execute" &&
+                                !prev.includes("jobs:execute")
+                                  ? ["jobs:execute"]
+                                  : []),
+                                scope,
+                              ]
+                            : prev.filter(
+                                (x) =>
+                                  x !== scope &&
+                                  !(scope === "jobs:execute" && x === "sudo:execute"),
+                              ),
                         )
                       }
                     />
-                    <span className="font-mono text-xs">{scope}</span>
+                    <span className="font-mono text-xs">
+                      {scope === "sudo:execute"
+                        ? t("agent.scopeSudo")
+                        : scope}
+                    </span>
                   </label>
                 ))}
               </div>
               <p className="text-xs text-amber-600">{t("agent.scopeWrite")}</p>
+              <p className="text-xs text-red-600">{t("agent.scopeSudoWarning")}</p>
             </fieldset>
             <fieldset className="space-y-2">
               <legend className="font-semibold">{t("agent.projects")}</legend>

@@ -19,6 +19,7 @@
     "hosts:write",
     "credentials:use",
     "ssh:connect",
+    "ssh:sudo",
     "users:impersonate",
     "network:serve",
     "kv:own",

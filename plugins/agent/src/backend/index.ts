@@ -361,11 +361,18 @@ export async function activate(ctx: PluginContext) {
     "/v1/jobs",
     signed(async (req, res, device) => {
       const b = body(req);
+      // Reject missing sudo grants before reserving an idempotency key.
+      if (b.sudo !== undefined && typeof b.sudo !== "boolean")
+        fail(400, "INVALID_SUDO_FLAG", "sudo must be a boolean");
+      if (b.sudo === true) {
+        requireScope(device, "jobs:execute");
+        requireScope(device, "sudo:execute");
+      }
       const result = await mutation(req, device, () =>
-        operations.createJob(device, b.serverId, b.command, b.timeoutMs),
+        operations.createJob(device, b.serverId, b.command, b.timeoutMs, b.sudo),
       );
       await ctx.audit.record({
-        action: "agent_job_started",
+        action: b.sudo === true ? "agent_sudo_job_started" : "agent_job_started",
         resourceType: "host",
         resourceId: String(b.serverId),
         success: true,

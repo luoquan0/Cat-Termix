@@ -128,8 +128,78 @@ async function fixture() {
       "x-request-id": requestId,
     });
   }
-  return { request, device, hosts, servers };
+  async function signedJob(payload: Record<string, unknown>, key: string) {
+    const path = "/v1/jobs";
+    const timestamp = String(Date.now());
+    const nonce = randomBytes(18).toString("base64url");
+    const requestId = randomBytes(10).toString("hex");
+    const bodyHash = sha256(JSON.stringify(payload));
+    const signature = sign(
+      null,
+      Buffer.from(
+        canonicalDeviceRequest({
+          method: "POST",
+          pathAndQuery: path,
+          timestamp,
+          nonce,
+          bodyHash,
+          idempotencyKey: key,
+          requestId,
+        }),
+      ),
+      keys.privateKey,
+    ).toString("base64url");
+    return request("POST", path, payload, {
+      "x-cloudssh-device-id": device.id,
+      "x-cloudssh-timestamp": timestamp,
+      "x-cloudssh-nonce": nonce,
+      "x-cloudssh-body-sha256": bodyHash,
+      "x-cloudssh-signature": signature,
+      "x-request-id": requestId,
+      "idempotency-key": key,
+    });
+  }
+  return { request, device, hosts, servers, signedJob };
 }
+
+describe("critical root execution authorization", () => {
+  it("never grants sudo by default, requires jobs:execute, and allows retry after scope denial", async () => {
+    const f = await fixture();
+    const path = `/admin/devices/${f.device.id}`;
+    const devices = (await f.request("GET", "/admin/devices")).body.devices;
+    expect(devices[0].scopes).not.toContain("sudo:execute");
+    expect(
+      (await f.request("PATCH", path, {
+        scopes: ["files:read", "sudo:execute"],
+      })).status,
+    ).toBe(400);
+    const payload = { serverId: "1", command: "id -u", sudo: true };
+    const denied = await f.signedJob(payload, "sudo-grant-retry");
+    expect(denied.status).toBe(403);
+    expect(denied.body.code).toBe("SCOPE_DENIED");
+    const granted = await f.request("PATCH", path, {
+      scopes: ["files:read", "jobs:execute", "sudo:execute"],
+    });
+    expect(granted.status).toBe(200);
+    expect(granted.body.device.scopes).toContain("sudo:execute");
+    const accepted = await f.signedJob(payload, "sudo-grant-retry");
+    expect(accepted.status).toBe(202);
+    expect(accepted.body.job).toMatchObject({
+      command: "id -u",
+      sudo: true,
+    });
+    expect(JSON.stringify(accepted.body)).not.toContain("sudoPassword");
+    await f.request("PATCH", path, {
+      scopes: ["files:read", "jobs:execute"],
+    });
+    const revoked = await f.signedJob(
+      payload,
+      "sudo-grant-after-revocation",
+    );
+    expect(revoked.status).toBe(403);
+    expect(revoked.body.code).toBe("SCOPE_DENIED");
+  });
+});
 
 describe("editable Agent grant API", () => {
   it("includes a newly added host, edits scopes without re-pairing, then removes the revoked device", async () => {

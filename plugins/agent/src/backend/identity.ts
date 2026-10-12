@@ -16,6 +16,7 @@ export const SCOPES = [
   "sessions:write",
   "sessions:close",
   "jobs:execute",
+  "sudo:execute",
   "servers:create",
   "quick-connections:create",
   "files:read",
@@ -213,6 +214,8 @@ function normalizeGrant(input: DeviceGrantInput) {
     !Array.isArray(input.scopes) ||
     !input.scopes.length ||
     input.scopes.some((scope) => !SCOPES.includes(scope)) ||
+    (input.scopes.includes("sudo:execute") &&
+      !input.scopes.includes("jobs:execute")) ||
     !["all", "selected"].includes(input.accessMode) ||
     !Array.isArray(input.projectIds) ||
     input.projectIds.length > 1000 ||

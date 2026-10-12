@@ -2322,10 +2322,13 @@ async function jobsCommand(action, flags, client) {
       max: 900_000,
       defaultValue: 30_000,
     });
+    if (flags.sudo !== undefined && flags.sudo !== true)
+      throw new Error("--sudo 不接受参数值，请单独使用 --sudo");
     let job = await client.createJob({
       serverId: stringFlag(flags, "server"),
       command: stringFlag(flags, "command"),
       timeoutMs,
+      ...(flags.sudo === true ? { sudo: true } : {}),
     });
     if (action === "run") {
       const deadline = Date.now() + timeoutMs + 30_000;
@@ -2500,7 +2503,7 @@ servers create --project <项目 ID> --address <主机名或 IP> --username <用
 quick-connect create --project <项目 ID> --address <主机名或 IP>
                      --username <用户> [--port 22] <同上认证参数>
                      --host-key-fingerprint <十六进制指纹>
-jobs run --server <id> --command "<完整命令>" [--timeout-ms 30000]
+jobs run --server <id> --command "<完整命令>" [--timeout-ms 30000] [--sudo]
 jobs create|list|status|cancel
 sessions create --server <id> [--mode platform|tmux] [--pinned]
 sessions list|status|attach|read|write|send|resize|detach|close

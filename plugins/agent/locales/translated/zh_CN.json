@@ -41,6 +41,8 @@
     "success": "已保存",
     "fingerprint": "设备指纹",
     "scopeWrite": "文件写入权限请按需单独授权。",
+    "scopeSudo": "sudo:execute（以 root 运行命令）",
+    "scopeSudoWarning": "root 执行默认关闭，请仅授权可信设备。获授权设备可更改或删除对应主机上的任何内容，还需批准插件的 ssh:sudo 能力。",
     "expires": "到期时间（可选）",
     "maxSessions": "最大并发会话数",
     "confirmRevoke": "确定撤销并删除此设备？该设备的活动 SSH 连接将关闭，安全审计记录仍保留。",

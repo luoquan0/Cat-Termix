@@ -1785,6 +1785,10 @@
         "title": "See your passwords and keys",
         "consequence": "It can read the stored secret for any host you can reach."
       },
+      "ssh:sudo": {
+        "title": "Run commands as root using saved sudo passwords",
+        "consequence": "It can execute privileged commands on hosts you own, without receiving the saved password. Grant only to trusted plugins."
+      },
       "ssh:connect": {
         "title": "Run commands on your servers",
         "consequence": "Any command, on hosts you connect it to, with your access."

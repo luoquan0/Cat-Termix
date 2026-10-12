@@ -295,6 +295,51 @@ export function createPluginSsh({ manifest, bag, audit }: Deps): PluginSsh {
     }`;
 
   return {
+    execSudo: async (hostId, command, options) => {
+      await checkSsh(true);
+      await assertCapability(pluginId, "ssh:sudo", declared);
+      const userId = actingUser();
+      try {
+        if (!Number.isSafeInteger(hostId) || hostId <= 0)
+          throw new Error("INVALID_SUDO_HOST");
+        const { resolveHostById } =
+          await import("../hosts/host-resolver.js");
+        const host = await resolveHostById(hostId, userId);
+        // Sharing a host (or admin bypass) does not share the owner's sudo
+        // secret. Never return the decrypted credential to the plugin.
+        if (!host || host.userId !== userId)
+          throw new Error("SUDO_HOST_OWNER_REQUIRED");
+        const password = host.sudoPassword;
+        if (typeof password !== "string" || !password)
+          throw new Error("SUDO_PASSWORD_NOT_CONFIGURED");
+        const { runSudoCommand } = await import("./ssh-sudo.js");
+        const connection = await connectOnce(hostId, {
+          purpose: "agent-sudo",
+          profile: "background",
+        });
+        try {
+          const result = await runSudoCommand(
+            connection.client,
+            command,
+            password,
+            options,
+          );
+          await audit("ssh_sudo_exec", describeHost(hostId), {
+            success: result.exitCode === 0,
+          });
+          return result;
+        } finally {
+          connection.dispose();
+        }
+      } catch (error) {
+        await audit("ssh_sudo_exec", describeHost(hostId), {
+          success: false,
+          errorMessage: error instanceof Error ? error.message : "sudo failed",
+        });
+        throw error;
+      }
+    },
+
     connect: async (host, options) => {
       const connection = await connectOnce(host, options);
       return {

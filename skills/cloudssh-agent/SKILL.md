@@ -247,10 +247,13 @@ node <脚本> quick-connect create --project <projectId> --address 203.0.113.10 
 
 ```text
 node <脚本> jobs run --server <serverId> --command "<完整命令>" --timeout-ms 30000
+node <脚本> jobs run --server <serverId> --command "id -u" --sudo
 node <脚本> jobs list
 node <脚本> jobs status --job <jobId>
 node <脚本> jobs cancel --job <jobId>
 ```
+
+只有用户明确授权需要 root 操作时才使用 `--sudo`。必须由主机所有者在 SSH 设置里保存 sudo 密码、在本地 Agent 权限中单独勾选 `sudo:execute`，并在插件权限中心批准 `ssh:sudo`；缺少任一授权时应停止，不要尝试读取、传输或通过命令回显 sudo 密码。该操作只提升这一条任务，不会创建持续的 root 终端会话。建议执行前向用户说明具体命令及影响范围。
 
 汇总最终状态、退出码和必要输出。输出可能含业务敏感信息时只摘录与结论相关的部分。
 

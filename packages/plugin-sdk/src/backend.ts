@@ -1070,6 +1070,22 @@ export interface PluginSshConnection<Client = unknown> {
  * closed.
  */
 export interface PluginSsh {
+  /**
+   * Execute one non-interactive command as root, using the owner's stored
+   * sudo password exclusively inside core. Never returns the credential.
+   * Requires ssh:connect, credentials:use and the critical ssh:sudo grant.
+   */
+  execSudo: (
+    hostId: number,
+    command: string,
+    options?: {
+      timeoutMs?: number;
+      signal?: AbortSignal;
+      onStdout?: (chunk: string) => void;
+      onStderr?: (chunk: string) => void;
+    },
+  ) => Promise<{ exitCode: number | null }>;
+
   connect: <Client = unknown>(
     host: number | PluginSshHost,
     options?: PluginSshConnectOptions,

@@ -17,6 +17,8 @@ export type Job = {
   ownerId: string;
   serverId: string;
   command: string;
+  /** A sudo job uses the host-owner credential only inside core. */
+  sudo?: boolean;
   state: JobStatus;
   stdout: string;
   stderr: string;
@@ -245,8 +247,12 @@ export class AgentOperations {
     rawHost: unknown,
     command: unknown,
     rawTimeout: unknown,
+    sudo: unknown = false,
   ) {
     requireScope(device, "jobs:execute");
+    if (sudo !== true && sudo !== false)
+      return error(400, "INVALID_SUDO_FLAG", "sudo must be a boolean");
+    if (sudo) requireScope(device, "sudo:execute");
     const hostId = await this.assertHost(device, rawHost);
     const activeCount = [...this.jobs.values()].filter(
       (job) => job.state === "QUEUED" || job.state === "RUNNING",
@@ -267,6 +273,7 @@ export class AgentOperations {
       ownerId: device.ownerId,
       serverId: String(hostId),
       command,
+      sudo: sudo === true,
       state: "QUEUED",
       stdout: "",
       stderr: "",
@@ -299,11 +306,50 @@ export class AgentOperations {
         aborted = true;
         throw new Error("Canceled");
       }
-      await this.ctx.asUser(job.ownerId, async () => {
-        const connection = await this.ctx.ssh.connect<Client>(hostId, {
-          purpose: "agent-job",
-          profile: "background",
+      if (job.sudo === true) {
+        await this.ctx.asUser(job.ownerId, async () => {
+          // The stored secret never enters this plugin. Core owns the
+          // dedicated sudo stdin channel, cancellation and SSH connection.
+          const controller = new AbortController();
+          const cancel = () => {
+            aborted = true;
+            controller.abort();
+          };
+          if (this.cancelRequests.has(job.id)) {
+            cancel();
+            throw new Error("Canceled");
+          }
+          end = cancel;
+          this.activeJobs.set(job.id, { cancel });
+          timer = setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+          }, job.timeoutMs);
+          try {
+            const result = await this.ctx.ssh.execSudo(hostId, job.command, {
+              timeoutMs: job.timeoutMs,
+              signal: controller.signal,
+              onStdout: (chunk) => {
+                if (job.stdout.length < 65_536)
+                  job.stdout = (job.stdout + chunk).slice(0, 65_536);
+              },
+              onStderr: (chunk) => {
+                if (job.stderr.length < 65_536)
+                  job.stderr = (job.stderr + chunk).slice(0, 65_536);
+              },
+            });
+            job.exitCode = result.exitCode;
+          } finally {
+            if (timer) clearTimeout(timer);
+            this.activeJobs.delete(job.id);
+          }
         });
+      } else {
+        await this.ctx.asUser(job.ownerId, async () => {
+          const connection = await this.ctx.ssh.connect<Client>(hostId, {
+            purpose: "agent-job",
+            profile: "background",
+          });
         try {
           await new Promise<void>((resolve, reject) => {
             let settled = false;
@@ -368,7 +414,8 @@ export class AgentOperations {
         } finally {
           connection.dispose();
         }
-      });
+        });
+      }
       job.state = job.exitCode === 0 ? "SUCCEEDED" : "FAILED";
       if (job.state === "FAILED") job.failureReason = "远程命令返回非零退出码";
     } catch (failure) {
