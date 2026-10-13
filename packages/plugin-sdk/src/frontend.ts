@@ -765,12 +765,6 @@ export interface PluginApiClient {
     body?: unknown,
     config?: unknown,
   ): Promise<{ data: T }>;
-  /** Multipart POST, rooted at this plugin's /plugin-api/<id>/ mount. */
-  postForm<T = unknown>(
-    url: string,
-    body?: FormData,
-    config?: unknown,
-  ): Promise<{ data: T }>;
   put<T = unknown>(
     url: string,
     body?: unknown,
