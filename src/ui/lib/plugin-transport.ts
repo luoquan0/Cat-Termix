@@ -60,6 +60,7 @@ export function createPluginApi(pluginId: string): AxiosInstance {
         property === "head" ||
         property === "options" ||
         property === "post" ||
+        property === "postForm" ||
         property === "put" ||
         property === "patch"
       ) {

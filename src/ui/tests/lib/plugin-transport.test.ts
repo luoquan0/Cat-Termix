@@ -1,27 +1,57 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ electron: false }));
+const state = vi.hoisted(() => ({
+  electron: false,
+  postForm: vi.fn(async () => ({ data: { ok: true } })),
+}));
 
 vi.mock("@/main-axios", () => ({
-  authApi: { defaults: { baseURL: "http://server:8080/" } },
+  authApi: {
+    defaults: { baseURL: "http://server:8080/" },
+    postForm: state.postForm,
+  },
   createRemoteOriginApiInstance: vi.fn(),
 }));
 vi.mock("@/lib/electron", () => ({ isElectron: () => state.electron }));
 vi.mock("@/lib/device-id", () => ({ getDeviceId: () => "device-1" }));
 
-import { pluginFetch } from "@/lib/plugin-transport";
+import { createPluginApi, pluginFetch } from "@/lib/plugin-transport";
 
 const fetchMock = vi.fn(async () => new Response("ok"));
 
 beforeEach(() => {
   state.electron = false;
   fetchMock.mockClear();
+  state.postForm.mockClear();
   vi.stubGlobal("fetch", fetchMock);
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
   localStorage.clear();
+});
+
+describe("createPluginApi", () => {
+  it("prefixes multipart POST requests with the plugin API mount", async () => {
+    const api = createPluginApi("file-manager");
+    const form = new FormData();
+    form.append("sessionId", "session-1");
+    form.append("path", "/uploads");
+    form.append("file", new Blob(["hello"]), "hello.txt");
+    const controller = new AbortController();
+
+    await api.postForm("/uploadFileStream", form, {
+      timeout: 0,
+      signal: controller.signal,
+    });
+
+    expect(state.postForm).toHaveBeenCalledOnce();
+    expect(state.postForm).toHaveBeenCalledWith(
+      "/plugin-api/file-manager/uploadFileStream",
+      form,
+      { timeout: 0, signal: controller.signal },
+    );
+  });
 });
 
 describe("pluginFetch", () => {
