@@ -1396,7 +1396,11 @@ function FileManagerContent({
           }),
         );
       } else {
-        toast.error(t("fileManager.failedToUploadFile"));
+        toast.error(
+          uploadErr?.message
+            ? `${t("fileManager.failedToUploadFile")}: ${uploadErr.message}`
+            : t("fileManager.failedToUploadFile"),
+        );
       }
       console.error("Upload failed:", error);
     }
