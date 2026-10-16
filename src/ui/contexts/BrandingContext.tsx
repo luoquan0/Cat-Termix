@@ -23,6 +23,7 @@ interface BrandingContextValue {
   appName: string;
   tagline: string;
   logo: string | null;
+  wallpaper: string | null;
   /** Re-applies a freshly saved BrandingSettings without a page reload. */
   applyBranding: (settings: BrandingSettings) => void;
 }
@@ -32,6 +33,7 @@ const BrandingContext = createContext<BrandingContextValue>({
   appName: DEFAULT_APP_NAME,
   tagline: "",
   logo: null,
+  wallpaper: null,
   applyBranding: () => {},
 });
 
@@ -59,6 +61,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
     appName: DEFAULT_APP_NAME,
     tagline: "",
     logo: null,
+  wallpaper: null,
   });
 
   useEffect(() => {
@@ -89,6 +92,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
       appName: branding.appName,
       tagline: branding.tagline,
       logo: branding.logo,
+      wallpaper: branding.wallpaper,
       applyBranding,
     }),
     [ready, branding, applyBranding],

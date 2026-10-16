@@ -1226,9 +1226,23 @@ export function Auth({ onLogin }: AuthProps) {
 
   if (localDesktopAuth)
     return (
-      <div className="fixed inset-0 flex flex-col bg-background overflow-hidden">
-        <div className="flex flex-1 overflow-hidden">
-          <div className="hidden lg:flex flex-col w-[420px] shrink-0 bg-sidebar border-r border-border relative overflow-hidden select-none">
+      <div
+        className="fixed inset-0 flex flex-col bg-background overflow-hidden"
+        style={
+          branding.wallpaper
+            ? {
+                backgroundImage: `url("${branding.wallpaper}")`,
+                backgroundPosition: "center",
+                backgroundSize: "cover",
+              }
+            : undefined
+        }
+      >
+        <div className="relative flex flex-1 overflow-hidden">
+          <div className={cn(
+              "hidden lg:flex flex-col w-[420px] shrink-0 border-r border-border relative overflow-hidden select-none",
+              branding.wallpaper ? "bg-sidebar/75 backdrop-blur-sm" : "bg-sidebar",
+            )}>
             <div
               className="absolute inset-0"
               style={{
@@ -1238,17 +1252,23 @@ export function Auth({ onLogin }: AuthProps) {
               }}
             />
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10 px-12">
+              {branding.logo && (
+                <img src={branding.logo} alt="" className="w-16 h-16 object-contain mb-1" />
+              )}
               <span className="text-4xl font-bold tracking-[0.3em] font-mono">
-                TERMIX
+                {branding.appName}
               </span>
               <div className="w-8 h-px bg-accent-brand" />
               <span className="text-[11px] font-mono text-muted-foreground uppercase tracking-[0.25em]">
-                {t("auth.tagline")}
+                {branding.tagline || t("auth.tagline")}
               </span>
             </div>
           </div>
 
-          <div className="flex flex-1 items-center justify-center p-6 overflow-y-auto relative">
+          <div className={cn(
+              "flex flex-1 items-center justify-center p-6 overflow-y-auto relative",
+              branding.wallpaper && "bg-background/85 backdrop-blur-sm",
+            )}>
             <div className="w-full max-w-sm flex flex-col gap-6">
               <div className="flex flex-col gap-5">
                 <div className="flex flex-col gap-1">
@@ -1306,10 +1326,24 @@ export function Auth({ onLogin }: AuthProps) {
   ];
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-background overflow-hidden">
-      <div className="flex flex-1 overflow-hidden">
+    <div
+        className="fixed inset-0 flex flex-col bg-background overflow-hidden"
+        style={
+          branding.wallpaper
+            ? {
+                backgroundImage: `url("${branding.wallpaper}")`,
+                backgroundPosition: "center",
+                backgroundSize: "cover",
+              }
+            : undefined
+        }
+      >
+      <div className="relative flex flex-1 overflow-hidden">
         {/* Left decorative panel */}
-        <div className="hidden lg:flex flex-col w-[420px] shrink-0 bg-sidebar border-r border-border relative overflow-hidden select-none">
+        <div className={cn(
+              "hidden lg:flex flex-col w-[420px] shrink-0 border-r border-border relative overflow-hidden select-none",
+              branding.wallpaper ? "bg-sidebar/75 backdrop-blur-sm" : "bg-sidebar",
+            )}>
           <div
             className="absolute inset-0"
             style={{
@@ -1337,7 +1371,10 @@ export function Auth({ onLogin }: AuthProps) {
         </div>
 
         {/* Right panel */}
-        <div className="flex flex-1 items-center justify-center p-6 overflow-y-auto relative">
+        <div className={cn(
+              "flex flex-1 items-center justify-center p-6 overflow-y-auto relative",
+              branding.wallpaper && "bg-background/85 backdrop-blur-sm",
+            )}>
           <div className="w-full max-w-sm flex flex-col gap-6">
             {/* TOTP view */}
             {view === "second-factor" && (

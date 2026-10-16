@@ -2,8 +2,8 @@ import sharp from "sharp";
 import { databaseLogger } from "../../utils/logger.js";
 
 /**
- * White-label branding: admin-configurable app name, logo and tagline shown
- * on the login screen and the browser tab. Persisted in the generic
+ * White-label branding: admin-configurable app name, logo, tagline and
+ * login wallpaper. Persisted in the generic
  * key/value `settings` table -- no schema migration needed.
  */
 export interface BrandingSettings {
@@ -11,12 +11,15 @@ export interface BrandingSettings {
   tagline: string;
   /** PNG data URL, or null when no custom logo is configured. */
   logo: string | null;
+  /** Validated WEBP data URL, or null for the default login background. */
+  wallpaper: string | null;
 }
 
 export const BRANDING_KEYS = {
   appName: "branding_app_name",
   tagline: "branding_tagline",
   logo: "branding_logo",
+  wallpaper: "branding_wallpaper",
 } as const;
 
 export const BRANDING_DEFAULT_APP_NAME = "Termix";
@@ -31,6 +34,10 @@ const TAGLINE_MAX_LENGTH = 160;
  */
 export const BRANDING_LOGO_MAX_BYTES = 750 * 1024;
 const BRANDING_LOGO_MAX_INPUT_PIXELS = 20_000_000;
+/** Input is 4 MiB max; output is stored as an at-most 1 MiB WEBP data URL. */
+export const BRANDING_WALLPAPER_MAX_INPUT_BYTES = 4 * 1024 * 1024;
+export const BRANDING_WALLPAPER_MAX_OUTPUT_BYTES = 1024 * 1024;
+const BRANDING_WALLPAPER_MAX_INPUT_PIXELS = 20_000_000;
 
 interface SettingSource {
   get(key: string): Promise<string | null>;
@@ -39,16 +46,18 @@ interface SettingSource {
 export async function resolveBrandingSettings(
   settings: SettingSource,
 ): Promise<BrandingSettings> {
-  const [appName, tagline, logo] = await Promise.all([
+  const [appName, tagline, logo, wallpaper] = await Promise.all([
     settings.get(BRANDING_KEYS.appName),
     settings.get(BRANDING_KEYS.tagline),
     settings.get(BRANDING_KEYS.logo),
+    settings.get(BRANDING_KEYS.wallpaper),
   ]);
 
   return {
     appName: appName?.trim() || BRANDING_DEFAULT_APP_NAME,
     tagline: tagline ?? "",
     logo: logo || null,
+    wallpaper: wallpaper || null,
   };
 }
 
@@ -119,6 +128,53 @@ export async function parseBrandingLogoDataUrl(
   } catch (err) {
     databaseLogger.warn("Rejected invalid branding logo upload", {
       operation: "branding_logo_invalid",
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+/**
+ * Re-encode the login wallpaper to a bounded WEBP; unlike the small logo,
+ * wallpapers are resized before storage to avoid oversized settings cache
+ * values and slow unauthenticated GET /users/branding responses.
+ */
+export async function parseBrandingWallpaperDataUrl(
+  value: unknown,
+): Promise<string | null> {
+  if (typeof value !== "string") return null;
+  const match = value.match(
+    /^data:image\/(png|jpe?g|webp);base64,([a-zA-Z0-9+/]+=*)$/,
+  );
+  if (!match) return null;
+
+  const bytes = Buffer.from(match[2], "base64");
+  if (
+    bytes.length === 0 ||
+    bytes.length > BRANDING_WALLPAPER_MAX_INPUT_BYTES
+  ) {
+    return null;
+  }
+
+  try {
+    const image = sharp(bytes, {
+      failOn: "error",
+      limitInputPixels: BRANDING_WALLPAPER_MAX_INPUT_PIXELS,
+    });
+    const metadata = await image.metadata();
+    if (!metadata.format || !["png", "jpeg", "webp"].includes(metadata.format)) {
+      return null;
+    }
+    const normalized = await image
+      .rotate()
+      .resize({ width: 2560, height: 1600, fit: "inside", withoutEnlargement: true })
+      .webp({ quality: 78 })
+      .toBuffer();
+    if (normalized.length > BRANDING_WALLPAPER_MAX_OUTPUT_BYTES) return null;
+    return `data:image/webp;base64,${normalized.toString("base64")}`;
+  } catch (err) {
+    databaseLogger.warn("Rejected invalid branding wallpaper upload", {
+      operation: "branding_wallpaper_invalid",
       error: err instanceof Error ? err.message : String(err),
     });
     return null;

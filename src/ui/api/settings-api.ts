@@ -55,12 +55,15 @@ export interface BrandingSettings {
   tagline: string;
   /** PNG data URL, or null when no custom logo is configured. */
   logo: string | null;
+  /** WEBP login background, or null for the default pattern. */
+  wallpaper: string | null;
 }
 
 export interface BrandingSettingsUpdate {
   appName?: string;
   tagline?: string;
   logo?: string | null;
+  wallpaper?: string | null;
 }
 
 /** Public endpoint -- no auth required, so the login screen can read it. */

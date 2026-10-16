@@ -6,10 +6,11 @@ import {
   parseBrandingAppName,
   parseBrandingLogoDataUrl,
   parseBrandingTagline,
+  parseBrandingWallpaperDataUrl,
   resolveBrandingSettings,
 } from "./branding-settings.js";
 
-const PATCHABLE_FIELDS = ["appName", "tagline", "logo"] as const;
+const PATCHABLE_FIELDS = ["appName", "tagline", "logo", "wallpaper"] as const;
 type PatchableField = (typeof PATCHABLE_FIELDS)[number];
 
 function invalidField(res: Response, field: string): void {
@@ -86,6 +87,19 @@ async function buildBrandingWrites(
     }
   }
 
+  if (input.wallpaper !== undefined) {
+    if (input.wallpaper === null) {
+      deletes.push(BRANDING_KEYS.wallpaper);
+    } else {
+      const wallpaper = await parseBrandingWallpaperDataUrl(input.wallpaper);
+      if (wallpaper === null) {
+        invalidField(res, "wallpaper");
+        return null;
+      }
+      writes.push({ key: BRANDING_KEYS.wallpaper, value: wallpaper });
+    }
+  }
+
   return { writes, deletes };
 }
 
@@ -98,7 +112,7 @@ export function registerBrandingRoutes(
    * /users/branding:
    *   get:
    *     summary: Get white-label branding
-   *     description: Returns the effective app name, tagline and logo. Public (no auth) so the pre-login screen and app bootstrap can apply branding before any session exists.
+   *     description: Returns the effective app name, tagline, logo and login wallpaper. Public (no auth) so the pre-login screen and app bootstrap can apply branding before any session exists.
    *     tags:
    *       - Users
    *     responses:
@@ -124,7 +138,7 @@ export function registerBrandingRoutes(
    * /users/branding:
    *   patch:
    *     summary: Update white-label branding (admin only)
-   *     description: Persists a partial update to appName, tagline and/or logo (a PNG/JPEG/WEBP data URL; pass null to clear the logo). Invalid values are rejected with a 400.
+   *     description: Persists appName, tagline, logo and/or login wallpaper (PNG/JPEG/WEBP data URLs; null resets the logo/wallpaper). Invalid values are rejected with a 400.
    *     tags:
    *       - Users
    *     responses:

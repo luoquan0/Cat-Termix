@@ -139,6 +139,7 @@ describe("GET /users/branding", () => {
       appName: "Termix",
       tagline: "",
       logo: null,
+      wallpaper: null,
     });
   });
 
@@ -146,6 +147,7 @@ describe("GET /users/branding", () => {
     state.settings.branding_app_name = "Acme Ops";
     state.settings.branding_tagline = "Ship it";
     state.settings.branding_logo = pngDataUrl;
+    state.settings.branding_wallpaper = "data:image/webp;base64,abc";
     const router = buildRouter(fakeRequireAdmin("admin"));
 
     const response = await invokeChain(handlersFor(router, "/branding", "get"));
@@ -155,6 +157,7 @@ describe("GET /users/branding", () => {
       appName: "Acme Ops",
       tagline: "Ship it",
       logo: pngDataUrl,
+      wallpaper: "data:image/webp;base64,abc",
     });
   });
 });
@@ -200,6 +203,45 @@ describe("PATCH /users/branding", () => {
       appName: "Acme Ops",
       tagline: "Ship it",
     });
+  });
+
+  it("validates and persists an admin login wallpaper", async () => {
+    const router = buildRouter(fakeRequireAdmin("admin"));
+    const response = await invokeChain(
+      handlersFor(router, "/branding", "patch"),
+      { wallpaper: pngDataUrl },
+    );
+    expect(response.statusCode).toBe(200);
+    expect(state.settings.branding_wallpaper).toMatch(/^data:image\/webp;base64,/);
+    expect(response.body).toMatchObject({
+      wallpaper: state.settings.branding_wallpaper,
+    });
+  });
+
+  it("rejects a malformed wallpaper without writing", async () => {
+    const router = buildRouter(fakeRequireAdmin("admin"));
+    const response = await invokeChain(
+      handlersFor(router, "/branding", "patch"),
+      { wallpaper: "data:image/png;base64,AAAA" },
+    );
+    expect(response.statusCode).toBe(400);
+    expect(response.body).toMatchObject({
+      code: "BRANDING_SETTINGS_INVALID",
+      field: "wallpaper",
+    });
+    expect(state.settings).toEqual({});
+  });
+
+  it("clears a custom wallpaper and restores the default", async () => {
+    state.settings.branding_wallpaper = "data:image/webp;base64,xyz";
+    const router = buildRouter(fakeRequireAdmin("admin"));
+    const response = await invokeChain(
+      handlersFor(router, "/branding", "patch"),
+      { wallpaper: null },
+    );
+    expect(response.statusCode).toBe(200);
+    expect(state.settings.branding_wallpaper).toBeUndefined();
+    expect(response.body).toMatchObject({ wallpaper: null });
   });
 
   it("rejects unknown fields without writing anything", async () => {

@@ -9,6 +9,8 @@ vi.mock("../../../utils/logger.js", () => ({
 const {
   BRANDING_DEFAULT_APP_NAME,
   BRANDING_LOGO_MAX_BYTES,
+  BRANDING_WALLPAPER_MAX_INPUT_BYTES,
+  parseBrandingWallpaperDataUrl,
   parseBrandingAppName,
   parseBrandingLogoDataUrl,
   parseBrandingTagline,
@@ -144,6 +146,54 @@ describe("parseBrandingLogoDataUrl", () => {
   });
 });
 
+describe("parseBrandingWallpaperDataUrl", () => {
+  it("accepts a JPEG photo and stores a resized WEBP", async () => {
+    const largeJpeg = await sharp({
+      create: {
+        width: 3000,
+        height: 1800,
+        channels: 3,
+        background: "#336699",
+      },
+    })
+      .jpeg()
+      .toBuffer();
+    const result = await parseBrandingWallpaperDataUrl(
+      await toDataUrl(largeJpeg, "image/jpeg"),
+    );
+    expect(result).toMatch(/^data:image\/webp;base64,/);
+    const image = sharp(Buffer.from(result!.split(",")[1]!, "base64"));
+    const info = await image.metadata();
+    expect(info.format).toBe("webp");
+    expect(info.width).toBeLessThanOrEqual(2560);
+    expect(info.height).toBeLessThanOrEqual(1600);
+  });
+
+  it("rejects SVG and spoofed photos", async () => {
+    expect(
+      await parseBrandingWallpaperDataUrl(
+        "data:image/svg+xml;base64," + Buffer.from("<svg/>").toString("base64"),
+      ),
+    ).toBeNull();
+    expect(
+      await parseBrandingWallpaperDataUrl(
+        "data:image/png;base64," + Buffer.from("not a photo").toString("base64"),
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects oversized images before decoding", async () => {
+    expect(
+      await parseBrandingWallpaperDataUrl(
+        await toDataUrl(
+          Buffer.alloc(BRANDING_WALLPAPER_MAX_INPUT_BYTES + 1),
+          "image/png",
+        ),
+      ),
+    ).toBeNull();
+  });
+});
+
 describe("resolveBrandingSettings", () => {
   it("returns built-in defaults when nothing is persisted", async () => {
     const settings = await resolveBrandingSettings(settingSource({}));
@@ -151,6 +201,7 @@ describe("resolveBrandingSettings", () => {
       appName: BRANDING_DEFAULT_APP_NAME,
       tagline: "",
       logo: null,
+      wallpaper: null,
     });
   });
 
@@ -160,12 +211,14 @@ describe("resolveBrandingSettings", () => {
         branding_app_name: "Acme Ops",
         branding_tagline: "Reliable infrastructure",
         branding_logo: "data:image/png;base64,AAA=",
+        branding_wallpaper: "data:image/webp;base64,BBB=",
       }),
     );
     expect(settings).toEqual({
       appName: "Acme Ops",
       tagline: "Reliable infrastructure",
       logo: "data:image/png;base64,AAA=",
+      wallpaper: "data:image/webp;base64,BBB=",
     });
   });
 });

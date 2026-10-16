@@ -7,7 +7,9 @@ import type { BrandingSettings } from "@/api/settings-api";
 import { AccordionSection } from "./AdminSettingsShared";
 import {
   BRANDING_LOGO_ACCEPT,
+  BRANDING_WALLPAPER_ACCEPT,
   isAcceptedBrandingLogoFile,
+  isAcceptedBrandingWallpaperFile,
 } from "./branding-logo-file";
 
 export function AdminBrandingSection({
@@ -18,6 +20,7 @@ export function AdminBrandingSection({
   saving,
   onSave,
   onResetLogo,
+  onResetWallpaper,
 }: {
   open: boolean;
   onToggle: () => void;
@@ -26,9 +29,11 @@ export function AdminBrandingSection({
   saving: boolean;
   onSave: () => void;
   onResetLogo: () => void;
+  onResetWallpaper: () => void;
 }) {
   const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const wallpaperInputRef = useRef<HTMLInputElement>(null);
 
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -42,6 +47,23 @@ export function AdminBrandingSection({
     reader.onload = () => {
       if (typeof reader.result === "string") {
         setSettings({ ...settings, logo: reader.result });
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleWallpaperChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !settings) return;
+    if (!isAcceptedBrandingWallpaperFile(file)) {
+      alert(t("admin.brandingWallpaperInvalid"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setSettings({ ...settings, wallpaper: reader.result });
       }
     };
     reader.readAsDataURL(file);
@@ -131,6 +153,45 @@ export function AdminBrandingSection({
               {settings.logo && (
                 <Button size="sm" variant="outline" onClick={onResetLogo}>
                   {t("admin.brandingLogoReset")}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 py-3 border-b border-border">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm font-medium leading-snug">
+                {t("admin.brandingWallpaper")}
+              </span>
+              <span className="text-xs text-muted-foreground leading-snug">
+                {t("admin.brandingWallpaperDesc")}
+              </span>
+            </div>
+            {settings.wallpaper && (
+              <img
+                src={settings.wallpaper}
+                alt={t("admin.brandingWallpaper")}
+                className="w-full max-w-sm h-28 object-cover border border-border"
+              />
+            )}
+            <div className="flex items-center gap-3">
+              <input
+                ref={wallpaperInputRef}
+                type="file"
+                accept={BRANDING_WALLPAPER_ACCEPT}
+                className="hidden"
+                onChange={handleWallpaperChange}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => wallpaperInputRef.current?.click()}
+              >
+                {t("admin.brandingWallpaperUpload")}
+              </Button>
+              {settings.wallpaper && (
+                <Button size="sm" variant="outline" onClick={onResetWallpaper} disabled={saving}>
+                  {t("admin.brandingWallpaperReset")}
                 </Button>
               )}
             </div>

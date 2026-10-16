@@ -421,7 +421,23 @@ export function AdminSettingsPanel({
         appName: brandingSettings.appName,
         tagline: brandingSettings.tagline,
         logo: brandingSettings.logo,
+        wallpaper: brandingSettings.wallpaper,
       });
+      setBrandingSettings(saved);
+      applyBranding(saved);
+      toast.success(t("admin.brandingSaved"));
+    } catch (e) {
+      toast.error(apiErrorMessage(e, t("admin.brandingSaveFailed")));
+    } finally {
+      setBrandingSaving(false);
+    }
+  }
+
+  async function handleResetBrandingWallpaper() {
+    if (!brandingSettings) return;
+    setBrandingSaving(true);
+    try {
+      const saved = await updateBranding({ wallpaper: null });
       setBrandingSettings(saved);
       applyBranding(saved);
       toast.success(t("admin.brandingSaved"));
@@ -859,6 +875,7 @@ export function AdminSettingsPanel({
         saving={brandingSaving}
         onSave={() => void handleSaveBranding()}
         onResetLogo={() => void handleResetBrandingLogo()}
+        onResetWallpaper={() => void handleResetBrandingWallpaper()}
       />
 
       <AdminDatabaseSection

@@ -179,6 +179,9 @@ function usesPluginBodyParser(path: string): boolean {
   );
 }
 const coreJsonParser = bodyParser.json({ limit: "2mb" });
+// Only the administrator's branding update accepts a larger JSON body for
+// original wallpaper photos; the image is validated and shrunk before storage.
+const brandingJsonParser = bodyParser.json({ limit: "8mb" });
 const coreUrlencodedParser = bodyParser.urlencoded({
   limit: "2mb",
   extended: true,
@@ -186,6 +189,9 @@ const coreUrlencodedParser = bodyParser.urlencoded({
 
 app.use((req, res, next) => {
   if (usesPluginBodyParser(req.path)) return next();
+  if (req.path === "/users/branding" && req.method === "PATCH") {
+    return brandingJsonParser(req, res, next);
+  }
   coreJsonParser(req, res, next);
 });
 app.use((req, res, next) => {
