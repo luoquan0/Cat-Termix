@@ -212,7 +212,9 @@ describe("PATCH /users/branding", () => {
       { wallpaper: pngDataUrl },
     );
     expect(response.statusCode).toBe(200);
-    expect(state.settings.branding_wallpaper).toMatch(/^data:image\/webp;base64,/);
+    expect(state.settings.branding_wallpaper).toMatch(
+      /^data:image\/webp;base64,/,
+    );
     expect(response.body).toMatchObject({
       wallpaper: state.settings.branding_wallpaper,
     });

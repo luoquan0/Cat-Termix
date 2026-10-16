@@ -149,10 +149,7 @@ export async function parseBrandingWallpaperDataUrl(
   if (!match) return null;
 
   const bytes = Buffer.from(match[2], "base64");
-  if (
-    bytes.length === 0 ||
-    bytes.length > BRANDING_WALLPAPER_MAX_INPUT_BYTES
-  ) {
+  if (bytes.length === 0 || bytes.length > BRANDING_WALLPAPER_MAX_INPUT_BYTES) {
     return null;
   }
 
@@ -162,12 +159,20 @@ export async function parseBrandingWallpaperDataUrl(
       limitInputPixels: BRANDING_WALLPAPER_MAX_INPUT_PIXELS,
     });
     const metadata = await image.metadata();
-    if (!metadata.format || !["png", "jpeg", "webp"].includes(metadata.format)) {
+    if (
+      !metadata.format ||
+      !["png", "jpeg", "webp"].includes(metadata.format)
+    ) {
       return null;
     }
     const normalized = await image
       .rotate()
-      .resize({ width: 2560, height: 1600, fit: "inside", withoutEnlargement: true })
+      .resize({
+        width: 2560,
+        height: 1600,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
       .webp({ quality: 78 })
       .toBuffer();
     if (normalized.length > BRANDING_WALLPAPER_MAX_OUTPUT_BYTES) return null;

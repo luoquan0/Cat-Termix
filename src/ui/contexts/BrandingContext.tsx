@@ -61,7 +61,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
     appName: DEFAULT_APP_NAME,
     tagline: "",
     logo: null,
-  wallpaper: null,
+    wallpaper: null,
   });
 
   useEffect(() => {

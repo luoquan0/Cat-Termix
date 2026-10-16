@@ -177,7 +177,8 @@ describe("parseBrandingWallpaperDataUrl", () => {
     ).toBeNull();
     expect(
       await parseBrandingWallpaperDataUrl(
-        "data:image/png;base64," + Buffer.from("not a photo").toString("base64"),
+        "data:image/png;base64," +
+          Buffer.from("not a photo").toString("base64"),
       ),
     ).toBeNull();
   });

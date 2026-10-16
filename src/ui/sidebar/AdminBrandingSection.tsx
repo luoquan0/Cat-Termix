@@ -190,7 +190,12 @@ export function AdminBrandingSection({
                 {t("admin.brandingWallpaperUpload")}
               </Button>
               {settings.wallpaper && (
-                <Button size="sm" variant="outline" onClick={onResetWallpaper} disabled={saving}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onResetWallpaper}
+                  disabled={saving}
+                >
                   {t("admin.brandingWallpaperReset")}
                 </Button>
               )}
