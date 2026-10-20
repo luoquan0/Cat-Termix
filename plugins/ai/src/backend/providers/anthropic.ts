@@ -71,16 +71,14 @@ export function toAnthropicMessages(
         role: "user",
         content: [
           { type: "text", text: message.content },
-          ...message.images.map(
-            (url): Anthropic.ImageBlockParam => ({
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: "image/webp",
-                data: url.slice("data:image/webp;base64,".length),
-              },
-            }),
-          ),
+          ...message.images.map((url): Anthropic.ImageBlockParam => ({
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/webp",
+              data: url.slice("data:image/webp;base64,".length),
+            },
+          })),
         ],
       });
     } else {
