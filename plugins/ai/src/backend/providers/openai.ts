@@ -52,7 +52,19 @@ function toOpenAiMessages(request: ChatRequest): unknown[] {
       continue;
     }
 
-    messages.push({ role: message.role, content: message.content });
+    messages.push({
+      role: message.role,
+      content:
+        message.role === "user" && message.images?.length
+          ? [
+              { type: "text", text: message.content },
+              ...message.images.map((url) => ({
+                type: "image_url",
+                image_url: { url },
+              })),
+            ]
+          : message.content,
+    });
   }
 
   return messages;

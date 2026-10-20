@@ -74,6 +74,7 @@ export function useAiStream() {
   const send = useCallback(
     async (input: {
       message: string;
+      images?: string[];
       providerId: number;
       model?: string;
       contextPolicy?: ContextPolicy;
@@ -119,6 +120,7 @@ export function useAiStream() {
 
       let conversationId = input.conversationId ?? null;
       let replyText = "";
+      let accepted = false;
       let toolSequence = 0;
       const runTools: ToolActivity[] = [];
 
@@ -146,6 +148,7 @@ export function useAiStream() {
           signal: controller.signal,
           body: JSON.stringify({
             message: input.message,
+            images: input.images,
             providerId: input.providerId,
             model: input.model,
             contextPolicy: input.contextPolicy,
@@ -163,7 +166,7 @@ export function useAiStream() {
 
         if (abortRef.current !== controller) {
           await response.body?.cancel();
-          return;
+          return accepted;
         }
         if (!response.ok) {
           let message = "The assistant could not be reached";
@@ -174,9 +177,10 @@ export function useAiStream() {
           }
           if (abortRef.current === controller)
             setState((prev) => ({ ...prev, streaming: false, error: message }));
-          return;
+          return false;
         }
 
+        accepted = true;
         const reader = response.body?.getReader();
         if (!reader) {
           setState((prev) => ({
@@ -184,7 +188,7 @@ export function useAiStream() {
             streaming: false,
             error: "The assistant returned an empty response",
           }));
-          return;
+          return accepted;
         }
 
         const decoder = new TextDecoder();
@@ -192,7 +196,7 @@ export function useAiStream() {
 
         while (true) {
           const { done, value } = await reader.read();
-          if (abortRef.current !== controller) return;
+          if (abortRef.current !== controller) return accepted;
           if (done) break;
 
           buffer += decoder.decode(value, { stream: true });
@@ -297,12 +301,14 @@ export function useAiStream() {
         }
 
         finish();
+        return accepted;
       } catch (error) {
         finish(
           controller.signal.aborted
             ? null
             : getErrorMessage(error, "The assistant stopped unexpectedly"),
         );
+        return accepted;
       } finally {
         if (abortRef.current === controller) abortRef.current = null;
       }

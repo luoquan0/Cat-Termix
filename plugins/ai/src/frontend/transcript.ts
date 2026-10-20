@@ -3,7 +3,12 @@ import type { StreamState, ToolActivity } from "./use-ai-stream";
 
 /** A finished part of the conversation, kept after the stream resets. */
 export type HistoryEntry =
-  | { kind: "message"; role: "user" | "assistant"; content: string }
+  | {
+      kind: "message";
+      role: "user" | "assistant";
+      content: string;
+      images?: string[];
+    }
   | { kind: "tool"; tool: ToolActivity };
 
 /** One entry in the rendered conversation, in the order it happened. */
@@ -13,13 +18,37 @@ export type TimelineItem =
       key: string;
       role: "user" | "assistant";
       content: string;
+      images?: string[];
     }
   /** live is false for a past run's step, which can never still be running. */
   | { kind: "tool"; key: string; tool: ToolActivity; live: boolean }
   | { kind: "proposal"; key: string; proposal: AiProposal };
 
-export function userEntry(content: string): HistoryEntry {
-  return { kind: "message", role: "user", content };
+export function userEntry(content: string, images: string[] = []): HistoryEntry {
+  return {
+    kind: "message",
+    role: "user",
+    content,
+    ...(images.length ? { images } : {}),
+  };
+}
+
+function savedImages(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const value: unknown = JSON.parse(raw);
+    return Array.isArray(value) &&
+      value.length <= 3 &&
+      value.every(
+        (image) =>
+          typeof image === "string" &&
+          /^data:image\/webp;base64,[A-Za-z0-9+/]+=*$/.test(image),
+      )
+      ? value
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -54,6 +83,7 @@ export function buildTimeline(
           key: `history-${index}`,
           role: entry.role,
           content: entry.content,
+          ...(entry.images?.length ? { images: entry.images } : {}),
         },
   );
 
@@ -156,7 +186,10 @@ export function savedConversationEntries(
         "Explain this server-recorded action outcome in the user's language.",
       );
       entries.push(
-        userEntry(internal ? "Summarize the action result" : message.content),
+        userEntry(
+          internal ? "Summarize the action result" : message.content,
+          savedImages(message.images),
+        ),
       );
       continue;
     }

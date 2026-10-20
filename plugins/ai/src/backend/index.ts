@@ -10,7 +10,9 @@ export async function activate(ctx: PluginContext) {
   const repository = await createAiRepository(ctx);
   await registerProviderSync(ctx, repository);
 
-  const router = ctx.http.router<Router>();
+  // Image prompts contain base64 attachments; the route validates and
+  // re-encodes each image before storing or forwarding it.
+  const router = ctx.http.router<Router>({ bodyLimit: "18mb" });
   registerAiRoutes(router, repository, ctx);
   registerUpdateSettings(router, ctx);
 

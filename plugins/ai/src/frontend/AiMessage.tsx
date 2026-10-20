@@ -4,13 +4,27 @@ import remarkGfm from "remark-gfm";
 interface AiMessageProps {
   role: "user" | "assistant";
   content: string;
+  images?: string[];
 }
 
-export function AiMessage({ role, content }: AiMessageProps) {
+export function AiMessage({ role, content, images = [] }: AiMessageProps) {
   if (role === "user") {
     return (
       <div className="rounded-none border border-border bg-muted px-3 py-2 text-sm whitespace-pre-wrap break-words">
         {content}
+        {images.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {images.map((image, index) => (
+              <img
+                key={index}
+                src={image}
+                alt={`Attached image ${index + 1}`}
+                loading="lazy"
+                className="max-h-52 max-w-full rounded-lg border border-border object-contain"
+              />
+            ))}
+          </div>
+        )}
       </div>
     );
   }

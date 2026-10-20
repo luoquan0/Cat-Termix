@@ -59,6 +59,16 @@ describe("ai adoption migration", () => {
       .get() as Record<string, unknown>;
     // The key stays until core's boot migration moves it into ctx.secrets.
     expect(provider).toMatchObject({ label: "Local", api_key: "enc-key" });
+    const imageColumns = (
+      db.sqlite.prepare("PRAGMA table_info(p_ai_messages)").all() as Array<{
+        name: string;
+      }>
+    ).map((column) => column.name);
+    expect(imageColumns).toContain("images");
+    const legacyMessage = db.sqlite
+      .prepare("SELECT content, images FROM p_ai_messages WHERE conversation_id = 5")
+      .get() as { content: string; images: string | null };
+    expect(legacyMessage).toEqual({ content: "why full", images: null });
 
     expect(indexes(db.sqlite, "p_ai_chat_preferences")).toEqual([
       "idx_ai_chat_preferences_user",
@@ -101,6 +111,13 @@ describe("ai adoption migration", () => {
       }>
     ).map((column) => column.name);
     expect(columns).not.toContain("api_key");
+    expect(
+      (
+        db.sqlite.prepare("PRAGMA table_info(p_ai_messages)").all() as Array<{
+          name: string;
+        }>
+      ).map((column) => column.name),
+    ).toContain("images");
 
     db.sqlite
       .prepare("INSERT INTO users (id, username) VALUES ('u1', 'u1')")

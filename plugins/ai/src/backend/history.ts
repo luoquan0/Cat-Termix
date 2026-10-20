@@ -5,11 +5,31 @@ export interface StoredMessage {
   role: string;
   content: string;
   toolCalls: string | null;
+  images?: string | null;
 }
 
 const INTERRUPTED_RESULT = JSON.stringify({
   error: "No result: the reply was interrupted before this tool finished.",
 });
+
+/** Existing conversations from older versions have no images column data. */
+export function parseStoredImages(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) &&
+      parsed.length <= 3 &&
+      parsed.every(
+        (value) =>
+          typeof value === "string" &&
+          /^data:image\/webp;base64,[a-zA-Z0-9+/]+=*$/.test(value),
+      )
+      ? parsed
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 function parseCalls(raw: string | null): ToolCall[] {
   if (!raw) return [];
@@ -38,6 +58,9 @@ export function toStoredMessage(message: ChatMessage): StoredMessage {
     toolCalls: message.toolCalls?.length
       ? JSON.stringify(message.toolCalls)
       : null,
+    ...(message.images?.length
+      ? { images: JSON.stringify(message.images) }
+      : {}),
   };
 }
 
@@ -96,7 +119,13 @@ export function toChatHistory(rows: StoredMessage[]): ChatMessage[] {
       open = [...calls];
       openId = row.id;
     } else if (row.role === "user") {
-      history.push({ role: "user", storedId: row.id, content: row.content });
+      const images = parseStoredImages(row.images);
+      history.push({
+        role: "user",
+        storedId: row.id,
+        content: row.content,
+        ...(images.length ? { images } : {}),
+      });
     }
   }
 

@@ -50,6 +50,7 @@ import {
   type AiProvider,
 } from "./ai-api";
 import { AiMessage } from "./AiMessage";
+import { AiImageComposer } from "./AiImageComposer";
 import { AiProviderSettings } from "./AiProviderSettings";
 import { AiToolCall } from "./AiToolCall";
 import { ProposalCard } from "./ProposalCard";
@@ -227,6 +228,7 @@ export function AiPanel({
     ...DEFAULT_CONTEXT_POLICY,
   });
   const [input, setInput] = useState("");
+  const [images, setImages] = useState<string[]>([]);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [conversations, setConversations] = useState<AiConversation[]>([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -308,6 +310,7 @@ export function AiPanel({
     rememberActiveConversation(null);
     jumpToLatest();
     setInput("");
+    setImages([]);
     setMention(null);
     setShowHistory(false);
     setShowSettings(false);
@@ -417,6 +420,7 @@ export function AiPanel({
       );
       jumpToLatest();
       setInput("");
+      setImages([]);
       setMention(null);
       setConfirmDeleteId(null);
       runCountRef.current = saved.messages.length;
@@ -577,7 +581,10 @@ export function AiPanel({
   );
 
   async function handleSend() {
-    const message = input.trim();
+    const draftText = input;
+    const attachments = [...images];
+    const message =
+      input.trim() || (attachments.length ? t("ai.describeImages") : "");
     if (
       !message ||
       !providerId ||
@@ -589,10 +596,13 @@ export function AiPanel({
 
     jumpToLatest();
     setInput("");
-    setHistory((prev) => [...prev, userEntry(message)]);
+    setImages([]);
+    const entry = userEntry(message, attachments);
+    setHistory((prev) => [...prev, entry]);
 
-    await send({
+    const accepted = await send({
       message,
+      images: attachments,
       providerId,
       model: model.trim(),
       contextPolicy: contextConfig,
@@ -606,6 +616,13 @@ export function AiPanel({
       activeTab,
       onComplete: keepRun,
     });
+    // A rejected HTTP request has not persisted the user's message. Restore
+    // the draft and screenshots rather than silently discarding them.
+    if (!accepted) {
+      setHistory((prev) => prev.filter((item) => item !== entry));
+      setInput((current) => current || draftText);
+      setImages((current) => (current.length ? current : attachments));
+    }
   }
 
   /**
@@ -959,6 +976,7 @@ export function AiPanel({
                   key={item.key}
                   role={item.role}
                   content={item.content}
+                  images={item.images}
                 />
               );
             }
@@ -1085,6 +1103,13 @@ export function AiPanel({
           disabled={!providerId || loadingConversationId !== null}
         />
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-2">
+          <AiImageComposer
+            images={images}
+            setImages={setImages}
+            textareaRef={textareaRef}
+            disabled={executing || !providerId || loadingConversationId !== null}
+            t={t}
+          />
           <AiComposerControls
             providers={enabledProviders}
             providerId={providerId}
@@ -1105,7 +1130,10 @@ export function AiPanel({
               variant="outline"
               className="h-9 w-9 shrink-0 rounded-full border-accent-brand/40 bg-accent-brand text-white hover:bg-accent-brand/85 hover:text-white"
               disabled={
-                executing || !input.trim() || !providerId || !model.trim()
+                executing ||
+                (!input.trim() && images.length === 0) ||
+                !providerId ||
+                !model.trim()
               }
               onClick={() => void handleSend()}
             >

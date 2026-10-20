@@ -57,7 +57,17 @@ function toGeminiContents(request: ChatRequest): unknown[] {
 
     contents.push({
       role: message.role === "assistant" ? "model" : "user",
-      parts: [{ text: message.content }],
+      parts: [
+        { text: message.content },
+        ...(message.role === "user"
+          ? (message.images ?? []).map((url) => ({
+              inlineData: {
+                mimeType: "image/webp",
+                data: url.slice("data:image/webp;base64,".length),
+              },
+            }))
+          : []),
+      ],
     });
   }
 

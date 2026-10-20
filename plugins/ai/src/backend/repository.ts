@@ -56,6 +56,7 @@ export interface AiMessageRecord {
   role: string;
   content: string;
   toolCalls: string | null;
+  images: string | null;
   createdAt: string;
 }
 
@@ -494,12 +495,14 @@ export async function createAiRepository(
       role: string;
       content: string;
       toolCalls?: string | null;
+      images?: string | null;
     }): Promise<number> {
       const id = await insertId(messages, {
         conversationId: input.conversationId,
         role: input.role,
         content: input.content,
         toolCalls: input.toolCalls ?? null,
+        images: input.images ?? null,
         createdAt: now(),
       });
       await db.persist();

@@ -26,6 +26,8 @@ export interface ChatMessage {
   storedId?: number;
   role: "system" | "user" | "assistant" | "tool";
   content: string;
+  /** Validated image data URLs; only user turns carry image content. */
+  images?: string[];
   /** Set on assistant turns that requested tools. */
   toolCalls?: ToolCall[];
   /** Set on tool turns, matching the id of the call being answered. */

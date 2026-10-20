@@ -92,6 +92,8 @@ export const messages = adoptLegacyTable(
       content: text().notNull().default(""),
       // Serialized tool calls for this turn.
       toolCalls: text(),
+      // User-provided image attachments, serialized as validated data URLs.
+      images: text(),
       createdAt: timestamp().notNull().defaultNow(),
     },
     {

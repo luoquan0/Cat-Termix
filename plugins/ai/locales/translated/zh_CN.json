@@ -237,6 +237,15 @@
     "searchModels": "搜索模型",
     "addCustomModelId": "自定义模型 ID",
     "addModel": "添加模型",
+    "addImages": "添加图片",
+    "captureScreenshot": "截取屏幕",
+    "imageLimit": "每条消息最多添加 3 张图片。",
+    "imageInvalid": "请使用 12 MB 以内的 PNG、JPEG 或 WEBP 图片，大图会自动压缩。",
+    "screenshotPasteHint": "无法直接截屏或已取消。请先使用系统截图，再按 Ctrl+V / Cmd+V 粘贴。",
+    "removeImage": "移除图片",
+    "attachedImage": "已添加图片",
+    "describeImages": "请识别并描述这些图片。",
+    "visionModelHint": "请选择支持视觉识别的模型才能查看这些图片。",
     "noEnabledModels": "该渠道尚未启用模型，请先在渠道设置中勾选。"
   },
   "nav": {

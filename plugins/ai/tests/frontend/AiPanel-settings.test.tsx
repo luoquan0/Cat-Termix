@@ -173,6 +173,52 @@ describe("compact chat settings and a clean composer", () => {
     expect(dialog.className).toContain("max-w-[900px]");
     expect(composer.closest("[role=dialog]")).toBeNull();
   });
+  it("uploads an image, sends it with text, and keeps its preview in chat", async () => {
+    render(<AiPanel />);
+    const composer = await ready();
+    const picker = screen.getByLabelText("ai.addImages") as HTMLInputElement;
+    const file = new File(["image-data"], "screenshot.png", {
+      type: "image/png",
+    });
+    fireEvent.change(picker, { target: { files: [file] } });
+    await screen.findByAltText("ai.attachedImage 1");
+
+    fireEvent.change(composer, { target: { value: "What does this show?" } });
+    fireEvent.click(screen.getByRole("button", { name: "ai.send" }));
+
+    await waitFor(() => expect(api.fetch).toHaveBeenCalledOnce());
+    const body = JSON.parse(api.fetch.mock.calls[0][1].body);
+    expect(body.message).toBe("What does this show?");
+    expect(body.images).toHaveLength(1);
+    expect(body.images[0]).toMatch(/^data:image\/png;base64,/);
+    await screen.findByAltText("Attached image 1");
+  });
+
+  it("can send images alone and restore the draft when HTTP rejects it", async () => {
+    api.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "Image format not supported" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    render(<AiPanel />);
+    await ready();
+    const picker = screen.getByLabelText("ai.addImages") as HTMLInputElement;
+    fireEvent.change(picker, {
+      target: {
+        files: [new File(["png-data"], "screen.png", { type: "image/png" })],
+      },
+    });
+    await screen.findByAltText("ai.attachedImage 1");
+    fireEvent.click(screen.getByRole("button", { name: "ai.send" }));
+    await waitFor(() => expect(api.fetch).toHaveBeenCalledOnce());
+    expect(JSON.parse(api.fetch.mock.calls[0][1].body).message).toBe(
+      "ai.describeImages",
+    );
+    await screen.findByAltText("ai.attachedImage 1");
+    expect(screen.getByText("Image format not supported")).toBeTruthy();
+  });
+
   it("can send with settings closed and new chats never paste terminal text", async () => {
     render(<AiPanel hostId={1} getTerminalSessionId={() => "current"} />);
     const composer = await ready();

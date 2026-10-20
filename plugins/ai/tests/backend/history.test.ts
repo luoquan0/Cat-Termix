@@ -70,6 +70,28 @@ describe("toChatHistory", () => {
     ]);
   });
 
+  it("replays images on follow-up turns without mixing tool calls", () => {
+    const image = "data:image/webp;base64,aGVsbG8=";
+    const rows = [
+      {
+        role: "user",
+        content: "Read the screenshot",
+        images: JSON.stringify([image]),
+        toolCalls: null,
+      },
+      { role: "assistant", content: "Looks like a terminal", toolCalls: null },
+      { role: "user", content: "What now?", toolCalls: null },
+    ];
+    expect(toChatHistory(rows)).toEqual([
+      { role: "user", content: "Read the screenshot", images: [image] },
+      { role: "assistant", content: "Looks like a terminal" },
+      { role: "user", content: "What now?" },
+    ]);
+    expect(
+      toStoredMessage({ role: "user", content: "Look", images: [image] }),
+    ).toMatchObject({ images: JSON.stringify([image]) });
+  });
+
   it("fills in results for calls a cut off run never answered", () => {
     const rows = [
       { role: "user", content: "check", toolCalls: null },

@@ -3,7 +3,30 @@ import {
   buildTimeline,
   finishedRunEntries,
   userEntry,
+  savedConversationEntries,
 } from "../../src/frontend/transcript";
+
+describe("image transcripts", () => {
+  it("keeps pasted images in pending messages and restores saved images", () => {
+    const url = "data:image/webp;base64,aGVsbG8=";
+    const local = userEntry("Look at this", [url]);
+    expect(
+      buildTimeline([local], { tools: [], assistantText: "" }, [])[0],
+    ).toMatchObject({ role: "user", images: [url] });
+    const saved = savedConversationEntries([
+      {
+        id: 1,
+        conversationId: 1,
+        role: "user",
+        content: "Look at this",
+        toolCalls: null,
+        images: JSON.stringify([url]),
+        createdAt: "",
+      },
+    ]);
+    expect(saved).toEqual([local]);
+  });
+});
 
 describe("finishedRunEntries", () => {
   it("keeps the run's tool steps ahead of its reply", () => {

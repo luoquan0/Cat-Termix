@@ -36,7 +36,17 @@ function toOllamaMessages(request: ChatRequest): unknown[] {
       continue;
     }
 
-    messages.push({ role: message.role, content: message.content });
+    messages.push({
+      role: message.role,
+      content: message.content,
+      ...(message.role === "user" && message.images?.length
+        ? {
+            images: message.images.map((url) =>
+              url.slice("data:image/webp;base64,".length),
+            ),
+          }
+        : {}),
+    });
   }
 
   return messages;

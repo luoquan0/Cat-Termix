@@ -29,6 +29,9 @@ export function estimateRequestTokens(
       sum +
       12 +
       estimateTextTokens(m.content) +
+      // Image token use varies by resolution/model. Account for the images,
+      // never treat base64 as natural-language prompt text.
+      (m.images?.length ?? 0) * 3000 +
       estimateTextTokens(JSON.stringify(m.toolCalls ?? [])) +
       estimateTextTokens(m.toolCallId ?? ""),
     0,
@@ -172,6 +175,7 @@ export class ContextManager {
         JSON.stringify({
           role: m.role,
           content: shortened(m.content, 16000),
+          ...(m.images?.length ? { attachedImages: m.images.length } : {}),
           ...(m.toolCalls ? { toolCalls: m.toolCalls } : {}),
           ...(m.toolCallId ? { toolCallId: m.toolCallId } : {}),
         }),

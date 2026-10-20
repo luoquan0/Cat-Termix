@@ -98,6 +98,8 @@ export interface AiMessage {
   role: "user" | "assistant" | "tool";
   content: string;
   toolCalls: string | null;
+  /** Serialized normalized image data URLs for user turns. */
+  images?: string | null;
   createdAt: string;
 }
 

@@ -237,6 +237,15 @@
     "searchModels": "Search models",
     "addCustomModelId": "Custom model ID",
     "addModel": "Add model",
+    "addImages": "Add images",
+    "captureScreenshot": "Capture screenshot",
+    "imageLimit": "You can attach up to 3 images per message.",
+    "imageInvalid": "Use a PNG, JPEG or WEBP image under 12 MB (large photos are compressed).",
+    "screenshotPasteHint": "Screen capture is unavailable or cancelled. Take a screenshot and paste it with Ctrl+V / Cmd+V.",
+    "removeImage": "Remove image",
+    "attachedImage": "Attached image",
+    "describeImages": "Please describe the attached image(s).",
+    "visionModelHint": "Choose a model with vision support to identify these images.",
     "noEnabledModels": "No models enabled. Select models in this channel's settings."
   },
   "nav": {

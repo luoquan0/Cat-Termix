@@ -29,7 +29,7 @@ function createClient(config: ProviderConfig): Anthropic {
   });
 }
 
-function toAnthropicMessages(request: ChatRequest): Anthropic.MessageParam[] {
+export function toAnthropicMessages(request: ChatRequest): Anthropic.MessageParam[] {
   const messages: Anthropic.MessageParam[] = [];
 
   for (const message of request.messages) {
