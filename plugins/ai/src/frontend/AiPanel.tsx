@@ -1102,16 +1102,16 @@ export function AiPanel({
           placeholder={t("ai.inputPlaceholder")}
           disabled={!providerId || loadingConversationId !== null}
         />
+        <AiImageComposer
+          images={images}
+          setImages={setImages}
+          textareaRef={textareaRef}
+          disabled={
+            executing || !providerId || loadingConversationId !== null
+          }
+          t={t}
+        />
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-2">
-          <AiImageComposer
-            images={images}
-            setImages={setImages}
-            textareaRef={textareaRef}
-            disabled={
-              executing || !providerId || loadingConversationId !== null
-            }
-            t={t}
-          />
           <AiComposerControls
             providers={enabledProviders}
             providerId={providerId}

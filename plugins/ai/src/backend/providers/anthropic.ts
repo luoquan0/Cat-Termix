@@ -66,7 +66,26 @@ export function toAnthropicMessages(
     }
 
     if (message.role === "system") continue;
-    messages.push({ role: message.role, content: message.content });
+    if (message.role === "user" && message.images?.length) {
+      messages.push({
+        role: "user",
+        content: [
+          { type: "text", text: message.content },
+          ...message.images.map(
+            (url): Anthropic.ImageBlockParam => ({
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: "image/webp",
+                data: url.slice("data:image/webp;base64,".length),
+              },
+            }),
+          ),
+        ],
+      });
+    } else {
+      messages.push({ role: message.role, content: message.content });
+    }
   }
 
   return messages;
