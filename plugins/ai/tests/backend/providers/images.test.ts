@@ -60,11 +60,18 @@ describe("provider image protocol", () => {
         { type: "text", text: "What is shown?" },
         {
           type: "image",
-          source: { type: "base64", media_type: "image/webp", data: "aGVsbG8=" },
+          source: {
+            type: "base64",
+            media_type: "image/webp",
+            data: "aGVsbG8=",
+          },
         },
       ],
     });
-    expect(messages[1]).toEqual({ role: "assistant", content: "A screenshot." });
+    expect(messages[1]).toEqual({
+      role: "assistant",
+      content: "A screenshot.",
+    });
   });
 
   it("sends Gemini inline image data alongside text", async () => {

@@ -66,7 +66,9 @@ describe("ai adoption migration", () => {
     ).map((column) => column.name);
     expect(imageColumns).toContain("images");
     const legacyMessage = db.sqlite
-      .prepare("SELECT content, images FROM p_ai_messages WHERE conversation_id = 5")
+      .prepare(
+        "SELECT content, images FROM p_ai_messages WHERE conversation_id = 5",
+      )
       .get() as { content: string; images: string | null };
     expect(legacyMessage).toEqual({ content: "why full", images: null });
 

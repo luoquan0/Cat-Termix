@@ -176,7 +176,9 @@ describe("compact chat settings and a clean composer", () => {
   it("uploads an image, sends it with text, and keeps its preview in chat", async () => {
     render(<AiPanel />);
     const composer = await ready();
-    const picker = screen.getByLabelText("ai.addImages") as HTMLInputElement;
+    const picker = screen.getByLabelText("ai.addImages", {
+      selector: "input",
+    }) as HTMLInputElement;
     const file = new File(["image-data"], "screenshot.png", {
       type: "image/png",
     });
@@ -203,7 +205,9 @@ describe("compact chat settings and a clean composer", () => {
     );
     render(<AiPanel />);
     await ready();
-    const picker = screen.getByLabelText("ai.addImages") as HTMLInputElement;
+    const picker = screen.getByLabelText("ai.addImages", {
+      selector: "input",
+    }) as HTMLInputElement;
     fireEvent.change(picker, {
       target: {
         files: [new File(["png-data"], "screen.png", { type: "image/png" })],

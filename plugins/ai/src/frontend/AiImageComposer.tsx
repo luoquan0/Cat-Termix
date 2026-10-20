@@ -83,10 +83,15 @@ export async function captureAiScreenshot(): Promise<string> {
     await new Promise<void>((resolve, reject) => {
       if (video.readyState >= 1) return resolve();
       video.onloadedmetadata = () => resolve();
-      video.onerror = () => reject(new Error("Could not open the captured screen"));
+      video.onerror = () =>
+        reject(new Error("Could not open the captured screen"));
     });
     await video.play();
-    const scale = Math.min(1, 2048 / video.videoWidth, 2048 / video.videoHeight);
+    const scale = Math.min(
+      1,
+      2048 / video.videoWidth,
+      2048 / video.videoHeight,
+    );
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
     canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
@@ -164,9 +169,12 @@ export function AiImageComposer({
         disabled ||
         document.activeElement !== textareaRef.current ||
         !event.clipboardData
-      ) return;
+      )
+        return;
       const files = Array.from(event.clipboardData.items)
-        .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+        .filter(
+          (item) => item.kind === "file" && item.type.startsWith("image/"),
+        )
         .map((item) => item.getAsFile())
         .filter((file): file is File => file !== null);
       if (!files.length) return;
@@ -244,7 +252,9 @@ export function AiImageComposer({
             void captureAiScreenshot()
               .then((image) => {
                 setImages((previous) =>
-                  previous.length < MAX_IMAGES ? [...previous, image] : previous,
+                  previous.length < MAX_IMAGES
+                    ? [...previous, image]
+                    : previous,
                 );
               })
               .catch(() => {

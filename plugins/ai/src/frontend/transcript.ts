@@ -24,7 +24,10 @@ export type TimelineItem =
   | { kind: "tool"; key: string; tool: ToolActivity; live: boolean }
   | { kind: "proposal"; key: string; proposal: AiProposal };
 
-export function userEntry(content: string, images: string[] = []): HistoryEntry {
+export function userEntry(
+  content: string,
+  images: string[] = [],
+): HistoryEntry {
   return {
     kind: "message",
     role: "user",

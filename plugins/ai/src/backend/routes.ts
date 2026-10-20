@@ -1281,8 +1281,13 @@ export function registerAiRoutes(
           return res.status(400).json({ error: "Invalid hostId" });
         }
 
-        if (typeof message !== "string" || (!message.trim() && !images.length)) {
-          return res.status(400).json({ error: "message or images are required" });
+        if (
+          typeof message !== "string" ||
+          (!message.trim() && !images.length)
+        ) {
+          return res
+            .status(400)
+            .json({ error: "message or images are required" });
         }
         if (!message.trim()) message = "Describe the attached image(s).";
         if (resolvedProposalId !== undefined && images.length) {

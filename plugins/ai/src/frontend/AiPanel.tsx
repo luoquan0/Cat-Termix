@@ -1107,7 +1107,9 @@ export function AiPanel({
             images={images}
             setImages={setImages}
             textareaRef={textareaRef}
-            disabled={executing || !providerId || loadingConversationId !== null}
+            disabled={
+              executing || !providerId || loadingConversationId !== null
+            }
             t={t}
           />
           <AiComposerControls

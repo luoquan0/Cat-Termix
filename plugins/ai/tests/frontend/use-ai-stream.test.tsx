@@ -76,7 +76,7 @@ describe("chat stream lifecycle", () => {
     );
     const onComplete = vi.fn();
     const { result, unmount } = renderHook(useAiStream);
-    let pending: Promise<void>;
+    let pending: Promise<boolean>;
     act(() => {
       pending = result.current.send({
         message: "hi",
@@ -100,7 +100,7 @@ describe("chat stream lifecycle", () => {
       }),
     );
     const { result } = renderHook(useAiStream);
-    let pending: Promise<void>;
+    let pending: Promise<boolean>;
     act(() => {
       pending = result.current.send({ message: "hi", providerId: 1 });
     });
