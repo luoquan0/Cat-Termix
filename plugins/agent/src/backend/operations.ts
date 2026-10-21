@@ -292,11 +292,7 @@ export class AgentOperations {
       !command.trim() ||
       command.length > 65_536
     )
-      throw new AgentPreconditionError(
-        400,
-        "INVALID_COMMAND",
-        "命令长度无效",
-      );
+      throw new AgentPreconditionError(400, "INVALID_COMMAND", "命令长度无效");
     const timeoutMs = rawTimeout === undefined ? 30_000 : Number(rawTimeout);
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 900_000)
       throw new AgentPreconditionError(
@@ -457,8 +453,8 @@ export class AgentOperations {
               let openedStream: ClientChannel | undefined;
               end = () => {
                 aborted = true;
-                openedStream?.close();
                 finish(new Error("Canceled"));
+                openedStream?.close();
               };
               if (this.cancelRequests.has(job.id)) {
                 end();
@@ -467,8 +463,8 @@ export class AgentOperations {
               // Deadline covers an SSH exec callback that never returns.
               timer = setTimeout(() => {
                 timedOut = true;
-                openedStream?.close();
                 finish(new Error("Timed out"));
+                openedStream?.close();
               }, remainingMs());
               this.activeJobs.set(job.id, { cancel: () => end?.() });
               connection.client.exec(job.command, (err, stream) => {

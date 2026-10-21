@@ -176,9 +176,8 @@ describe("Local Agent structured SSH tasks", () => {
 describe("Local Agent job recovery and SSH handshake timeout", () => {
   it("recovers only a persisted job from the same device", async () => {
     const f = fixture();
-    f.client.exec = vi.fn(
-      (_command: string, done: (error: Error) => void) =>
-        done(new Error("SSH exec rejected")),
+    f.client.exec = vi.fn((_command: string, done: (error: Error) => void) =>
+      done(new Error("SSH exec rejected")),
     );
     const ops = new AgentOperations(f.ctx);
     await ops.restore();
@@ -209,7 +208,10 @@ describe("Local Agent job recovery and SSH handshake timeout", () => {
   it("times out a stalled connection and disposes a late arrival", async () => {
     const f = fixture();
     let resolveConnection:
-      | ((value: { client: typeof f.client; dispose: typeof f.dispose }) => void)
+      | ((value: {
+          client: typeof f.client;
+          dispose: typeof f.dispose;
+        }) => void)
       | undefined;
     f.ctx.ssh.connect = vi.fn(
       () =>
@@ -233,7 +235,10 @@ describe("Local Agent job recovery and SSH handshake timeout", () => {
   it("cancels a connecting job without running a late command", async () => {
     const f = fixture();
     let resolveConnection:
-      | ((value: { client: typeof f.client; dispose: typeof f.dispose }) => void)
+      | ((value: {
+          client: typeof f.client;
+          dispose: typeof f.dispose;
+        }) => void)
       | undefined;
     f.ctx.ssh.connect = vi.fn(
       () =>
