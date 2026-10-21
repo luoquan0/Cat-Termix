@@ -173,6 +173,112 @@ describe("Local Agent structured SSH tasks", () => {
   });
 });
 
+describe("Local Agent job recovery and SSH handshake timeout", () => {
+  it("recovers only a persisted job from the same device", async () => {
+    const f = fixture();
+    f.client.exec = vi.fn(
+      (_command: string, done: (error: Error) => void) =>
+        done(new Error("SSH exec rejected")),
+    );
+    const ops = new AgentOperations(f.ctx);
+    await ops.restore();
+    const job = await ops.createJob(
+      DEVICE,
+      "42",
+      "echo once",
+      30_000,
+      false,
+      "original-key",
+    );
+    expect(job).not.toHaveProperty("requestKey");
+    expect(ops.recoverJob(DEVICE, "original-key")?.id).toBe(job.id);
+    expect(
+      ops.recoverJob({ ...DEVICE, id: "other-device" }, "original-key"),
+    ).toBeUndefined();
+    await vi.waitFor(() =>
+      expect(ops.getJob(DEVICE, job.id).state).toBe("FAILED"),
+    );
+    const restored = new AgentOperations(f.ctx);
+    await restored.restore();
+    expect(restored.recoverJob(DEVICE, "original-key")?.id).toBe(job.id);
+    expect(f.client.exec).toHaveBeenCalledTimes(1);
+    await ops.stop();
+    await restored.stop();
+  });
+
+  it("times out a stalled connection and disposes a late arrival", async () => {
+    const f = fixture();
+    let resolveConnection:
+      | ((value: { client: typeof f.client; dispose: typeof f.dispose }) => void)
+      | undefined;
+    f.ctx.ssh.connect = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveConnection = resolve;
+        }),
+    ) as unknown as typeof f.ctx.ssh.connect;
+    const ops = new AgentOperations(f.ctx);
+    await ops.restore();
+    const job = await ops.createJob(DEVICE, "42", "echo no", 1_000);
+    await vi.waitFor(
+      () => expect(ops.getJob(DEVICE, job.id).state).toBe("TIMED_OUT"),
+      { timeout: 3_000 },
+    );
+    resolveConnection?.({ client: f.client, dispose: f.dispose });
+    await vi.waitFor(() => expect(f.dispose).toHaveBeenCalled());
+    expect(f.client.exec).not.toHaveBeenCalled();
+    await ops.stop();
+  });
+
+  it("cancels a connecting job without running a late command", async () => {
+    const f = fixture();
+    let resolveConnection:
+      | ((value: { client: typeof f.client; dispose: typeof f.dispose }) => void)
+      | undefined;
+    f.ctx.ssh.connect = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveConnection = resolve;
+        }),
+    ) as unknown as typeof f.ctx.ssh.connect;
+    const ops = new AgentOperations(f.ctx);
+    await ops.restore();
+    const job = await ops.createJob(DEVICE, "42", "echo no", 30_000);
+    await vi.waitFor(() => expect(f.ctx.ssh.connect).toHaveBeenCalled());
+    await ops.cancelJob(DEVICE, job.id);
+    await vi.waitFor(() =>
+      expect(ops.getJob(DEVICE, job.id).state).toBe("CANCELED"),
+    );
+    resolveConnection?.({ client: f.client, dispose: f.dispose });
+    await vi.waitFor(() => expect(f.dispose).toHaveBeenCalled());
+    expect(f.client.exec).not.toHaveBeenCalled();
+    await ops.stop();
+  });
+});
+
+describe("Local Agent job persistence failures", () => {
+  it("does not leave QUEUED ghosts or execute when initial storage fails", async () => {
+    const f = fixture();
+    const ops = new AgentOperations(f.ctx);
+    await ops.restore();
+    const originalSet = f.ctx.kv.set.bind(f.ctx.kv);
+    let failOnce = true;
+    f.ctx.kv.set = vi.fn(async (key: string, value: unknown) => {
+      if (key === "agent-jobs" && failOnce) {
+        failOnce = false;
+        throw new Error("storage unavailable");
+      }
+      await originalSet(key, value);
+    });
+    await expect(
+      ops.createJob(DEVICE, "42", "echo never", 30_000, false, "key"),
+    ).rejects.toMatchObject({ code: "JOB_PERSIST_FAILED" });
+    expect(await ops.listJobs(DEVICE)).toEqual([]);
+    expect(f.ctx.ssh.connect).not.toHaveBeenCalled();
+    await ops.stop();
+  });
+});
+
 describe("root execution requires an explicit opt-in device grant", () => {
   it("denies sudo by default without opening SSH and preserves ordinary job behavior", async () => {
     const f = fixture();

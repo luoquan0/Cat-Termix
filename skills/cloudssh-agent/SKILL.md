@@ -370,7 +370,8 @@ node <脚本> sessions detach --session <sessionId>
 - 普通会话无人附着 24 小时后会被清理。需要跨平台重启恢复的长任务使用
   `--mode tmux --pinned`；使用前确认目标机已安装 `tmux`。
 - 写入租约过期时重新 `attach --mode read-write`。若上一次写入结果不确定，先读取输出和会话状态，不要直接重放命令。
-- 遇到 `NETWORK_ERROR` 或 `RESPONSE_UNCERTAIN` 时，使用完全相同的参数重新执行原命令。脚本会跨进程复用待确认请求的幂等键和请求 ID，同时为每次请求生成新的签名；不要为了重试修改参数。
+- 遇到 `NETWORK_ERROR` 或 `RESPONSE_UNCERTAIN` 时，先用 `jobs list` 和 `jobs status` 查询已有任务。确需恢复写请求时只能使用**完全相同的参数**重试，复用原幂等键；不得修改参数绕过保护或连续重复提交。
+- 遇到 `IDEMPOTENCY_OUTCOME_UNKNOWN` 时，平台不能确认上次提交的副作用，**并非 SSH 权限错误**。先检查任务列表和远端只读状态；不能仅凭 `QUEUED`、HTTP 409 或空输出判断命令未执行。无法确认时报告并停止，绝不生成新幂等键重放。新版服务端只恢复已持久化且属于当前设备的原任务。
 - 遇到 `WRITE_LEASE_HELD` 时报告冲突。只有用户明确要求接管才增加 `--takeover`。
 - 工作完成默认 `detach`，让所选运行时继续工作。只有用户明确要求终止远端任务时才调用 `sessions close`。
 

@@ -163,6 +163,40 @@ describe("Local Agent durable idempotency", () => {
     ).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
     expect(count).toBe(1);
   });
+  it("recovers proven durable job results without rerunning uncertain mutations", async () => {
+    const ctx = fakeContext();
+    const original = new AgentStore(ctx);
+    let executed = 0;
+    await expect(
+      original.replay("device-a", "request-2", "hash-2", async () => {
+        executed++;
+        throw new Error("response lost after durable job");
+      }),
+    ).rejects.toThrow("response lost");
+    const restored = new AgentStore(ctx);
+    const recovered = await restored.replay(
+      "device-a",
+      "request-2",
+      "hash-2",
+      async () => {
+        executed++;
+        return { jobId: "duplicate" };
+      },
+      () => ({ jobId: "original" }),
+    );
+    expect(recovered).toEqual({ jobId: "original" });
+    expect(
+      await restored.replay("device-a", "request-2", "hash-2", async () => {
+        executed++;
+        return { jobId: "duplicate" };
+      }),
+    ).toEqual(recovered);
+    expect(executed).toBe(1);
+    expect(
+      (await restored.read()).idempotency["device-a:request-2"].pending,
+    ).toBe(false);
+  });
+
   it("preserves uncertain results across new AgentStore instances", async () => {
     const ctx = fakeContext();
     const original = new AgentStore(ctx);

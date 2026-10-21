@@ -2324,12 +2324,27 @@ async function jobsCommand(action, flags, client) {
     });
     if (flags.sudo !== undefined && flags.sudo !== true)
       throw new Error("--sudo 不接受参数值，请单独使用 --sudo");
-    let job = await client.createJob({
-      serverId: stringFlag(flags, "server"),
-      command: stringFlag(flags, "command"),
-      timeoutMs,
-      ...(flags.sudo === true ? { sudo: true } : {}),
-    });
+    let job;
+    try {
+      job = await client.createJob({
+        serverId: stringFlag(flags, "server"),
+        command: stringFlag(flags, "command"),
+        timeoutMs,
+        ...(flags.sudo === true ? { sudo: true } : {}),
+      });
+    } catch (error) {
+      if (
+        error instanceof CloudSshApiError &&
+        error.code === "IDEMPOTENCY_OUTCOME_UNKNOWN"
+      ) {
+        throw new CloudSshApiError(
+          "任务结果未确认：请先运行 jobs list 查看已有任务，再查询 jobs status。不要更换参数重复提交，也不要将此错误误判为 SSH 权限问题。",
+          error.status,
+          error.code,
+        );
+      }
+      throw error;
+    }
     if (action === "run") {
       const deadline = Date.now() + timeoutMs + 30_000;
       while (!TERMINAL_JOB_STATES.has(job.state) && Date.now() < deadline) {

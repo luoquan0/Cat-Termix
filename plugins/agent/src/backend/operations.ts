@@ -19,6 +19,8 @@ export type Job = {
   command: string;
   /** A sudo job uses the host-owner credential only inside core. */
   sudo?: boolean;
+  /** Server-only correlation for a job durably saved before response loss. */
+  requestKey?: string;
   state: JobStatus;
   stdout: string;
   stderr: string;
@@ -111,6 +113,7 @@ export function validateRemotePath(input: unknown): string {
 
 export class AgentOperations {
   private readonly activeJobs = new Map<string, JobController>();
+  private readonly persistedJobs = new Set<string>();
   private readonly cancelRequests = new Set<string>();
   private readonly activeSessions = new Map<string, Runtime>();
   private writeQueue: Promise<void> = Promise.resolve();
@@ -128,6 +131,7 @@ export class AgentOperations {
         row.finishedAt = new Date().toISOString();
       }
       this.jobs.set(row.id, row);
+      this.persistedJobs.add(row.id);
     }
     for (const row of ((await this.ctx.kv.get("agent-sessions")) ??
       []) as Session[]) {
@@ -239,7 +243,22 @@ export class AgentOperations {
     }));
   }
   private publicJob(job: Job): Job {
-    return { ...job };
+    const { requestKey: _requestKey, ...safe } = job;
+    void _requestKey;
+    return { ...safe };
+  }
+  recoverJob(device: Device, requestKey: string): Job | undefined {
+    requireScope(device, "jobs:execute");
+    if (!requestKey) return undefined;
+    const job = [...this.jobs.values()]
+      .slice(-300)
+      .find(
+        (row) =>
+          row.deviceId === device.id &&
+          row.requestKey === requestKey &&
+          this.persistedJobs.has(row.id),
+      );
+    return job ? this.publicJob(job) : undefined;
   }
 
   async createJob(
@@ -248,24 +267,43 @@ export class AgentOperations {
     command: unknown,
     rawTimeout: unknown,
     sudo: unknown = false,
+    requestKey?: string,
   ) {
     requireScope(device, "jobs:execute");
     if (sudo !== true && sudo !== false)
-      return error(400, "INVALID_SUDO_FLAG", "sudo must be a boolean");
+      throw new AgentPreconditionError(
+        400,
+        "INVALID_SUDO_FLAG",
+        "sudo must be a boolean",
+      );
     if (sudo) requireScope(device, "sudo:execute");
     const hostId = await this.assertHost(device, rawHost);
     const activeCount = [...this.jobs.values()].filter(
       (job) => job.state === "QUEUED" || job.state === "RUNNING",
     ).length;
     if (activeCount >= 32)
-      return error(429, "JOB_LIMIT_REACHED", "并发任务数已达到上限");
+      throw new AgentPreconditionError(
+        429,
+        "JOB_LIMIT_REACHED",
+        "并发任务数已达到上限",
+      );
     if (
       typeof command !== "string" ||
       !command.trim() ||
       command.length > 65_536
     )
-      return error(400, "INVALID_COMMAND", "命令长度无效");
-    const timeoutMs = allowedInt(rawTimeout, 1000, 900_000, 30_000);
+      throw new AgentPreconditionError(
+        400,
+        "INVALID_COMMAND",
+        "命令长度无效",
+      );
+    const timeoutMs = rawTimeout === undefined ? 30_000 : Number(rawTimeout);
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 900_000)
+      throw new AgentPreconditionError(
+        400,
+        "INVALID_INPUT",
+        "数字超出允许范围",
+      );
     const now = new Date().toISOString();
     const job: Job = {
       id: randomUUID(),
@@ -274,6 +312,7 @@ export class AgentOperations {
       serverId: String(hostId),
       command,
       sudo: sudo === true,
+      requestKey,
       state: "QUEUED",
       stdout: "",
       stderr: "",
@@ -285,7 +324,19 @@ export class AgentOperations {
       failureReason: null,
     };
     this.jobs.set(job.id, job);
-    await this.saveJobs(); // Persist the id BEFORE a remote command can start.
+    try {
+      await this.saveJobs(); // Persist the id BEFORE a remote command can start.
+    } catch {
+      // Never leave a QUEUED ghost consuming slots after storage failure.
+      // No SSH side effect has started, so releasing idempotency is safe.
+      this.jobs.delete(job.id);
+      throw new AgentPreconditionError(
+        503,
+        "JOB_PERSIST_FAILED",
+        "任务未成功入队，请检查 Agent 持久化存储",
+      );
+    }
+    this.persistedJobs.add(job.id);
     void this.executeJob(job, hostId);
     return this.publicJob(job);
   }
@@ -346,10 +397,52 @@ export class AgentOperations {
         });
       } else {
         await this.ctx.asUser(job.ownerId, async () => {
-          const connection = await this.ctx.ssh.connect<Client>(hostId, {
-            purpose: "agent-job",
-            profile: "background",
+          const remainingMs = () =>
+            Math.max(
+              1,
+              job.timeoutMs -
+                (Date.now() - Date.parse(job.startedAt ?? job.createdAt)),
+            );
+          let abandoned = false;
+          let rejectPending: ((reason: Error) => void) | undefined;
+          const pending = new Promise<never>((_resolve, reject) => {
+            rejectPending = reject;
           });
+          const cancelPending = () => {
+            aborted = true;
+            abandoned = true;
+            rejectPending?.(new Error("Canceled"));
+          };
+          this.activeJobs.set(job.id, { cancel: cancelPending });
+          timer = setTimeout(() => {
+            timedOut = true;
+            abandoned = true;
+            rejectPending?.(new Error("Timed out waiting for SSH connection"));
+          }, remainingMs());
+          const connecting = Promise.resolve()
+            .then(() =>
+              this.ctx.ssh.connect<Client>(hostId, {
+                purpose: "agent-job",
+                profile: "background",
+              }),
+            )
+            .then((connection) => {
+              if (abandoned || this.cancelRequests.has(job.id)) {
+                connection.dispose();
+                throw new Error("SSH connection abandoned");
+              }
+              return connection;
+            });
+          let connection: Awaited<typeof connecting>;
+          try {
+            if (this.cancelRequests.has(job.id)) cancelPending();
+            connection = await Promise.race([connecting, pending]);
+          } finally {
+            if (timer) clearTimeout(timer);
+            timer = undefined;
+            this.activeJobs.delete(job.id);
+            if (timedOut || aborted) abandoned = true;
+          }
           try {
             await new Promise<void>((resolve, reject) => {
               let settled = false;
@@ -361,13 +454,28 @@ export class AgentOperations {
                 if (failure) reject(failure);
                 else resolve();
               };
-              end = () => finish(new Error("Canceled"));
-              if (this.cancelRequests.has(job.id)) {
+              let openedStream: ClientChannel | undefined;
+              end = () => {
                 aborted = true;
+                openedStream?.close();
                 finish(new Error("Canceled"));
+              };
+              if (this.cancelRequests.has(job.id)) {
+                end();
                 return;
               }
+              // Deadline covers an SSH exec callback that never returns.
+              timer = setTimeout(() => {
+                timedOut = true;
+                openedStream?.close();
+                finish(new Error("Timed out"));
+              }, remainingMs());
+              this.activeJobs.set(job.id, { cancel: () => end?.() });
               connection.client.exec(job.command, (err, stream) => {
+                if (settled) {
+                  stream?.close();
+                  return;
+                }
                 if (err) {
                   finish(err);
                   return;
@@ -378,18 +486,7 @@ export class AgentOperations {
                   finish(new Error("Canceled"));
                   return;
                 }
-                timer = setTimeout(() => {
-                  timedOut = true;
-                  stream.close();
-                  finish(new Error("Timed out"));
-                }, job.timeoutMs);
-                this.activeJobs.set(job.id, {
-                  cancel: () => {
-                    aborted = true;
-                    stream.close();
-                    finish(new Error("Canceled"));
-                  },
-                });
+                openedStream = stream;
                 const append = (
                   field: "stdout" | "stderr",
                   chunk: Buffer | string,
@@ -427,6 +524,7 @@ export class AgentOperations {
       job.failureReason =
         failure instanceof Error ? failure.message.slice(0, 200) : "运行失败";
     } finally {
+      if (timer) clearTimeout(timer);
       if (end) this.activeJobs.delete(job.id);
       this.cancelRequests.delete(job.id);
       job.finishedAt = new Date().toISOString();

@@ -474,6 +474,7 @@ export class AgentStore {
     key: string,
     hash: string,
     op: () => Promise<T>,
+    recover?: () => T | undefined,
   ): Promise<T> {
     if (!key)
       return fail(400, "IDEMPOTENCY_KEY_REQUIRED", "写操作必须指定幂等键");
@@ -483,12 +484,23 @@ export class AgentStore {
       if (saved) {
         if (saved.hash !== hash)
           return fail(409, "IDEMPOTENCY_CONFLICT", "幂等键与请求内容不一致");
-        if (saved.pending)
+        if (saved.pending) {
+          // Recover only a proven durable side effect, never rerun the command.
+          const recovered = recover?.();
+          if (recovered !== undefined) {
+            data.idempotency[cacheKey] = {
+              ...saved,
+              data: recovered,
+              pending: false,
+            };
+            return { cached: true as const, value: recovered };
+          }
           return fail(
             409,
             "IDEMPOTENCY_OUTCOME_UNKNOWN",
             "上次操作的结果尚未确认，请查询远程状态，不要自动重复执行",
           );
+        }
         return { cached: true as const, value: saved.data };
       }
       if (Object.keys(data.idempotency).length >= 1024)

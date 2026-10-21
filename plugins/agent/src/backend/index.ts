@@ -235,6 +235,7 @@ export async function activate(ctx: PluginContext) {
     req: AgentRequest,
     device: Device,
     fn: () => Promise<T>,
+    recover?: () => T | undefined,
   ): Promise<T> =>
     store.replay(
       device.id,
@@ -247,6 +248,7 @@ export async function activate(ctx: PluginContext) {
           sha256(req.rawBuffer ?? Buffer.alloc(0)),
       ),
       fn,
+      recover,
     );
 
   router.get(
@@ -368,14 +370,20 @@ export async function activate(ctx: PluginContext) {
         requireScope(device, "jobs:execute");
         requireScope(device, "sudo:execute");
       }
-      const result = await mutation(req, device, () =>
-        operations.createJob(
-          device,
-          b.serverId,
-          b.command,
-          b.timeoutMs,
-          b.sudo,
-        ),
+      const requestKey = req.get("idempotency-key") || "";
+      const result = await mutation(
+        req,
+        device,
+        () =>
+          operations.createJob(
+            device,
+            b.serverId,
+            b.command,
+            b.timeoutMs,
+            b.sudo,
+            requestKey,
+          ),
+        () => operations.recoverJob(device, requestKey),
       );
       await ctx.audit.record({
         action:
