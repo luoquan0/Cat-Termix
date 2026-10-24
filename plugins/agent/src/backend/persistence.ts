@@ -99,7 +99,10 @@ export class AgentRecordCollection<T extends { id: string }> {
         chunks.push(Buffer.from(chunk, "base64"));
       }
       const compressed = Buffer.concat(chunks);
-      if (compressed.length > MAX_COMPRESSED_BYTES || hash(compressed) !== manifest.digest) {
+      if (
+        compressed.length > MAX_COMPRESSED_BYTES ||
+        hash(compressed) !== manifest.digest
+      ) {
         throw new Error("Agent record integrity check failed");
       }
       const record = JSON.parse(

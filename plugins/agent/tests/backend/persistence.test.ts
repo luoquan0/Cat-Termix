@@ -81,7 +81,9 @@ describe("Agent record storage across database backends", () => {
       return originalSet(key, value);
     });
     await expect(
-      store.save([{ ...original, output: randomBytes(300_000).toString("base64") }]),
+      store.save([
+        { ...original, output: randomBytes(300_000).toString("base64") },
+      ]),
     ).rejects.toThrow("interrupted");
     expect(await f.create().load()).toEqual(previous);
   });

@@ -310,9 +310,7 @@ describe("Local Agent sharded persistence and safe session recovery", () => {
     );
     const ids: string[] = [];
     for (let i = 0; i < 6; i++) {
-      ids.push(
-        (await ops.createJob(DEVICE, "42", "echo " + i, 30_000)).id,
-      );
+      ids.push((await ops.createJob(DEVICE, "42", "echo " + i, 30_000)).id);
     }
     await vi.waitFor(() => {
       for (const id of ids)
@@ -334,7 +332,11 @@ describe("Local Agent sharded persistence and safe session recovery", () => {
     const f = fixture();
     const ops = new AgentOperations(f.ctx);
     await ops.restore();
-    const session = await ops.createSession(DEVICE, { serverId: "42" }, "session-key");
+    const session = await ops.createSession(
+      DEVICE,
+      { serverId: "42" },
+      "session-key",
+    );
     expect(session).not.toHaveProperty("requestKey");
     expect(ops.recoverSession(DEVICE, "session-key")?.id).toBe(session.id);
     f.stream.emit("data", "session".repeat(44_000));
