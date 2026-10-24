@@ -138,8 +138,56 @@ function publicError(
 export async function activate(ctx: PluginContext) {
   const store = new AgentStore(ctx);
   const operations = new AgentOperations(ctx);
-  await operations.restore();
-  ctx.disposables.add(() => operations.stop());
+  // Large v24 histories can need many slow KV writes when v25 shards them.
+  // Never block the plugin's 30-second activation deadline on migration.
+  // Until restoration is durably complete, refuse ALL device operations.
+  let recoveryState: "restoring" | "ready" | "failed" = "restoring";
+  const recoveryStarted = Date.now();
+  ctx.log.info("Local Agent history recovery started");
+  const restoring = operations.restore().then(
+    () => {
+      recoveryState = "ready";
+      ctx.log.info(
+        `Local Agent history recovery completed in ${Date.now() - recoveryStarted}ms`,
+      );
+    },
+    (failure: unknown) => {
+      recoveryState = "failed";
+      ctx.log.error(
+        "Local Agent history recovery failed; device API remains unavailable",
+        failure instanceof Error ? failure : new Error(String(failure)),
+      );
+    },
+  );
+  // A retiring plugin must not race a still-running migration with stop().
+  ctx.disposables.add(async () => {
+    await restoring;
+    // A failed restore can leave partial maps. Never overwrite the index
+    // with that incomplete state while tearing the plugin down.
+    if (recoveryState === "ready") await operations.stop();
+  });
+  const unavailable = (res: Response) => {
+    if (recoveryState === "restoring") res.setHeader("Retry-After", "5");
+    return res.status(503).json({
+      status: recoveryState,
+      version: "v1",
+      code:
+        recoveryState === "restoring"
+          ? "AGENT_RESTORING"
+          : "AGENT_RESTORE_FAILED",
+      error:
+        recoveryState === "restoring"
+          ? "Local Agent 历史任务正在恢复，请稍后再试"
+          : "Local Agent 历史任务恢复失败，请查看容器日志",
+    });
+  };
+  const requireRecovered = (_req: Request, res: Response, next: NextFunction) => {
+    if (recoveryState !== "ready") {
+      unavailable(res);
+      return;
+    }
+    next();
+  };
   const router = ctx.http.router<Router>({ public: ["/v1/*"], rawBody: true });
   const locked = () => process.env.CLOUDSSH_AGENT_HTTP_POLICY_LOCKED === "true";
   const currentPolicy = async () =>
@@ -180,6 +228,7 @@ export async function activate(ctx: PluginContext) {
       .catch(next);
   });
   // Administrative routes use the core web session, never a device identity.
+  router.use("/admin", requireRecovered);
   router.use("/admin", express.json({ limit: "1mb" }));
   const manage = safe(async (req, res) => {
     void res;
@@ -198,9 +247,14 @@ export async function activate(ctx: PluginContext) {
   router.get(
     "/v1/health",
     safe(async (_req, res) => {
+      if (recoveryState !== "ready") {
+        unavailable(res);
+        return;
+      }
       res.json({ status: "ok", version: "v1" });
     }),
   );
+  router.use("/v1", requireRecovered);
   router.post(
     "/v1/auth/device-requests",
     safe(async (req, res) => {
@@ -916,7 +970,7 @@ export async function activate(ctx: PluginContext) {
   router.use(publicError);
 
   ctx.log.info(
-    "Local Agent device API installed at /agent/v1; admin UI at /plugin-api/agent/admin",
+    "Local Agent routes mounted at /agent/v1; device API is available after history recovery; admin UI at /plugin-api/agent/admin",
   );
 }
 export async function deactivate() {}
