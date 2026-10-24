@@ -8,6 +8,7 @@ import {
   projectId,
   requireScope,
 } from "./identity.js";
+import { AgentRecordCollection } from "./persistence.js";
 
 type JobStatus =
   "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED" | "TIMED_OUT";
@@ -48,6 +49,8 @@ export type Session = {
   serverId: string;
   state: "CREATING" | "RUNNING" | "FAILED" | "CLOSED";
   runtimeMode: "platform" | "tmux";
+  /** Correlates an uncertain create response to the original durable session. */
+  requestKey?: string;
   pinned: boolean;
   cols: number;
   rows: number;
@@ -94,6 +97,19 @@ export function serverHostId(value: unknown): number {
     return error(400, "INVALID_SERVER_ID", "服务器 ID 无效");
   return result;
 }
+function persistenceIssue(failure: unknown): string {
+  const message = failure instanceof Error ? failure.message : String(failure);
+  if (/exceeds.*byte limit|maximum safe size|data too long/i.test(message))
+    return "记录超过插件 KV 容量，请检查历史数据";
+  if (/SQLITE_BUSY|database is locked|lock wait timeout/i.test(message))
+    return "数据库正被锁定";
+  if (/SQLITE_FULL|ENOSPC|no space left|disk full/i.test(message))
+    return "持久化存储空间不足";
+  if (/readonly|read-only|EACCES|permission denied/i.test(message))
+    return "数据库或持久化目录不可写";
+  return "数据库或插件存储写入失败";
+}
+
 function folderOf(value: string | null): string {
   return value || "";
 }
@@ -114,6 +130,9 @@ export function validateRemotePath(input: unknown): string {
 export class AgentOperations {
   private readonly activeJobs = new Map<string, JobController>();
   private readonly persistedJobs = new Set<string>();
+  private readonly persistedSessions = new Set<string>();
+  private readonly jobRecords: AgentRecordCollection<Job>;
+  private readonly sessionRecords: AgentRecordCollection<Session>;
   private readonly cancelRequests = new Set<string>();
   private readonly activeSessions = new Map<string, Runtime>();
   private writeQueue: Promise<void> = Promise.resolve();
@@ -121,10 +140,25 @@ export class AgentOperations {
   private jobs = new Map<string, Job>();
   private sessions = new Map<string, Session>();
 
-  constructor(private readonly ctx: PluginContext) {}
+  constructor(private readonly ctx: PluginContext) {
+    this.jobRecords = new AgentRecordCollection(
+      ctx,
+      "agent-jobs",
+      "agent-jobs-index-v2",
+      "agent-job-v2",
+      300,
+    );
+    this.sessionRecords = new AgentRecordCollection(
+      ctx,
+      "agent-sessions",
+      "agent-sessions-index-v2",
+      "agent-session-v2",
+      100,
+    );
+  }
 
   async restore() {
-    for (const row of ((await this.ctx.kv.get("agent-jobs")) ?? []) as Job[]) {
+    for (const row of await this.jobRecords.load()) {
       if (row.state === "RUNNING" || row.state === "QUEUED") {
         row.state = "FAILED";
         row.failureReason = "服务重启中断了此任务，不会自动重复执行";
@@ -133,8 +167,7 @@ export class AgentOperations {
       this.jobs.set(row.id, row);
       this.persistedJobs.add(row.id);
     }
-    for (const row of ((await this.ctx.kv.get("agent-sessions")) ??
-      []) as Session[]) {
+    for (const row of await this.sessionRecords.load()) {
       if (row.state === "CREATING" || row.state === "RUNNING") {
         row.state = "FAILED";
         row.failureReason =
@@ -145,6 +178,7 @@ export class AgentOperations {
         row.attachments = [];
       }
       this.sessions.set(row.id, row);
+      this.persistedSessions.add(row.id);
     }
     await this.saveJobs();
     await this.saveSessions();
@@ -155,16 +189,11 @@ export class AgentOperations {
     return next;
   }
   private saveJobs() {
-    return this.enqueue(() =>
-      this.ctx.kv.set("agent-jobs", [...this.jobs.values()].slice(-300)),
-    );
+    return this.enqueue(() => this.jobRecords.save([...this.jobs.values()]));
   }
   private saveSessions() {
     return this.enqueue(() =>
-      this.ctx.kv.set(
-        "agent-sessions",
-        [...this.sessions.values()].slice(-100),
-      ),
+      this.sessionRecords.save([...this.sessions.values()]),
     );
   }
   private async persistSession(id: string) {
@@ -322,14 +351,14 @@ export class AgentOperations {
     this.jobs.set(job.id, job);
     try {
       await this.saveJobs(); // Persist the id BEFORE a remote command can start.
-    } catch {
-      // Never leave a QUEUED ghost consuming slots after storage failure.
-      // No SSH side effect has started, so releasing idempotency is safe.
+    } catch (failure) {
+      // No SSH side effect has started: release the idempotency claim,
+      // and do not leave a QUEUED ghost consuming slots.
       this.jobs.delete(job.id);
       throw new AgentPreconditionError(
         503,
         "JOB_PERSIST_FAILED",
-        "任务未成功入队，请检查 Agent 持久化存储",
+        "任务未成功入队：" + persistenceIssue(failure),
       );
     }
     this.persistedJobs.add(job.id);
@@ -560,9 +589,23 @@ export class AgentOperations {
     return session;
   }
   private publicSession(session: Session) {
-    const { output: _output, ...safe } = session;
+    const { output: _output, requestKey: _requestKey, ...safe } = session;
     void _output;
+    void _requestKey;
     return structuredClone(safe);
+  }
+  recoverSession(device: Device, requestKey: string) {
+    requireScope(device, "sessions:create");
+    if (!requestKey) return undefined;
+    const session = [...this.sessions.values()]
+      .slice(-100)
+      .find(
+        (row) =>
+          row.deviceId === device.id &&
+          row.requestKey === requestKey &&
+          this.persistedSessions.has(row.id),
+      );
+    return session ? this.publicSession(session) : undefined;
   }
   private async openSession(session: Session) {
     const id = Number(session.serverId);
@@ -624,7 +667,11 @@ export class AgentOperations {
       }
     });
   }
-  async createSession(device: Device, raw: Record<string, unknown>) {
+  async createSession(
+    device: Device,
+    raw: Record<string, unknown>,
+    requestKey?: string,
+  ) {
     requireScope(device, "sessions:create");
     const id = await this.assertHost(device, raw.serverId);
     const active = [...this.sessions.values()].filter(
@@ -652,6 +699,7 @@ export class AgentOperations {
       serverId: String(id),
       state: "CREATING",
       runtimeMode,
+      requestKey,
       pinned: raw.pinned === true,
       cols: allowedInt(raw.cols, 20, 500, 120),
       rows: allowedInt(raw.rows, 5, 300, 30),
@@ -664,7 +712,18 @@ export class AgentOperations {
       failureReason: null,
     };
     this.sessions.set(session.id, session);
-    await this.saveSessions();
+    try {
+      await this.saveSessions();
+    } catch (failure) {
+      this.sessions.delete(session.id);
+      // Session SSH has not been opened. This denial is safe to retry.
+      throw new AgentPreconditionError(
+        503,
+        "SESSION_PERSIST_FAILED",
+        "会话未成功创建：" + persistenceIssue(failure),
+      );
+    }
+    this.persistedSessions.add(session.id);
     try {
       await this.openSession(session);
       session.state = "RUNNING";

@@ -49,8 +49,11 @@ function fixture() {
     kv: {
       get: async (key: string) => stored.get(key),
       set: async (key: string, value: unknown) => {
+        if (Buffer.byteLength(JSON.stringify(value), "utf8") > 256 * 1024)
+          throw new Error("Value exceeds 262144 byte limit for ctx.kv");
         stored.set(key, structuredClone(value));
       },
+      delete: async (key: string) => stored.delete(key),
     },
     hosts: {
       list: async () => [
@@ -269,7 +272,7 @@ describe("Local Agent job persistence failures", () => {
     const originalSet = f.ctx.kv.set.bind(f.ctx.kv);
     let failOnce = true;
     f.ctx.kv.set = vi.fn(async (key: string, value: unknown) => {
-      if (key === "agent-jobs" && failOnce) {
+      if (key === "agent-jobs-index-v2" && failOnce) {
         failOnce = false;
         throw new Error("storage unavailable");
       }
@@ -279,6 +282,87 @@ describe("Local Agent job persistence failures", () => {
       ops.createJob(DEVICE, "42", "echo never", 30_000, false, "key"),
     ).rejects.toMatchObject({ code: "JOB_PERSIST_FAILED" });
     expect(await ops.listJobs(DEVICE)).toEqual([]);
+    expect(f.ctx.ssh.connect).not.toHaveBeenCalled();
+    await ops.stop();
+  });
+});
+
+describe("Local Agent sharded persistence and safe session recovery", () => {
+  it("persists many job outputs without an oversized aggregate KV value", async () => {
+    const f = fixture();
+    const ops = new AgentOperations(f.ctx);
+    await ops.restore();
+    const originalExec = f.client.exec;
+    f.client.exec = vi.fn(
+      (_command: string, done: (error: null, stream: unknown) => void) => {
+        const output = Object.assign(new EventEmitter(), {
+          stderr: new EventEmitter(),
+          close: vi.fn(),
+        });
+        done(null, output);
+        queueMicrotask(() => {
+          output.emit("data", "A".repeat(60_000));
+          output.stderr.emit("data", "B".repeat(60_000));
+          output.emit("exit", 0);
+          output.emit("close");
+        });
+      },
+    );
+    const ids: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      ids.push(
+        (await ops.createJob(DEVICE, "42", "echo " + i, 30_000)).id,
+      );
+    }
+    await vi.waitFor(() => {
+      for (const id of ids)
+        expect(ops.getJob(DEVICE, id).state).toBe("SUCCEEDED");
+    });
+    expect(f.stored.has("agent-jobs-index-v2")).toBe(true);
+    const restored = new AgentOperations(f.ctx);
+    await restored.restore();
+    for (const id of ids) {
+      expect(restored.getJob(DEVICE, id).stdout.length).toBe(60_000);
+      expect(restored.getJob(DEVICE, id).stderr.length).toBe(60_000);
+    }
+    f.client.exec = originalExec;
+    await ops.stop();
+    await restored.stop();
+  });
+
+  it("saves a large session transcript without hitting the KV limit", async () => {
+    const f = fixture();
+    const ops = new AgentOperations(f.ctx);
+    await ops.restore();
+    const session = await ops.createSession(DEVICE, { serverId: "42" }, "session-key");
+    expect(session).not.toHaveProperty("requestKey");
+    expect(ops.recoverSession(DEVICE, "session-key")?.id).toBe(session.id);
+    f.stream.emit("data", "session".repeat(44_000));
+    await ops.stop();
+    const restored = new AgentOperations(f.ctx);
+    await restored.restore();
+    expect(restored.sessionStatus(DEVICE, session.id).state).toBe("FAILED");
+    expect(f.stored.has("agent-sessions-index-v2")).toBe(true);
+    await restored.stop();
+  });
+
+  it("does not open SSH or retain a session ghost when storage fails", async () => {
+    const f = fixture();
+    const ops = new AgentOperations(f.ctx);
+    await ops.restore();
+    const originalSet = f.ctx.kv.set.bind(f.ctx.kv);
+    let failOnce = true;
+    f.ctx.kv.set = vi.fn(async (key: string, value: unknown) => {
+      if (key === "agent-sessions-index-v2" && failOnce) {
+        failOnce = false;
+        throw new Error("database is locked");
+      }
+      await originalSet(key, value);
+    });
+    await expect(
+      ops.createSession(DEVICE, { serverId: "42" }, "pending-session"),
+    ).rejects.toMatchObject({ code: "SESSION_PERSIST_FAILED" });
+    expect(await ops.listSessions(DEVICE)).toEqual([]);
     expect(f.ctx.ssh.connect).not.toHaveBeenCalled();
     await ops.stop();
   });

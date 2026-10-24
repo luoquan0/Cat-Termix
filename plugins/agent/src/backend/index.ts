@@ -419,8 +419,12 @@ export async function activate(ctx: PluginContext) {
   router.post(
     "/v1/sessions",
     signed(async (req, res, device) => {
-      const result = await mutation(req, device, () =>
-        operations.createSession(device, body(req)),
+      const requestKey = req.get("idempotency-key") || "";
+      const result = await mutation(
+        req,
+        device,
+        () => operations.createSession(device, body(req), requestKey),
+        () => operations.recoverSession(device, requestKey),
       );
       res.status(201).json({ session: result });
     }),
