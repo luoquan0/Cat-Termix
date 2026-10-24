@@ -181,7 +181,11 @@ export async function activate(ctx: PluginContext) {
           : "Local Agent 历史任务恢复失败，请查看容器日志",
     });
   };
-  const requireRecovered = (_req: Request, res: Response, next: NextFunction) => {
+  const requireRecovered = (
+    _req: Request,
+    res: Response,
+    next: NextFunction,
+  ) => {
     if (recoveryState !== "ready") {
       unavailable(res);
       return;

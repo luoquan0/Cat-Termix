@@ -129,8 +129,7 @@ export function shouldRetryTimedOutBundledPlugin(
   return (
     plugin.source === "bundled" &&
     record.state === "failed" &&
-    record.lastError ===
-      `Plugin ${plugin.id} did not activate within 30000ms`
+    record.lastError === `Plugin ${plugin.id} did not activate within 30000ms`
   );
 }
 
