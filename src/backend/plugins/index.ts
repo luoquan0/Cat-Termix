@@ -118,15 +118,27 @@ async function handlePluginFailed(plugin: LoadedPlugin): Promise<void> {
 }
 
 /**
- * Gives every discovered plugin a row, and refreshes the stored manifest.
- *
- * Bundled plugins start enabled because they are part of the install; a
- * plugin dropped into the data directory starts disabled, so arriving on disk
- * is never the same as being allowed to run.
- *
- * `state` is only ever set on insert. Once the row exists whatever the user
- * chose wins, because re-enabling a plugin they disabled on every restart
- * would be a bug rather than a default.
+ * Only recover a bundled plugin that was automatically failed by the loader's
+ * activation timeout. An administrator-disabled plugin must stay disabled;
+ * unrelated failures still require inspection rather than forced retries.
+ */
+export function shouldRetryTimedOutBundledPlugin(
+  plugin: Pick<LoadedPlugin, "id" | "source">,
+  record: { state: string; lastError: string | null },
+): boolean {
+  return (
+    plugin.source === "bundled" &&
+    record.state === "failed" &&
+    record.lastError ===
+      `Plugin ${plugin.id} did not activate within 30000ms`
+  );
+}
+
+/**
+ * Gives every discovered plugin a row and refreshes the stored manifest.
+ * Bundled plugins start enabled; user-installed plugins start disabled.
+ * Existing administrator decisions are retained except a known automatic
+ * activation timeout, which is retried on the next boot.
  */
 async function seedPlugins(loaded: LoadedPlugin[]): Promise<void> {
   const { createCurrentPluginRepository } =
@@ -138,15 +150,21 @@ async function seedPlugins(loaded: LoadedPlugin[]): Promise<void> {
     const existing = await repository.findById(plugin.id);
 
     if (existing) {
-      // Unconditionally, not just on a version change: a manifest edited
-      // without a version bump used to leave the stored copy stale forever,
-      // and the API and the grant check both read the stored copy.
+      // A 30-second migration timeout is not an admin disable. Retrying this
+      // specific bundled failure after an upgrade restores its legacy routes.
+      const retryTimeout = shouldRetryTimedOutBundledPlugin(plugin, existing);
+      // Unconditionally refresh the manifest: API and grants use stored data.
       await repository.update(plugin.id, {
         name: plugin.manifest.name,
         version: plugin.manifest.version,
         source: plugin.source,
         manifestJson,
+        ...(retryTimeout ? { state: "enabled", lastError: null } : {}),
       });
+      if (retryTimeout)
+        pluginLogger.info(`Retrying timed-out bundled plugin ${plugin.id}`, {
+          operation: "plugin_seed",
+        });
       continue;
     }
 
