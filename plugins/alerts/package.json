@@ -10,8 +10,8 @@
     "validate": "termix-plugin validate"
   },
   "dependencies": {
-    "lucide-react": "^1.33.0",
-    "nodemailer": "^10.0.10"
+    "lucide-react": "^1.61.0",
+    "nodemailer": "^10.2.1"
   },
   "devDependencies": {
     "@termix/plugin-sdk": "^1.0.0",
