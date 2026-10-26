@@ -10,7 +10,7 @@
     "validate": "termix-plugin validate"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.120.0",
+    "@anthropic-ai/sdk": "^1.1.0",
     "lucide-react": "^1.33.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1"
@@ -24,7 +24,7 @@
     "@types/react-dom": "^19.2.4",
     "better-sqlite3": "^13.0.3",
     "jsdom": "^30.0.1",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.5"
   },
   "peerDependencies": {
     "@termix/plugin-sdk": "^1.0.0",
