@@ -1,0 +1,1318 @@
+import { getErrorMessage } from "./error-message.js";
+import jwt from "jsonwebtoken";
+import crypto from "crypto";
+import { UserKeyManager } from "./user-keys.js";
+import {
+  adoptRecoveredDEK,
+  migratePasswordUserAtLogin,
+} from "./crypto-migration/dek-migration.js";
+import { SystemCrypto } from "./system-crypto.js";
+import { DataCrypto } from "./data-crypto.js";
+import { databaseLogger, authLogger } from "./logger.js";
+import { logAudit, getRequestMeta } from "./audit-logger.js";
+import type { Request, Response, NextFunction } from "express";
+import bcrypt from "bcryptjs";
+import { nanoid } from "nanoid";
+import { inArray, isNotNull } from "drizzle-orm";
+import type { ExternalSessionRef } from "../auth/types.js";
+import { listSecondFactors } from "../auth/registry.js";
+import { SECOND_FACTOR_SETUP } from "../auth/policy.js";
+import type { DeviceType } from "./user-agent-parser.js";
+import { getDb } from "../database/db/index.js";
+import { sessions } from "../database/db/schema.js";
+import {
+  createCurrentSettingsRepository,
+  createCurrentSessionRepository,
+  createCurrentUserRepository,
+  createCurrentApiKeyRepository,
+  createCurrentTrustedDeviceRepository,
+  getCurrentSettingValue,
+} from "../database/repositories/factory.js";
+
+interface AuthenticationResult {
+  success: boolean;
+  token?: string;
+  userId?: string;
+  isAdmin?: boolean;
+  username?: string;
+  requiresTOTP?: boolean;
+  tempToken?: string;
+  error?: string;
+}
+
+interface JWTPayload {
+  userId: string;
+  sessionId?: string;
+  pendingTOTP?: boolean;
+  /** Set on a short-lived socket ticket, which only a socket upgrade takes. */
+  purpose?: "ws";
+  /**
+   * A plugin minted the session. Read from the session row on verify, never
+   * from the token, so a refreshed token stays marked.
+   */
+  pluginSession?: boolean;
+  /** sessions.restriction, read from the row on verify. */
+  restriction?: string | null;
+  dataKeyWrap?: WrappedDataKey;
+  iat?: number;
+  exp?: number;
+}
+
+interface WrappedDataKey {
+  version: "v1";
+  iv: string;
+  tag: string;
+  data: string;
+}
+
+interface AuthenticatedRequest extends Request {
+  userId?: string;
+  sessionId?: string;
+  apiKeyId?: string;
+  pendingTOTP?: boolean;
+  dataKey?: Buffer;
+  actingAdminUserId?: string;
+  sessionRestriction?: string | null;
+}
+
+interface RequestWithHeaders extends Request {
+  headers: Request["headers"] & {
+    "x-forwarded-proto"?: string;
+  };
+}
+
+function serializeExternalSession(
+  ref: ExternalSessionRef | null | undefined,
+): string | null {
+  if (!ref || (!ref.sub && !ref.sid)) return null;
+  return JSON.stringify({
+    providerId: ref.providerId ?? null,
+    sub: ref.sub ?? null,
+    sid: ref.sid ?? null,
+  });
+}
+
+function parseExternalSession(
+  value: string | null | undefined,
+): ExternalSessionRef | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as ExternalSessionRef;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+const ADMIN_TARGET_USER_HEADER = "x-admin-target-user";
+
+// Core data-plane routes an admin may hit on behalf of another user.
+// Everything else (TOTP, sessions, ...) rejects the header, and so does every
+// plugin route unless its manifest sets contributes.http.adminImpersonation.
+const IMPERSONATION_PATH_ALLOWLIST = [/^\/host\/db\//, /^\/credentials(\/|$)/];
+
+const PLUGIN_API_PATH = /^\/plugin-api\/([a-z][a-z0-9-]*)(\/|$)/;
+
+/** sessions.device_type of a session a plugin minted with ctx.auth.issueUserToken. */
+export const PLUGIN_SESSION_DEVICE_TYPE = "plugin";
+
+// Routes that change how a user signs in or mint a credential that outlives
+// the session. A plugin-minted session is refused on them, and on every
+// route of a plugin that provides a second factor.
+const PLUGIN_SESSION_BLOCKLIST = [
+  /^\/users\/(change-password|api-keys|link-external-to-password|unlink-external-from-password|admin\/reset-password)(\/|$)/,
+  /^\/users\/admin\/[^/]+\/second-factors(\/|$)/,
+];
+
+/** Whether a session a plugin minted may call this path. */
+export function allowsPluginSession(path: string): boolean {
+  if (PLUGIN_SESSION_BLOCKLIST.some((pattern) => pattern.test(path))) {
+    return false;
+  }
+  const plugin = PLUGIN_API_PATH.exec(path)?.[1];
+  return !listSecondFactors().some((factor) => factor.pluginId === plugin);
+}
+
+// What a session that must set up a second factor first may call: who am I,
+// sign out, the login and factor routes, plugin bundles, and the plugins that
+// provide a second factor.
+const SETUP_SESSION_ALLOWLIST = [
+  /^\/users\/(me|logout)$/,
+  /^\/users\/auth\//,
+  /^\/user-preferences\/look(\/|$)/,
+  /^\/plugins(\/|$)/,
+  /^\/plugin-assets\//,
+];
+
+/** Whether a session restricted to second factor setup may call this path. */
+export function allowsSetupSession(path: string): boolean {
+  if (SETUP_SESSION_ALLOWLIST.some((pattern) => pattern.test(path))) {
+    return true;
+  }
+  const plugin = PLUGIN_API_PATH.exec(path)?.[1];
+  return (
+    !!plugin && listSecondFactors().some((factor) => factor.pluginId === plugin)
+  );
+}
+
+let pluginAllowsImpersonation: (pluginId: string) => boolean = () => false;
+
+/** Set by the plugin runtime: whether a running plugin opted in. */
+export function setPluginImpersonationCheck(
+  check: (pluginId: string) => boolean,
+): void {
+  pluginAllowsImpersonation = check;
+}
+
+/** Whether an admin may send X-Admin-Target-User to this path. */
+export function allowsAdminImpersonation(path: string): boolean {
+  if (IMPERSONATION_PATH_ALLOWLIST.some((pattern) => pattern.test(path))) {
+    return true;
+  }
+  const plugin = PLUGIN_API_PATH.exec(path);
+  return !!plugin && pluginAllowsImpersonation(plugin[1]);
+}
+
+class AuthManager {
+  private static instance: AuthManager;
+  private systemCrypto: SystemCrypto;
+  private userKeys: UserKeyManager;
+
+  private constructor() {
+    this.systemCrypto = SystemCrypto.getInstance();
+    this.userKeys = UserKeyManager.getInstance();
+
+    setInterval(
+      () => {
+        this.cleanupExpiredSessions().catch((error) => {
+          databaseLogger.error(
+            "Failed to run periodic session cleanup",
+            error,
+            {
+              operation: "session_cleanup_periodic",
+            },
+          );
+        });
+      },
+      5 * 60 * 1000,
+    );
+  }
+
+  static getInstance(): AuthManager {
+    if (!this.instance) {
+      this.instance = new AuthManager();
+    }
+    return this.instance;
+  }
+
+  async initialize(): Promise<void> {
+    await this.systemCrypto.initializeJWTSecret();
+  }
+
+  async registerUser(userId: string, _password?: string): Promise<void> {
+    if (!this.userKeys.hasUserDEK(userId)) {
+      await this.userKeys.createUserDEK(userId);
+    }
+  }
+
+  async registerExternalUser(
+    userId: string,
+    _sessionDurationMs?: number,
+  ): Promise<void> {
+    if (!this.userKeys.hasUserDEK(userId)) {
+      await this.userKeys.createUserDEK(userId);
+    }
+  }
+
+  private async ensureUserDEK(userId: string): Promise<boolean> {
+    if (this.userKeys.tryGetUserDEK(userId)) {
+      await this.performLazyEncryptionMigration(userId);
+      return true;
+    }
+    return false;
+  }
+
+  async authenticateExternalUser(
+    userId: string,
+    _deviceType?: DeviceType,
+  ): Promise<boolean> {
+    if (!this.userKeys.hasUserDEK(userId)) {
+      await this.userKeys.createUserDEK(userId);
+    }
+    return this.ensureUserDEK(userId);
+  }
+
+  async authenticateUser(
+    userId: string,
+    password: string,
+    _deviceType?: DeviceType,
+  ): Promise<boolean> {
+    // Password-wrapped legacy DEKs can only be recovered while the password
+    // is in hand, so login is where those users migrate to the v3 wrap.
+    const migrated = await migratePasswordUserAtLogin(userId, password);
+
+    if (!migrated && !this.userKeys.hasUserDEK(userId)) {
+      const raw = getCurrentSettingValue(`user_encrypted_dek_${userId}`);
+      if (raw) {
+        // A legacy wrap exists but the password could not unwrap it.
+        return false;
+      }
+      await this.userKeys.createUserDEK(userId);
+    }
+
+    return this.ensureUserDEK(userId);
+  }
+
+  /**
+   * Opens the user's data key with the server-held wrapping, for a sign-in
+   * that carries no password (a passkey, trusted proxy login).
+   */
+  async unlockWithSystemKey(
+    userId: string,
+    _deviceType?: DeviceType,
+  ): Promise<boolean> {
+    return this.ensureUserDEK(userId);
+  }
+
+  private async performLazyEncryptionMigration(userId: string): Promise<void> {
+    try {
+      const userDataKey = this.getUserDataKey(userId);
+      if (!userDataKey) {
+        databaseLogger.warn(
+          "Cannot perform lazy encryption migration - user data key not available",
+          {
+            operation: "lazy_encryption_migration_no_key",
+            userId,
+          },
+        );
+        return;
+      }
+
+      await DataCrypto.migrateCurrentUserSensitiveFields(userId, userDataKey);
+    } catch (error) {
+      databaseLogger.error("Lazy encryption migration failed", error, {
+        operation: "lazy_encryption_migration_error",
+        userId,
+        error: getErrorMessage(error),
+      });
+    }
+  }
+
+  private getDataKeyAAD(userId: string, sessionId?: string): Buffer {
+    return Buffer.from(`${userId}:${sessionId || ""}`, "utf8");
+  }
+
+  private async unwrapUserDataKey(
+    userId: string,
+    sessionId: string | undefined,
+    wrapped: WrappedDataKey,
+  ): Promise<Buffer> {
+    if (wrapped.version !== "v1") {
+      throw new Error(
+        `Unsupported wrapped data key version: ${wrapped.version}`,
+      );
+    }
+
+    const encryptionKey = await this.systemCrypto.getEncryptionKey();
+    const decipher = crypto.createDecipheriv(
+      "aes-256-gcm",
+      encryptionKey,
+      Buffer.from(wrapped.iv, "base64url"),
+    );
+    decipher.setAAD(this.getDataKeyAAD(userId, sessionId));
+    decipher.setAuthTag(Buffer.from(wrapped.tag, "base64url"));
+
+    return Buffer.concat([
+      decipher.update(Buffer.from(wrapped.data, "base64url")),
+      decipher.final(),
+    ]);
+  }
+
+  // Upgrade shim, remove in the release after 2.5: tokens issued before the
+  // v3 key wrap carried the user's DEK wrapped with the system ENCRYPTION_KEY.
+  // Adopting it here silently migrates password users with live sessions.
+  private async migrateDataKeyFromPayload(payload: JWTPayload): Promise<void> {
+    if (!payload.dataKeyWrap || this.userKeys.hasUserDEK(payload.userId)) {
+      return;
+    }
+
+    try {
+      const dataKey = await this.unwrapUserDataKey(
+        payload.userId,
+        payload.sessionId,
+        payload.dataKeyWrap,
+      );
+      await adoptRecoveredDEK(payload.userId, dataKey);
+    } catch (error) {
+      databaseLogger.warn("Failed to migrate data key from session token", {
+        operation: "session_data_key_migrate_failed",
+        userId: payload.userId,
+        sessionId: payload.sessionId,
+        error: getErrorMessage(error),
+      });
+    }
+  }
+
+  async generateJWTToken(
+    userId: string,
+    options: {
+      expiresIn?: string;
+      pendingTOTP?: boolean;
+      rememberMe?: boolean;
+      deviceType?: DeviceType;
+      deviceInfo?: string;
+      externalSession?: ExternalSessionRef | null;
+      /** Caps the lifetime, from the login policy. */
+      maxAgeSeconds?: number | null;
+      /** Stored on the session, see SECOND_FACTOR_SETUP. */
+      restriction?: string | null;
+      idleTimeoutSeconds?: number | null;
+    } = {},
+  ): Promise<string> {
+    const jwtSecret = await this.systemCrypto.getJWTSecret();
+
+    const timeoutValue = await createCurrentSettingsRepository().get(
+      "session_timeout_hours",
+    );
+    const defaultExpiry = `${timeoutValue ? parseInt(timeoutValue, 10) || 24 : 24}h`;
+
+    let expiresIn = options.expiresIn;
+    if (!expiresIn && !options.pendingTOTP) {
+      if (options.rememberMe) {
+        expiresIn = "30d";
+      } else {
+        expiresIn = defaultExpiry;
+      }
+    } else if (!expiresIn) {
+      expiresIn = defaultExpiry;
+    }
+    if (
+      options.maxAgeSeconds &&
+      options.maxAgeSeconds * 1000 < this.parseExpiresIn(expiresIn)
+    ) {
+      expiresIn = `${Math.floor(options.maxAgeSeconds)}s`;
+    }
+
+    const payload: JWTPayload = { userId };
+    if (options.pendingTOTP) {
+      payload.pendingTOTP = true;
+    }
+
+    if (!options.pendingTOTP && options.deviceType && options.deviceInfo) {
+      const sessionId = nanoid();
+      payload.sessionId = sessionId;
+
+      const token = jwt.sign(payload, jwtSecret, {
+        expiresIn,
+      } as jwt.SignOptions);
+
+      const expirationMs = this.parseExpiresIn(expiresIn);
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + expirationMs).toISOString();
+      const createdAt = now.toISOString();
+
+      try {
+        await createCurrentSessionRepository().create({
+          id: sessionId,
+          userId,
+          jwtToken: token,
+          deviceType: options.deviceType,
+          deviceInfo: options.deviceInfo,
+          externalSessionRef: serializeExternalSession(options.externalSession),
+          createdAt,
+          expiresAt,
+          lastActiveAt: createdAt,
+          restriction: options.restriction ?? null,
+          idleTimeout: options.idleTimeoutSeconds ?? null,
+        });
+      } catch (error) {
+        databaseLogger.error("Failed to create session", error, {
+          operation: "session_create_failed",
+          userId,
+          sessionId,
+        });
+      }
+
+      return token;
+    }
+
+    return jwt.sign(payload, jwtSecret, { expiresIn } as jwt.SignOptions);
+  }
+
+  private parseExpiresIn(expiresIn: string): number {
+    const match = expiresIn.match(/^(\d+)([smhd])$/);
+    if (!match) return 24 * 60 * 60 * 1000;
+
+    const value = parseInt(match[1]);
+    const unit = match[2];
+
+    switch (unit) {
+      case "s":
+        return value * 1000;
+      case "m":
+        return value * 60 * 1000;
+      case "h":
+        return value * 60 * 60 * 1000;
+      case "d":
+        return value * 24 * 60 * 60 * 1000;
+      default:
+        return 24 * 60 * 60 * 1000;
+    }
+  }
+
+  /**
+   * A one minute token for opening a WebSocket. A browser cannot read its
+   * HttpOnly cookie, and a proxy that rewrites Host makes the cookie look
+   * like it came from another site, so the page asks for one of these.
+   */
+  async issueSocketTicket(userId: string, sessionId: string): Promise<string> {
+    const payload: JWTPayload = { userId, sessionId, purpose: "ws" };
+    return jwt.sign(payload, await this.systemCrypto.getJWTSecret(), {
+      expiresIn: 60,
+    } as jwt.SignOptions);
+  }
+
+  /**
+   * A one minute socket ticket for an API key. The key has no login session,
+   * so a two minute session a plugin could have minted carries the ticket. It
+   * can open plugin sockets and call nothing else.
+   */
+  async issueApiKeySocketTicket(
+    userId: string,
+    keyId: string,
+  ): Promise<string> {
+    const { token } = await this.issuePluginSession(userId, {
+      pluginId: "api-key",
+      purpose: `socket ${keyId.slice(0, 8)}`,
+      ttlSeconds: 120,
+    });
+    const sessionId = (jwt.decode(token) as JWTPayload).sessionId!;
+    return this.issueSocketTicket(userId, sessionId);
+  }
+
+  /**
+   * A session a plugin mints for a user, to call core's API as them. It is
+   * an ordinary session row, so it verifies, expires and shows up like a
+   * login, marked with the plugin and why.
+   */
+  async issuePluginSession(
+    userId: string,
+    options: { pluginId: string; purpose: string; ttlSeconds: number },
+  ): Promise<{ token: string; expiresAt: string }> {
+    const sessionId = nanoid();
+    const token = jwt.sign(
+      { userId, sessionId } satisfies JWTPayload,
+      await this.systemCrypto.getJWTSecret(),
+      { expiresIn: options.ttlSeconds },
+    );
+    const now = new Date();
+    const expiresAt = new Date(
+      now.getTime() + options.ttlSeconds * 1000,
+    ).toISOString();
+    await createCurrentSessionRepository().create({
+      id: sessionId,
+      userId,
+      jwtToken: token,
+      deviceType: PLUGIN_SESSION_DEVICE_TYPE,
+      deviceInfo: `${options.pluginId}: ${options.purpose}`,
+      createdAt: now.toISOString(),
+      expiresAt,
+      lastActiveAt: now.toISOString(),
+    });
+    return { token, expiresAt };
+  }
+
+  async verifyJWTToken(
+    token: string,
+    options: { allowSocketTicket?: boolean } = {},
+  ): Promise<JWTPayload | null> {
+    try {
+      const jwtSecret = await this.systemCrypto.getJWTSecret();
+
+      const payload = jwt.verify(token, jwtSecret) as JWTPayload;
+      if (
+        payload.purpose !== undefined &&
+        !(payload.purpose === "ws" && options.allowSocketTicket)
+      ) {
+        return null;
+      }
+
+      if (payload.sessionId) {
+        try {
+          const sessionRecord = await createCurrentSessionRepository().findById(
+            payload.sessionId,
+          );
+
+          if (!sessionRecord) {
+            databaseLogger.warn("Session not found during JWT verification", {
+              operation: "jwt_verify_session_not_found",
+              sessionId: payload.sessionId,
+              userId: payload.userId,
+            });
+            return null;
+          }
+
+          if (new Date(sessionRecord.expiresAt).getTime() < Date.now()) {
+            return null;
+          }
+          payload.pluginSession =
+            sessionRecord.deviceType === PLUGIN_SESSION_DEVICE_TYPE;
+          payload.restriction = sessionRecord.restriction ?? null;
+
+          if (this.idleExpired(sessionRecord)) {
+            databaseLogger.info("Session ended after idle timeout", {
+              operation: "session_idle_timeout",
+              sessionId: payload.sessionId,
+              userId: payload.userId,
+            });
+            await createCurrentSessionRepository()
+              .revoke(payload.sessionId)
+              .catch(() => {});
+            return null;
+          }
+
+          await this.migrateDataKeyFromPayload(payload);
+        } catch (dbError) {
+          databaseLogger.error(
+            "Failed to check session in database during JWT verification",
+            dbError,
+            {
+              operation: "jwt_verify_session_check_failed",
+              sessionId: payload.sessionId,
+            },
+          );
+          return null;
+        }
+      } else if (payload.pendingTOTP) {
+        await this.migrateDataKeyFromPayload(payload);
+      } else {
+        // Every real login has a session row to revoke; a signed token
+        // without one did not come from this server's login.
+        return null;
+      }
+      return payload;
+    } catch (error) {
+      databaseLogger.warn("JWT verification failed", {
+        operation: "jwt_verify_failed",
+        error: getErrorMessage(error),
+        errorName: error instanceof Error ? error.name : "Unknown",
+      });
+      return null;
+    }
+  }
+
+  private idleExpired(session: {
+    idleTimeout: number | null;
+    lastActiveAt: string;
+  }): boolean {
+    if (!session.idleTimeout) return false;
+    const idleMs = Date.now() - new Date(session.lastActiveAt).getTime();
+    return idleMs > session.idleTimeout * 1000;
+  }
+
+  async refreshSessionToken(
+    userId: string,
+    sessionId: string,
+  ): Promise<{ token: string; maxAge: number } | null> {
+    const sessionRecord =
+      await createCurrentSessionRepository().findById(sessionId);
+
+    if (!sessionRecord || sessionRecord.userId !== userId) {
+      return null;
+    }
+
+    const expiresAt = new Date(sessionRecord.expiresAt).getTime();
+    const maxAge = expiresAt - Date.now();
+    if (!Number.isFinite(maxAge) || maxAge <= 0) {
+      return null;
+    }
+
+    const payload: JWTPayload = { userId, sessionId };
+
+    const token = jwt.sign(payload, await this.systemCrypto.getJWTSecret(), {
+      expiresIn: Math.ceil(maxAge / 1000),
+    } as jwt.SignOptions);
+
+    await createCurrentSessionRepository().updateToken(sessionId, token);
+
+    return { token, maxAge };
+  }
+
+  invalidateJWTToken(_token: string): void {
+    // expected - no-op, JWT tokens are stateless
+  }
+
+  invalidateUserTokens(_userId: string): void {
+    // expected - no-op, handled by session management
+  }
+
+  async revokeSession(sessionId: string): Promise<boolean> {
+    try {
+      authLogger.info("User session invalidated", {
+        operation: "user_logout",
+        sessionId,
+      });
+
+      await createCurrentSessionRepository().revoke(sessionId);
+
+      return true;
+    } catch (error) {
+      databaseLogger.error("Failed to delete session", error, {
+        operation: "session_delete_failed",
+        sessionId,
+      });
+      return false;
+    }
+  }
+
+  async revokeAllUserSessions(
+    userId: string,
+    exceptSessionId?: string,
+  ): Promise<number> {
+    try {
+      const sessionRepository = createCurrentSessionRepository();
+      const userSessions = await sessionRepository.listByUserId(userId);
+
+      const deletedCount = userSessions.filter(
+        (s) => !exceptSessionId || s.id !== exceptSessionId,
+      ).length;
+
+      authLogger.info("All user sessions invalidated", {
+        operation: "user_logout_all",
+        userId,
+        sessionCount: deletedCount,
+      });
+
+      await sessionRepository.revokeAllForUser(userId, exceptSessionId);
+
+      return deletedCount;
+    } catch (error) {
+      databaseLogger.error("Failed to delete user sessions", error, {
+        operation: "user_sessions_delete_failed",
+        userId,
+      });
+      return 0;
+    }
+  }
+
+  async revokeSessionsByExternalSession(params: {
+    providerId?: number | null;
+    sub?: string | null;
+    sid?: string | null;
+  }): Promise<number> {
+    const { providerId, sub, sid } = params;
+    if (!sub && !sid) return 0;
+
+    try {
+      const db = getDb();
+      const candidates = await db
+        .select({ id: sessions.id, ref: sessions.externalSessionRef })
+        .from(sessions)
+        .where(isNotNull(sessions.externalSessionRef));
+
+      const matchedIds = candidates
+        .filter((row) => {
+          const ref = parseExternalSession(row.ref);
+          if (!ref) return false;
+          if (sid ? ref.sid !== sid : ref.sub !== sub) return false;
+          return providerId == null || ref.providerId === providerId;
+        })
+        .map((row) => row.id);
+
+      if (matchedIds.length === 0) return 0;
+
+      await db.delete(sessions).where(inArray(sessions.id, matchedIds));
+
+      authLogger.info("Sessions revoked via back-channel logout", {
+        operation: "external_backchannel_logout",
+        providerId,
+        sessionCount: matchedIds.length,
+      });
+
+      const { saveMemoryDatabaseToFile } =
+        await import("../database/db/index.js");
+      await saveMemoryDatabaseToFile();
+
+      return matchedIds.length;
+    } catch (error) {
+      databaseLogger.error(
+        "Failed to revoke sessions via back-channel logout",
+        error,
+        {
+          operation: "external_backchannel_logout_failed",
+        },
+      );
+      throw error;
+    }
+  }
+
+  async cleanupExpiredSessions(): Promise<number> {
+    try {
+      const sessionRepository = createCurrentSessionRepository();
+      const now = new Date();
+      const expiredSessions = await sessionRepository.listExpired(now);
+
+      const expiredCount = expiredSessions.length;
+
+      if (expiredCount === 0) {
+        return 0;
+      }
+
+      await sessionRepository.deleteExpired(now);
+
+      return expiredCount;
+    } catch (error) {
+      databaseLogger.error("Failed to cleanup expired sessions", error, {
+        operation: "sessions_cleanup_failed",
+      });
+      return 0;
+    }
+  }
+
+  async getAllSessions(): Promise<Record<string, unknown>[]> {
+    try {
+      return createCurrentSessionRepository().listAll();
+    } catch (error) {
+      databaseLogger.error("Failed to get all sessions", error, {
+        operation: "sessions_get_all_failed",
+      });
+      return [];
+    }
+  }
+
+  async getUserSessions(userId: string): Promise<Record<string, unknown>[]> {
+    try {
+      return createCurrentSessionRepository().listByUserId(userId);
+    } catch (error) {
+      databaseLogger.error("Failed to get user sessions", error, {
+        operation: "sessions_get_user_failed",
+        userId,
+      });
+      return [];
+    }
+  }
+
+  getSecureCookieOptions(
+    req: RequestWithHeaders,
+    maxAge: number = 24 * 60 * 60 * 1000,
+  ) {
+    return {
+      httpOnly: true,
+      secure: req.secure || req.headers["x-forwarded-proto"] === "https",
+      sameSite: "lax" as const,
+      maxAge: maxAge,
+      path: "/",
+    };
+  }
+
+  getClearCookieOptions(req: RequestWithHeaders) {
+    return {
+      httpOnly: true,
+      secure: req.secure || req.headers["x-forwarded-proto"] === "https",
+      sameSite: "lax" as const,
+      path: "/",
+    };
+  }
+
+  private async handleApiKeyAuth(
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction,
+    token: string,
+    requireAdmin = false,
+  ): Promise<void> {
+    if (req.headers[ADMIN_TARGET_USER_HEADER]) {
+      res.status(403).json({
+        error: "Impersonation is not allowed with API key authentication",
+        code: "IMPERSONATION_NOT_ALLOWED",
+      });
+      return;
+    }
+    try {
+      const tokenPrefix = token.substring(0, 12);
+      const apiKeyRepository = createCurrentApiKeyRepository();
+
+      const candidates =
+        await apiKeyRepository.listActiveByTokenPrefix(tokenPrefix);
+
+      if (candidates.length === 0) {
+        res.status(401).json({ error: "Invalid API key" });
+        return;
+      }
+
+      let matchedKey: (typeof candidates)[0] | null = null;
+      for (const candidate of candidates) {
+        if (await bcrypt.compare(token, candidate.tokenHash)) {
+          matchedKey = candidate;
+          break;
+        }
+      }
+
+      if (!matchedKey) {
+        res.status(401).json({ error: "Invalid API key" });
+        return;
+      }
+
+      if (matchedKey.expiresAt && new Date(matchedKey.expiresAt) < new Date()) {
+        res.status(401).json({ error: "API key has expired" });
+        return;
+      }
+
+      if (requireAdmin) {
+        const user = await createCurrentUserRepository().findById(
+          matchedKey.userId,
+        );
+        if (!user?.isAdmin) {
+          res.status(403).json({ error: "Admin access required" });
+          return;
+        }
+      }
+
+      apiKeyRepository
+        .updateLastUsedAt(matchedKey.id, new Date().toISOString())
+        .then(() => {})
+        .catch((err) => {
+          databaseLogger.warn("Failed to update API key lastUsedAt", {
+            operation: "api_key_update_last_used",
+            keyId: matchedKey!.id,
+            error: getErrorMessage(err, "Unknown"),
+          });
+        });
+
+      req.userId = matchedKey.userId;
+      req.apiKeyId = matchedKey.id;
+      next();
+    } catch (error) {
+      databaseLogger.error("API key authentication failed", error, {
+        operation: "api_key_auth_failed",
+      });
+      res.status(500).json({ error: "API key authentication failed" });
+    }
+  }
+
+  createAuthMiddleware() {
+    return async (req: Request, res: Response, next: NextFunction) => {
+      const authReq = req as AuthenticatedRequest;
+      let token = authReq.cookies?.jwt;
+
+      if (!token) {
+        const authHeader = authReq.headers["authorization"];
+        if (authHeader?.startsWith("Bearer ")) {
+          token = authHeader.split(" ")[1];
+        }
+      }
+
+      if (!token) {
+        return res.status(401).json({ error: "Missing authentication token" });
+      }
+
+      if (token.startsWith("tmx_")) {
+        return this.handleApiKeyAuth(authReq, res, next, token);
+      }
+
+      const payload = await this.verifyJWTToken(token);
+
+      if (!payload) {
+        return res
+          .clearCookie("jwt", this.getClearCookieOptions(req))
+          .status(401)
+          .json({ error: "Invalid token" });
+      }
+
+      if (payload.pendingTOTP) {
+        return res.status(401).json({
+          error: "TOTP verification required",
+          code: "TOTP_REQUIRED",
+        });
+      }
+
+      if (this.refusePluginSession(req, res, payload)) return;
+
+      if (payload.sessionId) {
+        try {
+          const sessionRepository = createCurrentSessionRepository();
+          const session = await sessionRepository.findById(payload.sessionId);
+
+          if (!session) {
+            databaseLogger.warn("Session not found in middleware", {
+              operation: "middleware_session_not_found",
+              sessionId: payload.sessionId,
+              userId: payload.userId,
+            });
+            return res
+              .clearCookie("jwt", this.getClearCookieOptions(req))
+              .status(401)
+              .json({
+                error: "Session not found",
+                code: "SESSION_NOT_FOUND",
+              });
+          }
+
+          const sessionExpiryTime = new Date(session.expiresAt).getTime();
+          const currentTime = Date.now();
+          const isExpired = sessionExpiryTime < currentTime;
+
+          if (isExpired) {
+            databaseLogger.warn("Session has expired", {
+              operation: "session_expired",
+              sessionId: payload.sessionId,
+              expiresAt: session.expiresAt,
+              expiryTime: sessionExpiryTime,
+              currentTime: currentTime,
+              difference: currentTime - sessionExpiryTime,
+            });
+
+            sessionRepository.revoke(payload.sessionId).catch((error) => {
+              databaseLogger.error("Failed to delete expired session", error, {
+                operation: "expired_session_delete_failed",
+                sessionId: payload.sessionId,
+              });
+            });
+
+            return res
+              .clearCookie("jwt", this.getClearCookieOptions(req))
+              .status(401)
+              .json({
+                error: "Session has expired",
+                code: "SESSION_EXPIRED",
+              });
+          }
+
+          sessionRepository
+            .touch(payload.sessionId)
+            .then(() => {})
+            .catch((error) => {
+              databaseLogger.warn("Failed to update session lastActiveAt", {
+                operation: "session_update_last_active",
+                sessionId: payload.sessionId,
+                error: getErrorMessage(error),
+              });
+            });
+        } catch (error) {
+          databaseLogger.error("Session check failed in middleware", error, {
+            operation: "middleware_session_check_failed",
+            sessionId: payload.sessionId,
+          });
+          return res.status(500).json({ error: "Session check failed" });
+        }
+      }
+
+      authReq.userId = payload.userId;
+      authReq.sessionId = payload.sessionId;
+      authReq.pendingTOTP = payload.pendingTOTP;
+      authReq.sessionRestriction = payload.restriction ?? null;
+
+      if (authReq.headers[ADMIN_TARGET_USER_HEADER]) {
+        const handled = await this.applyAdminImpersonation(
+          authReq,
+          res,
+          payload.userId,
+        );
+        if (handled) return;
+      }
+
+      next();
+    };
+  }
+
+  /**
+   * Handle the X-Admin-Target-User header: admins may act on another user's
+   * data for an allowlisted set of data-plane routes. On success req.userId
+   * becomes the target user and actingAdminUserId records the real caller.
+   * Returns true when a response was already sent (request must stop).
+   */
+  private async applyAdminImpersonation(
+    req: AuthenticatedRequest,
+    res: Response,
+    adminUserId: string,
+  ): Promise<boolean> {
+    const rawHeader = req.headers[ADMIN_TARGET_USER_HEADER];
+    const targetUserId = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
+
+    if (!targetUserId || targetUserId === adminUserId) {
+      return false;
+    }
+
+    const userRepository = createCurrentUserRepository();
+    const admin = await userRepository.findById(adminUserId);
+    if (!admin?.isAdmin) {
+      databaseLogger.warn("Impersonation attempt by non-admin", {
+        operation: "admin_impersonation_denied",
+        userId: adminUserId,
+        targetUserId,
+        path: req.originalUrl,
+      });
+      res.status(403).json({
+        error: "Admin access required",
+        code: "IMPERSONATION_DENIED",
+      });
+      return true;
+    }
+
+    const path = (req.originalUrl || req.url || "").split("?")[0];
+    if (!allowsAdminImpersonation(path)) {
+      res.status(403).json({
+        error: "Impersonation is not allowed for this route",
+        code: "IMPERSONATION_NOT_ALLOWED",
+      });
+      return true;
+    }
+
+    const target = await userRepository.findById(targetUserId);
+    if (!target) {
+      res.status(404).json({
+        error: "Target user not found",
+        code: "TARGET_USER_NOT_FOUND",
+      });
+      return true;
+    }
+
+    if (!DataCrypto.canUserAccessData(targetUserId)) {
+      res.status(423).json({
+        error: "Target user's data stays locked until their next login",
+        code: "TARGET_DATA_LOCKED",
+      });
+      return true;
+    }
+
+    req.userId = targetUserId;
+    req.actingAdminUserId = adminUserId;
+
+    const { ipAddress, userAgent } = getRequestMeta(req);
+    void logAudit({
+      userId: adminUserId,
+      username: admin.username,
+      action: "admin_impersonated_request",
+      resourceType: "user",
+      resourceId: targetUserId,
+      resourceName: target.username,
+      details: JSON.stringify({ method: req.method, path }),
+      ipAddress,
+      userAgent,
+      success: true,
+    });
+
+    return false;
+  }
+
+  /** Sends the 403 and returns true when a plugin session may not use this route. */
+  private refusePluginSession(
+    req: Request,
+    res: Response,
+    payload: JWTPayload,
+  ): boolean {
+    const path = (req.originalUrl || req.url || "").split("?")[0];
+    if (
+      payload.restriction === SECOND_FACTOR_SETUP &&
+      !allowsSetupSession(path)
+    ) {
+      res.status(403).json({
+        error: "Set up a second factor before using Termix",
+        code: "SECOND_FACTOR_SETUP_REQUIRED",
+      });
+      return true;
+    }
+    if (!payload.pluginSession || allowsPluginSession(path)) return false;
+    res.status(403).json({
+      error: "A session a plugin issued cannot use this route",
+      code: "PLUGIN_SESSION_NOT_ALLOWED",
+    });
+    return true;
+  }
+
+  createDataAccessMiddleware() {
+    return async (req: Request, res: Response, next: NextFunction) => {
+      const authReq = req as AuthenticatedRequest;
+      const userId = authReq.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      authReq.dataKey = this.userKeys.tryGetUserDEK(userId) ?? undefined;
+      next();
+    };
+  }
+
+  createAdminMiddleware() {
+    return async (req: Request, res: Response, next: NextFunction) => {
+      let token = req.cookies?.jwt;
+
+      if (!token) {
+        const authHeader = req.headers["authorization"];
+        if (authHeader?.startsWith("Bearer ")) {
+          token = authHeader.split(" ")[1];
+        }
+      }
+
+      if (!token) {
+        return res.status(401).json({ error: "Missing authentication token" });
+      }
+
+      if (token.startsWith("tmx_")) {
+        return this.handleApiKeyAuth(
+          req as AuthenticatedRequest,
+          res,
+          next,
+          token,
+          true,
+        );
+      }
+
+      const payload = await this.verifyJWTToken(token);
+
+      if (!payload) {
+        return res
+          .clearCookie("jwt", this.getClearCookieOptions(req))
+          .status(401)
+          .json({ error: "Invalid token" });
+      }
+
+      if (payload.pendingTOTP) {
+        return res.status(401).json({
+          error: "TOTP verification required",
+          code: "TOTP_REQUIRED",
+        });
+      }
+
+      if (this.refusePluginSession(req, res, payload)) return;
+
+      try {
+        const user = await createCurrentUserRepository().findById(
+          payload.userId,
+        );
+
+        if (!user?.isAdmin) {
+          databaseLogger.warn(
+            "Non-admin user attempted to access admin endpoint",
+            {
+              operation: "admin_access_denied",
+              userId: payload.userId,
+              endpoint: req.path,
+            },
+          );
+          return res.status(403).json({ error: "Admin access required" });
+        }
+
+        const authReq = req as AuthenticatedRequest;
+        authReq.userId = payload.userId;
+        authReq.sessionId = payload.sessionId;
+        authReq.pendingTOTP = payload.pendingTOTP;
+        next();
+      } catch (error) {
+        databaseLogger.error("Failed to verify admin privileges", error, {
+          operation: "admin_check_failed",
+          userId: payload.userId,
+        });
+        return res
+          .status(500)
+          .json({ error: "Failed to verify admin privileges" });
+      }
+    };
+  }
+
+  async logoutUser(userId: string, sessionId?: string): Promise<void> {
+    const sessionRepository = createCurrentSessionRepository();
+
+    try {
+      if (sessionId) {
+        await sessionRepository.revoke(sessionId);
+      } else {
+        await sessionRepository.revokeAllForUser(userId);
+      }
+    } catch (error) {
+      databaseLogger.error("Failed to revoke sessions on logout", error, {
+        operation: "session_delete_logout_failed",
+        userId,
+        sessionId,
+      });
+    }
+  }
+
+  getUserDataKey(userId: string): Buffer | null {
+    return this.userKeys.tryGetUserDEK(userId);
+  }
+
+  isUserUnlocked(userId: string): boolean {
+    return this.userKeys.tryGetUserDEK(userId) !== null;
+  }
+
+  async changeUserPassword(
+    userId: string,
+    oldPassword: string,
+    _newPassword?: string,
+  ): Promise<boolean> {
+    // The DEK is no longer derived from the password; the old password is
+    // only needed when the user still has a legacy password-wrapped key.
+    await migratePasswordUserAtLogin(userId, oldPassword);
+    return this.userKeys.tryGetUserDEK(userId) !== null;
+  }
+
+  async isTrustedDevice(
+    userId: string,
+    deviceFingerprint: string,
+  ): Promise<boolean> {
+    try {
+      const trustedDeviceRepository = createCurrentTrustedDeviceRepository();
+      const device = await trustedDeviceRepository.findByUserAndFingerprint(
+        userId,
+        deviceFingerprint,
+      );
+
+      if (!device) {
+        return false;
+      }
+
+      const now = new Date();
+      const expiresAt = new Date(device.expiresAt);
+
+      if (now > expiresAt) {
+        await this.removeTrustedDevice(userId, deviceFingerprint);
+        return false;
+      }
+
+      await trustedDeviceRepository.touch(
+        userId,
+        deviceFingerprint,
+        now.toISOString(),
+      );
+
+      return true;
+    } catch (error) {
+      authLogger.error("Failed to check trusted device", { userId, error });
+      return false;
+    }
+  }
+
+  async addTrustedDevice(
+    userId: string,
+    deviceFingerprint: string,
+    deviceType: string,
+    deviceInfo: string,
+  ): Promise<void> {
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    await createCurrentTrustedDeviceRepository().upsert({
+      id: nanoid(),
+      userId,
+      deviceFingerprint,
+      deviceType,
+      deviceInfo,
+      createdAt: now.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      lastUsedAt: now.toISOString(),
+    });
+  }
+
+  async removeTrustedDevice(
+    userId: string,
+    deviceFingerprint: string,
+  ): Promise<void> {
+    await createCurrentTrustedDeviceRepository().deleteByUserAndFingerprint(
+      userId,
+      deviceFingerprint,
+    );
+  }
+}
+
+export { AuthManager, type AuthenticationResult, type JWTPayload };
