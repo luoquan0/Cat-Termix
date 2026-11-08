@@ -8,17 +8,17 @@ Test source branch: cat-termix/test-upstream-26.11
 ## Decision and safety boundary
 
 The custom Cat-Termix branch is still based on Termix 2.9.2 and bundles
-\`plugins/ai\`, \`plugins/agent\` and a separate Docker updater. Termix
-26.11.0 moves official plugins into independently versioned \`.tmxplug\`
-archives pinned by SHA-256 in \`docker/bundled-plugins.json\`. Its SDK
-is \`@termix-ssh/plugin-sdk\` 1.0.22 with Plugin API 1.13.0.
+`plugins/ai`, `plugins/agent` and a separate Docker updater. Termix
+26.11.0 moves official plugins into independently versioned `.tmxplug`
+archives pinned by SHA-256 in `docker/bundled-plugins.json`. Its SDK
+is `@termix-ssh/plugin-sdk` 1.0.22 with Plugin API 1.13.0.
 Therefore a direct overlay/copy or database upgrade is unsafe.
 
 This branch starts from an immutable upstream 26.11.0 core commit. The
 test workflow validates the core, plugin catalog, locked dependencies and
 a fresh-volume container boot. **It does not install any Cat-specific
-plugin**, publish to GHCR, deploy to port 2244, touch \`ai-dev\`, run an
-updater against existing volumes, or alter \`Cat-Termix\` / \`main\`.
+plugin**, publish to GHCR, deploy to port 2244, touch `ai-dev`, run an
+updater against existing volumes, or alter `Cat-Termix` / `main`.
 
 Never attach existing production SQLite, Postgres or MySQL data to an
 unvalidated new core: schema and plugin migrations need backup/restore
@@ -44,7 +44,7 @@ drills and an explicit, separate migration review.
 5. **Release gate:** independent AMD64/ARM64 builds, real plugin
    activation/API smoke, SSH/SFTP/sudo denial tests, database rollback,
    explicit user acceptance. Publish a **fixed test tag first**, never
-   overwrite rolling \`ai-dev\` during integration.
+   overwrite rolling `ai-dev` during integration.
 
 ## First-stage acceptance
 
@@ -57,4 +57,4 @@ drills and an explicit, separate migration review.
 - Failure blocks progression; CI log or a commit alone is not a release.
 
 Deployment example after full Cat integration must use a new
-\`/app/data\` volume and a separate port, not the live 2244 setup.
+`/app/data` volume and a separate port, not the live 2244 setup.

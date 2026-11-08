@@ -1,0 +1,86 @@
+name: Cat-Termix 26.11 upstream compatibility tests
+
+on:
+  push:
+    branches:
+      - cat-termix/test-upstream-26.11
+  pull_request:
+    branches:
+      - cat-termix/test-upstream-26.11
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cat-termix-26-11-test
+  cancel-in-progress: true
+
+env:
+  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+  HUSKY: "0"
+
+jobs:
+  core-check:
+    if: github.repository == 'luoquan0/Cat-Termix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Verify pinned upstream and external plugin catalog
+        run: node scripts/cat-termix-upstream-check.cjs
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Type-check upgraded core and SDK
+        run: npm run type-check
+      - name: Run upgraded core regression suite
+        run: npm run test -- --maxWorkers=2
+      - name: Build upgraded core and pinned plugin packages
+        run: npm run build
+  container-smoke:
+    if: github.repository == 'luoquan0/Cat-Termix'
+    needs: core-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build standard upstream baseline locally (no registry push)
+        run: docker build --build-arg PLUGIN_PROFILE=standard -t cat-termix-upstream-core:26.11.0 -f docker/Dockerfile .
+      - name: Start isolated container with an empty test volume
+        run: |
+          set -euo pipefail
+          docker volume create cat-termix-upstream-2611-smoke
+          docker run -d --name cat-termix-upstream-smoke -p 127.0.0.1:19080:8080 -v cat-termix-upstream-2611-smoke:/app/data cat-termix-upstream-core:26.11.0
+          ready=false
+          for attempt in $(seq 1 90); do
+            if docker exec cat-termix-upstream-smoke wget -q -O /dev/null http://127.0.0.1:30001/health &&
+               curl -fsS http://127.0.0.1:19080/ -o /tmp/upstream-index.html; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != true ]; then
+            docker logs cat-termix-upstream-smoke | tail -n 160
+            exit 1
+          fi
+          grep -q 'id="root"' /tmp/upstream-index.html
+          docker exec cat-termix-upstream-smoke test -d /app/dist/plugins
+          echo "Upstream core baseline started with a fresh volume; Cat extensions are not yet installed." >> "$GITHUB_STEP_SUMMARY"
+      - name: Collect logs and remove disposable test resources
+        if: always()
+        run: |
+          docker logs cat-termix-upstream-smoke > /tmp/cat-termix-upstream-smoke.log 2>&1 || true
+          docker rm -fv cat-termix-upstream-smoke || true
+          docker volume rm cat-termix-upstream-2611-smoke || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cat-termix-upstream-smoke-log
+          path: /tmp/cat-termix-upstream-smoke.log
+          if-no-files-found: ignore
+          retention-days: 7
