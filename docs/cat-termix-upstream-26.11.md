@@ -58,3 +58,14 @@ drills and an explicit, separate migration review.
 
 Deployment example after full Cat integration must use a new
 `/app/data` volume and a separate port, not the live 2244 setup.
+
+## First CI result: transient artifact download
+
+The first CI run (#42470214521) passed dependency install, SDK and core
+typechecking and the core unit suite. The complete build hit an upstream
+Plugin-Alerts release HTTP 504, so the container job was correctly skipped.
+The bundled downloader now retries 429/500/502/503/504 or network failures
+up to three times with bounded backoff. It still fails immediately on
+HTTP 404, rejects SHA-256 mismatches and never caches invalid archives.
+Dedicated regression tests cover those cases. This is a core-only
+compatibility test, not a Cat-feature-complete release.

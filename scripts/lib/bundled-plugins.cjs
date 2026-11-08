@@ -195,11 +195,32 @@ async function fetchArtifact(entry, root, fetchImpl = fetch) {
     return buffer;
   }
 
-  const response = await fetchImpl(entry.url);
-  if (!response.ok) {
-    throw new Error(`${entry.id}: download failed with ${response.status}`);
+  // Release asset CDNs can fail temporarily. Do not retry permanent errors,
+  // and never weaken the pinned SHA-256 verification before caching.
+  let buffer;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let response;
+    try {
+      response = await fetchImpl(entry.url);
+    } catch (error) {
+      if (attempt === 2) {
+        throw new Error(entry.id + ": download failed after 3 attempts", {
+          cause: error,
+        });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+      continue;
+    }
+    if (response.ok) {
+      buffer = Buffer.from(await response.arrayBuffer());
+      break;
+    }
+    if (![429, 500, 502, 503, 504].includes(response.status) || attempt === 2) {
+      throw new Error(entry.id + ": download failed with " + response.status);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
   }
-  const buffer = Buffer.from(await response.arrayBuffer());
+  if (!buffer) throw new Error(entry.id + ": download did not return a package");
   checkSha256(buffer, entry.sha256, entry.id);
   fs.mkdirSync(cacheDir, { recursive: true });
   fs.writeFileSync(cached, buffer);

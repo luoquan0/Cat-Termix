@@ -34,6 +34,8 @@ jobs:
         run: node scripts/cat-termix-upstream-check.cjs
       - name: Install locked dependencies
         run: npm ci
+      - name: Test transient plugin-download retry and digest safeguards
+        run: node --test scripts/lib/bundled-plugins-retry.test.cjs
       - name: Type-check upgraded core and SDK
         run: npm run type-check
       - name: Run upgraded core regression suite
