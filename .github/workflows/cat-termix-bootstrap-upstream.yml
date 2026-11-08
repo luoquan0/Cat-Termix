@@ -1,0 +1,69 @@
+name: Cat-Termix upstream 26.11 bootstrap
+
+# Runs only on the dedicated setup branch. It never touches Cat-Termix,
+# main, ai-dev, GHCR, or a deployed instance.
+on:
+  push:
+    branches:
+      - cat-termix/bootstrap-upstream-26.11
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cat-termix-upstream-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  import-upstream:
+    if: github.repository == 'luoquan0/Cat-Termix' && github.ref == 'refs/heads/cat-termix/bootstrap-upstream-26.11'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      UPSTREAM_SHA: 6b06059411e517e4038531ddae756c7530516e13
+      TARGET_BRANCH: cat-termix/test-upstream-26.11
+    steps:
+      - name: Checkout existing Cat branch (read-only source)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Refuse to overwrite an existing test branch
+        run: |
+          set -euo pipefail
+          if git ls-remote --heads origin "refs/heads/$TARGET_BRANCH" | grep -q .; then
+            echo "Target branch already exists; refusing to overwrite it."
+            exit 1
+          fi
+      - name: Fetch and verify immutable upstream release
+        run: |
+          set -euo pipefail
+          git fetch --no-tags https://github.com/Termix-SSH/Termix.git main
+          actual="$(git rev-parse FETCH_HEAD)"
+          test "$actual" = "$UPSTREAM_SHA" || {
+            echo "Upstream main advanced from pinned 26.11.0; refusing an unreviewed upgrade: $actual" >&2
+            exit 1
+          }
+          git cat-file -t "$UPSTREAM_SHA" | grep -qx commit
+      - name: Create independent upstream-based test source branch
+        run: |
+          set -euo pipefail
+          tempdir="$(mktemp -d)"
+          cp docs/cat-termix-upstream-26.11.md "$tempdir/plan.md"
+          cp scripts/cat-termix-upstream-check.cjs "$tempdir/check.cjs"
+          cp .github/workflows/cat-termix-upstream-test.yml "$tempdir/test.yml"
+          git switch --create "$TARGET_BRANCH" "$UPSTREAM_SHA"
+          mkdir -p docs scripts .github/workflows
+          cp "$tempdir/plan.md" docs/cat-termix-upstream-26.11.md
+          cp "$tempdir/check.cjs" scripts/cat-termix-upstream-check.cjs
+          cp "$tempdir/test.yml" .github/workflows/cat-termix-upstream-test.yml
+          node scripts/cat-termix-upstream-check.cjs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/cat-termix-upstream-26.11.md scripts/cat-termix-upstream-check.cjs .github/workflows/cat-termix-upstream-test.yml
+          git commit -m "test: pin upstream 26.11.0 baseline and Cat migration gates"
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"
+          echo "Created $TARGET_BRANCH at $(git rev-parse HEAD)"
+          echo "Upstream source: $UPSTREAM_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Isolated branch: $TARGET_BRANCH" >> "$GITHUB_STEP_SUMMARY"
+          echo "Cat plugins have NOT been ported; never deploy with old production data." >> "$GITHUB_STEP_SUMMARY"
