@@ -51,17 +51,20 @@ jobs:
           tempdir="$(mktemp -d)"
           cp docs/cat-termix-upstream-26.11.md "$tempdir/plan.md"
           cp scripts/cat-termix-upstream-check.cjs "$tempdir/check.cjs"
-          cp .github/workflows/cat-termix-upstream-test.yml "$tempdir/test.yml"
-          git switch --create "$TARGET_BRANCH" "$UPSTREAM_SHA"
-          mkdir -p docs scripts .github/workflows
+          # An Actions app token cannot push upstream workflow history.
+          # Import a fresh root tree without .github/workflows and let the
+          # authorized GitHub connector install the test workflow afterward.
+          git checkout --orphan "$TARGET_BRANCH" "$UPSTREAM_SHA"
+          git rm -rf --cached .github/workflows
+          rm -rf .github/workflows
+          mkdir -p docs scripts
           cp "$tempdir/plan.md" docs/cat-termix-upstream-26.11.md
           cp "$tempdir/check.cjs" scripts/cat-termix-upstream-check.cjs
-          cp "$tempdir/test.yml" .github/workflows/cat-termix-upstream-test.yml
           node scripts/cat-termix-upstream-check.cjs
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/cat-termix-upstream-26.11.md scripts/cat-termix-upstream-check.cjs .github/workflows/cat-termix-upstream-test.yml
-          git commit -m "test: pin upstream 26.11.0 baseline and Cat migration gates"
+          git add -A
+          git commit -m "test: import isolated upstream 26.11.0 core snapshot"
           git push origin "HEAD:refs/heads/$TARGET_BRANCH"
           echo "Created $TARGET_BRANCH at $(git rev-parse HEAD)"
           echo "Upstream source: $UPSTREAM_SHA" >> "$GITHUB_STEP_SUMMARY"
