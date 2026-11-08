@@ -1,0 +1,17 @@
+# Disposable integration test only.
+# Core JS and UI come from this fork's own CI build; the matching official
+# versioned image supplies Node native modules and bundled official plugins.
+# The original docker/Dockerfile is unchanged and remains the future
+# production-build authority once artifact CDN availability is restored.
+FROM ghcr.io/termix-ssh/termix:26.11.0
+
+WORKDIR /app
+RUN rm -rf /app/html /app/dist/backend /app/packages/plugin-sdk/dist && \
+    mkdir -p /app/html /app/dist/backend /app/packages/plugin-sdk/dist && \
+    chown -R node:node /app/html /app/dist/backend /app/packages/plugin-sdk/dist
+COPY --chown=node:node html/ /app/html/
+COPY --chown=node:node backend/ /app/dist/backend/
+COPY --chown=node:node sdk/ /app/packages/plugin-sdk/dist/
+
+LABEL org.opencontainers.image.title="Cat-Termix 26.11.0 disposable core overlay" \
+      org.opencontainers.image.description="TEST ONLY: fork-built core with bundled official 26.11.0 plugins; no Cat extensions"

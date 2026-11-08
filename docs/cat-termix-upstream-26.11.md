@@ -69,3 +69,18 @@ up to three times with bounded backoff. It still fails immediately on
 HTTP 404, rejects SHA-256 mismatches and never caches invalid archives.
 Dedicated regression tests cover those cases. This is a core-only
 compatibility test, not a Cat-feature-complete release.
+
+## Build reproducibility when upstream release CDN returns 504
+
+A second CI run (#42470642874) passed the same core and retry regressions,
+but GitHub Release download returned HTTP 504 again for the official
+classic-layout plugin after the alerts package succeeded. Until those public
+release assets are reliably reachable, the core CI now compiles the source
+locally and tests it using a disposable overlay based on the official
+versioned ghcr.io/termix-ssh/termix:26.11.0 image. The official base supplies
+its pinned bundled plugins, native dependencies and entrypoint, while compiled
+frontend, backend and SDK come from this branch's CI artifacts. The action
+checks the official base's package version and records its registry digest.
+The overlay Dockerfile is deliberately separate from docker/Dockerfile and
+**never published**. This avoids pretending that the custom Cat plugins
+already work, and avoids weakening the package integrity verifier.

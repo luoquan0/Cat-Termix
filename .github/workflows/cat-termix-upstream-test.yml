@@ -40,8 +40,24 @@ jobs:
         run: npm run type-check
       - name: Run upgraded core regression suite
         run: npm run test -- --maxWorkers=2
-      - name: Build upgraded core and pinned plugin packages
-        run: npm run build
+      - name: Compile upgraded core, SDK and frontend
+        run: |
+          set -euo pipefail
+          npm run build:sdk
+          npx vite build
+          node scripts/stamp-sw-build-info.cjs
+          npx tsc -p tsconfig.node.json
+          node -e "require('fs').copyFileSync('src/backend/package.json','dist/backend/package.json')"
+          test -f dist/index.html
+          test -d dist/backend
+      - name: Retain exact compiled core for disposable image smoke
+        uses: actions/upload-artifact@v4
+        with:
+          name: cat-termix-26-11-core-${{ github.sha }}
+          path: |
+            dist/
+            packages/plugin-sdk/dist/
+          retention-days: 3
   container-smoke:
     if: github.repository == 'luoquan0/Cat-Termix'
     needs: core-check
@@ -49,9 +65,31 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: cat-termix-26-11-core-${{ github.sha }}
+          path: .
       - uses: docker/setup-buildx-action@v3
-      - name: Build standard upstream baseline locally (no registry push)
-        run: docker build --build-arg PLUGIN_PROFILE=standard -t cat-termix-upstream-core:26.11.0 -f docker/Dockerfile .
+      - name: Stage compiled test core without server-side source exposure
+        run: |
+          set -euo pipefail
+          context=/tmp/cat-termix-core-context
+          mkdir -p "$context/html" "$context/backend" "$context/sdk"
+          cp -a dist/. "$context/html/"
+          rm -rf "$context/html/backend" "$context/html/plugins"
+          cp -a dist/backend/. "$context/backend/"
+          cp -a packages/plugin-sdk/dist/. "$context/sdk/"
+          test -f "$context/html/index.html"
+          test -f "$context/backend/package.json"
+      - name: Verify matching official versioned plugin-bundle base
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/termix-ssh/termix:26.11.0
+          version="$(docker run --rm --entrypoint node ghcr.io/termix-ssh/termix:26.11.0 -p "require('/app/package.json').version")"
+          test "$version" = "26.11.0"
+          echo "Verified official base: $(docker image inspect ghcr.io/termix-ssh/termix:26.11.0 --format '{{index .RepoDigests 0}}')" >> "$GITHUB_STEP_SUMMARY"
+      - name: Build test-only core overlay locally without downloading release archives
+        run: docker build -t cat-termix-upstream-core:26.11.0 -f docker/Dockerfile.upstream-core-test /tmp/cat-termix-core-context
       - name: Start isolated container with an empty test volume
         run: |
           set -euo pipefail
