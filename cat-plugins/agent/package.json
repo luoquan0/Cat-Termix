@@ -1,28 +1,33 @@
 {
   "name": "@termix-plugin/agent",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0-beta.1",
   "type": "module",
   "scripts": {
     "build": "termix-plugin build",
     "test": "termix-plugin test",
     "typecheck": "tsc -p .",
-    "validate": "termix-plugin validate"
+    "validate": "termix-plugin validate",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "lucide-react": "^1.33.0"
   },
   "devDependencies": {
-    "@termix/plugin-sdk": "^1.0.0",
+    "@termix-ssh/plugin-sdk": "^1.0.22",
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "vitest": "^4.1.11"
   },
   "peerDependencies": {
-    "@termix/plugin-sdk": "^1.0.0",
+    "@termix-ssh/plugin-sdk": "^1.0.22",
     "express": "^5.2.1",
     "react": "^19.2.8",
     "ssh2": "^1.17.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

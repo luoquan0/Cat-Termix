@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { PluginContext } from "@termix/plugin-sdk/backend";
+import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import type { Client, ClientChannel, SFTPWrapper } from "ssh2";
 import {
   AgentError,
@@ -305,7 +305,16 @@ export class AgentOperations {
         "INVALID_SUDO_FLAG",
         "sudo must be a boolean",
       );
-    if (sudo) requireScope(device, "sudo:execute");
+    if (sudo) {
+      requireScope(device, "sudo:execute");
+      // The v26 SDK has no audited sudo executor. Never emulate it with
+      // a shell string or a password read by this plugin.
+      throw new AgentPreconditionError(
+        501,
+        "SUDO_UNAVAILABLE",
+        "当前 Termix 核心不支持 Agent sudo 执行",
+      );
+    }
     const hostId = await this.assertHost(device, rawHost);
     const activeCount = [...this.jobs.values()].filter(
       (job) => job.state === "QUEUED" || job.state === "RUNNING",
@@ -383,43 +392,12 @@ export class AgentOperations {
         throw new Error("Canceled");
       }
       if (job.sudo === true) {
-        await this.ctx.asUser(job.ownerId, async () => {
-          // The stored secret never enters this plugin. Core owns the
-          // dedicated sudo stdin channel, cancellation and SSH connection.
-          const controller = new AbortController();
-          const cancel = () => {
-            aborted = true;
-            controller.abort();
-          };
-          if (this.cancelRequests.has(job.id)) {
-            cancel();
-            throw new Error("Canceled");
-          }
-          end = cancel;
-          this.activeJobs.set(job.id, { cancel });
-          timer = setTimeout(() => {
-            timedOut = true;
-            controller.abort();
-          }, job.timeoutMs);
-          try {
-            const result = await this.ctx.ssh.execSudo(hostId, job.command, {
-              timeoutMs: job.timeoutMs,
-              signal: controller.signal,
-              onStdout: (chunk) => {
-                if (job.stdout.length < 65_536)
-                  job.stdout = (job.stdout + chunk).slice(0, 65_536);
-              },
-              onStderr: (chunk) => {
-                if (job.stderr.length < 65_536)
-                  job.stderr = (job.stderr + chunk).slice(0, 65_536);
-              },
-            });
-            job.exitCode = result.exitCode;
-          } finally {
-            if (timer) clearTimeout(timer);
-            this.activeJobs.delete(job.id);
-          }
-        });
+        // Also deny a legacy persisted job: never downgrade sudo to SSH exec.
+        throw new AgentPreconditionError(
+          501,
+          "SUDO_UNAVAILABLE",
+          "当前 Termix 核心不支持 Agent sudo 执行",
+        );
       } else {
         await this.ctx.asUser(job.ownerId, async () => {
           const remainingMs = () =>

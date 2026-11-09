@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Bot } from "lucide-react";
-import type { TermixApp } from "@termix/plugin-sdk/frontend";
-import { useTranslation } from "@termix/plugin-sdk/frontend";
+import type { TermixApp } from "@termix-ssh/plugin-sdk/frontend";
+import { useTranslation } from "@termix-ssh/plugin-sdk/frontend";
 
 let current: TermixApp | null = null;
 function app(): TermixApp {
@@ -72,7 +72,6 @@ const scopeChoices = [
   "sessions:write",
   "sessions:close",
   "jobs:execute",
-  "sudo:execute",
   "servers:create",
   "quick-connections:create",
   "files:read",

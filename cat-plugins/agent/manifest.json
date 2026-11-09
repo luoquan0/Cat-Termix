@@ -1,8 +1,8 @@
 {
   "id": "agent",
   "name": "Local Agent",
-  "version": "1.0.0",
-  "description": "Signed local AI agent device pairing, scoped host access, SSH jobs, persistent sessions and SFTP.",
+  "version": "1.1.0-beta.1",
+  "description": "Ed25519-signed local Agent pairing, scoped SSH jobs, sessions and SFTP. Sudo disabled in this beta.",
   "author": {
     "name": "Cat-Termix"
   },
@@ -11,15 +11,14 @@
   "category": "Infrastructure",
   "icon": "Bot",
   "engine": {
-    "termix": ">=2.9.0",
-    "api": "1"
+    "termix": ">=26.11.0",
+    "api": "^1.13.0"
   },
   "capabilities": [
     "hosts:read",
     "hosts:write",
     "credentials:use",
     "ssh:connect",
-    "ssh:sudo",
     "users:impersonate",
     "network:serve",
     "kv:own",
@@ -31,7 +30,10 @@
         "id": "agent",
         "titleKey": "nav.agent",
         "icon": "Bot",
-        "openFrom": ["rail", "palette"]
+        "openFrom": [
+          "rail",
+          "palette"
+        ]
       }
     ],
     "permissions": [
@@ -39,21 +41,59 @@
         "name": "manage",
         "titleKey": "permissions.manage.title",
         "descriptionKey": "permissions.manage.description",
-        "defaultRoles": ["admin", "user"]
+        "defaultRoles": [
+          "admin",
+          "user"
+        ]
       },
       {
         "name": "manage_http",
         "titleKey": "permissions.manage_http.title",
         "descriptionKey": "permissions.manage_http.description",
-        "defaultRoles": ["admin"]
+        "defaultRoles": [
+          "admin"
+        ]
       }
     ],
     "http": {
-      "legacyPaths": ["/agent/v1"]
+      "legacyPaths": [
+        "/agent/v1"
+      ]
     },
-    "uses": ["system.adminSettings.sections"]
+    "uses": [
+      "system.adminSettings.sections"
+    ]
   },
   "locales": "locales",
-  "platforms": ["linux", "win32", "darwin"],
-  "desktop": "server"
+  "platforms": [
+    "linux",
+    "win32",
+    "darwin"
+  ],
+  "desktop": "server",
+  "docs": "https://github.com/luoquan0/Cat-Termix/blob/cat-termix/agent-port-26.11/cat-plugins/agent/docs/index.md",
+  "features": [
+    "Signed local device enrollment with explicit host and action permissions",
+    "SSH jobs, sessions and SFTP via the Termix core SSH pipeline",
+    "Durable job/session recovery and signed legacy /agent/v1 requests",
+    "HTTPS default; optional trusted private IPv4 CIDRs",
+    "Sudo execution disabled pending an audited core SDK capability"
+  ],
+  "env": [
+    {
+      "name": "CLOUDSSH_AGENT_HTTP_POLICY_LOCKED",
+      "description": "Lock transport rules to deployment environment variables",
+      "default": "false"
+    },
+    {
+      "name": "CLOUDSSH_AGENT_ALLOW_HTTP",
+      "description": "Allow trusted local HTTP when the policy is locked",
+      "default": "false"
+    },
+    {
+      "name": "CLOUDSSH_AGENT_HTTP_ALLOWED_CIDRS",
+      "description": "Comma-separated trusted private IPv4 CIDRs for locked policy",
+      "default": ""
+    }
+  ]
 }
