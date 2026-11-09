@@ -12,6 +12,7 @@ RUN rm -rf /app/html /app/dist/backend /app/packages/plugin-sdk/dist && \
 COPY --chown=node:node html/ /app/html/
 COPY --chown=node:node backend/ /app/dist/backend/
 COPY --chown=node:node sdk/ /app/packages/plugin-sdk/dist/
+COPY --chown=node:node agent/ /app/dist/plugins/agent/
 
 LABEL org.opencontainers.image.title="Cat-Termix 26.11.0 disposable core overlay" \
       org.opencontainers.image.description="TEST ONLY: fork-built core with bundled official 26.11.0 plugins; no Cat extensions"

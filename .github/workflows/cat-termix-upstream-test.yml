@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - cat-termix/test-upstream-26.11
+      - cat-termix/agent-port-26.11
   pull_request:
     branches:
       - cat-termix/test-upstream-26.11
+      - cat-termix/agent-port-26.11
 
 permissions:
   contents: read
@@ -36,6 +38,15 @@ jobs:
         run: npm ci
       - name: Test transient plugin-download retry and digest safeguards
         run: node --test scripts/lib/bundled-plugins-retry.test.cjs
+      - name: Validate and test Cat Agent SDK 1.0.22 migration
+        run: |
+          set -euo pipefail
+          npm run build:sdk
+          cd cat-plugins/agent
+          node ../../packages/plugin-sdk/cli/index.mjs validate
+          node ../../node_modules/typescript/bin/tsc -p .
+          node ../../node_modules/vitest/vitest.mjs run --maxWorkers=2
+          node ../../packages/plugin-sdk/cli/index.mjs build
       - name: Type-check upgraded core and SDK
         run: npm run type-check
       - name: Run upgraded core regression suite
@@ -57,6 +68,10 @@ jobs:
           path: |
             dist/
             packages/plugin-sdk/dist/
+            cat-plugins/agent/manifest.json
+            cat-plugins/agent/package.json
+            cat-plugins/agent/locales/
+            cat-plugins/agent/dist/
           retention-days: 3
   container-smoke:
     if: github.repository == 'luoquan0/Cat-Termix'
@@ -74,13 +89,17 @@ jobs:
         run: |
           set -euo pipefail
           context=/tmp/cat-termix-core-context
-          mkdir -p "$context/html" "$context/backend" "$context/sdk"
+          mkdir -p "$context/html" "$context/backend" "$context/sdk" "$context/agent"
           cp -a dist/. "$context/html/"
           rm -rf "$context/html/backend" "$context/html/plugins"
           cp -a dist/backend/. "$context/backend/"
           cp -a packages/plugin-sdk/dist/. "$context/sdk/"
           test -f "$context/html/index.html"
           test -f "$context/backend/package.json"
+          cp -a cat-plugins/agent/dist "$context/agent/dist"
+          cp -a cat-plugins/agent/locales "$context/agent/locales"
+          cp cat-plugins/agent/manifest.json cat-plugins/agent/package.json "$context/agent/"
+          test -s "$context/agent/dist/backend.js"
       - name: Verify matching official versioned plugin-bundle base
         run: |
           set -euo pipefail
@@ -110,6 +129,10 @@ jobs:
           fi
           grep -q 'id="root"' /tmp/upstream-index.html
           docker exec cat-termix-upstream-smoke test -d /app/dist/plugins
+          docker exec cat-termix-upstream-smoke test -s /app/dist/plugins/agent/manifest.json
+          docker exec cat-termix-upstream-smoke test -s /app/dist/plugins/agent/dist/backend.js
+          docker exec cat-termix-upstream-smoke test -s /app/dist/plugins/agent/dist/frontend.js
+          echo "Standalone Cat Agent package staged and container booted; device activation/pairing still requires separate E2E tests." >> "$GITHUB_STEP_SUMMARY"
           echo "Upstream core baseline started with a fresh volume; Cat extensions are not yet installed." >> "$GITHUB_STEP_SUMMARY"
       - name: Collect logs and remove disposable test resources
         if: always()
