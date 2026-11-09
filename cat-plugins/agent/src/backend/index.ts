@@ -7,7 +7,7 @@ import express, {
 import type {
   PluginContext,
   PluginHostSummary,
-} from "@termix/plugin-sdk/backend";
+} from "@termix-ssh/plugin-sdk/backend";
 import {
   AgentError,
   AgentStore,

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
-import type { PluginContext } from "@termix/plugin-sdk/backend";
+import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 
 // A base64-encoded 40 KiB chunk fits both the 256 KiB plugin KV limit and
 // MySQL's smaller TEXT column. Do not store unbounded session output in one KV.

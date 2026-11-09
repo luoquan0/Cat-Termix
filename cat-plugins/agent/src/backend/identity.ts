@@ -8,7 +8,7 @@ import {
 } from "node:crypto";
 import { isIP } from "node:net";
 import type { Request } from "express";
-import type { PluginContext } from "@termix/plugin-sdk/backend";
+import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 
 export const SCOPES = [
   "sessions:create",
