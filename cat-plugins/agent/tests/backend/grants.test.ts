@@ -163,7 +163,7 @@ async function fixture() {
 }
 
 describe("critical root execution authorization", () => {
-  it("never grants sudo by default, requires jobs:execute, and allows retry after scope denial", async () => {
+  it("never executes sudo with a legacy grant and still enforces revocation", async () => {
     const f = await fixture();
     const path = `/admin/devices/${f.device.id}`;
     const devices = (await f.request("GET", "/admin/devices")).body.devices;
@@ -185,11 +185,9 @@ describe("critical root execution authorization", () => {
     expect(granted.status).toBe(200);
     expect(granted.body.device.scopes).toContain("sudo:execute");
     const accepted = await f.signedJob(payload, "sudo-grant-retry");
-    expect(accepted.status).toBe(202);
-    expect(accepted.body.job).toMatchObject({
-      command: "id -u",
-      sudo: true,
-    });
+    expect(accepted.status).toBe(501);
+    expect(accepted.body.code).toBe("SUDO_UNAVAILABLE");
+    expect(accepted.body).not.toHaveProperty("job");
     expect(JSON.stringify(accepted.body)).not.toContain("sudoPassword");
     await f.request("PATCH", path, {
       scopes: ["files:read", "jobs:execute"],
