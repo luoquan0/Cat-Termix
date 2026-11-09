@@ -43,10 +43,10 @@ jobs:
           set -euo pipefail
           npm run build:sdk
           cd cat-plugins/agent
-          node ../../packages/plugin-sdk/cli/index.mjs validate
           node ../../node_modules/typescript/bin/tsc -p .
           node ../../node_modules/vitest/vitest.mjs run --maxWorkers=2
           node ../../packages/plugin-sdk/cli/index.mjs build
+          node ../../packages/plugin-sdk/cli/index.mjs validate
       - name: Type-check upgraded core and SDK
         run: npm run type-check
       - name: Run upgraded core regression suite
