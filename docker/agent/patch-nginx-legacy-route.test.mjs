@@ -57,7 +57,7 @@ test("fails closed when an upstream Nginx template changes unexpectedly", () => 
   try {
     fs.writeFileSync(path.join(root, "nginx.conf.template"), "server { location / { } }");
     fs.writeFileSync(path.join(root, "nginx-https.conf.template"), "server { location / { } }");
-    assert.throws(() => patchNginxTemplates(root), /expected one .* insertion point/);
+    assert.throws(() => patchNginxTemplates(root), /expected one insertion point/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
