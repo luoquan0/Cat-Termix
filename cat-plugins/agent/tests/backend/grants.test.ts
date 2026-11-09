@@ -3,8 +3,8 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import express, { type Router } from "express";
-import { createMockCtx } from "@termix/plugin-sdk/testing";
-import type { PluginManifest } from "@termix/plugin-sdk/manifest";
+import { createMockCtx } from "@termix-ssh/plugin-sdk/testing";
+import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
 import { activate } from "../../src/backend/index";
 import {
   canonicalDeviceRequest,

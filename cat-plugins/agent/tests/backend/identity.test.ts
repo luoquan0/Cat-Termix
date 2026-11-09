@@ -6,7 +6,7 @@ import {
   type KeyObject,
 } from "node:crypto";
 import type { Request } from "express";
-import type { PluginContext } from "@termix/plugin-sdk/backend";
+import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import {
   AgentStore,
   AgentPreconditionError,
