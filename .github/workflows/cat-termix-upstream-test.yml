@@ -40,6 +40,8 @@ jobs:
         run: npm ci
       - name: Test transient plugin-download retry and digest safeguards
         run: node --test scripts/lib/bundled-plugins-retry.test.cjs
+      - name: Test legacy Agent Nginx route patch
+        run: node --test docker/agent/patch-nginx-legacy-route.test.mjs
       - name: Validate and test Cat Agent SDK 1.0.22 migration
         run: |
           set -euo pipefail
@@ -92,6 +94,7 @@ jobs:
           set -euo pipefail
           context=/tmp/cat-termix-core-context
           mkdir -p "$context/html" "$context/backend" "$context/sdk" "$context/agent"
+          cp docker/agent/patch-nginx-legacy-route.mjs "$context/patch-nginx-legacy-route.mjs"
           cp -a dist/. "$context/html/"
           rm -rf "$context/html/backend" "$context/html/plugins"
           cp -a dist/backend/. "$context/backend/"
@@ -198,6 +201,7 @@ jobs:
           set -euo pipefail
           context=/tmp/cat-termix-agent-beta-context
           mkdir -p "$context/html" "$context/backend" "$context/sdk" "$context/agent"
+          cp docker/agent/patch-nginx-legacy-route.mjs "$context/patch-nginx-legacy-route.mjs"
           cp -a dist/. "$context/html/"
           rm -rf "$context/html/backend" "$context/html/plugins"
           cp -a dist/backend/. "$context/backend/"
