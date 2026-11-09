@@ -14,5 +14,10 @@ COPY --chown=node:node backend/ /app/dist/backend/
 COPY --chown=node:node sdk/ /app/packages/plugin-sdk/dist/
 COPY --chown=node:node agent/ /app/dist/plugins/agent/
 
-LABEL org.opencontainers.image.title="Cat-Termix 26.11.0 disposable core overlay" \
-      org.opencontainers.image.description="TEST ONLY: fork-built core with bundled official 26.11.0 plugins; no Cat extensions"
+# The Local Agent is intentionally recommended and enabled on a fresh beta
+# volume so the owner can test pairing immediately. This is a disposable
+# test image; never reuse a production data volume.
+RUN node -e 'const fs=require("node:fs"); const file="/app/dist/plugins/bundled-index.json"; const index=JSON.parse(fs.readFileSync(file,"utf8")); index.plugins ??= {}; const previous=index.plugins.agent ?? {}; index.plugins.agent={...previous,onboarding:{...(previous.onboarding ?? {}),recommended:true,consent:false}}; fs.writeFileSync(file,JSON.stringify(index,null,2)+"\\n");'
+
+LABEL org.opencontainers.image.title="Cat-Termix 26.11 Agent beta" \
+      org.opencontainers.image.description="TEST ONLY: fork-built Termix 26.11 core with bundled official plugins and Cat Local Agent beta"

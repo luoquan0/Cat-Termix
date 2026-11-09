@@ -1,0 +1,13 @@
+services:
+  cat-termix-agent-beta:
+    image: ghcr.io/luoquan0/cat-termix:26.11-agent-beta.1
+    container_name: cat-termix-agent-beta
+    restart: unless-stopped
+    ports:
+      - "2245:8080"
+    volumes:
+      - cat-termix-agent-beta-data:/app/data
+
+volumes:
+  cat-termix-agent-beta-data:
+    name: cat-termix-agent-beta-data

@@ -18,6 +18,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  IMAGE: ghcr.io/luoquan0/cat-termix
+  BETA_TAG: 26.11-agent-beta.1
   ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
   HUSKY: "0"
 
@@ -132,8 +134,24 @@ jobs:
           docker exec cat-termix-upstream-smoke test -s /app/dist/plugins/agent/manifest.json
           docker exec cat-termix-upstream-smoke test -s /app/dist/plugins/agent/dist/backend.js
           docker exec cat-termix-upstream-smoke test -s /app/dist/plugins/agent/dist/frontend.js
-          echo "Standalone Cat Agent package staged and container booted; device activation/pairing still requires separate E2E tests." >> "$GITHUB_STEP_SUMMARY"
-          echo "Upstream core baseline started with a fresh volume; Cat extensions are not yet installed." >> "$GITHUB_STEP_SUMMARY"
+          docker exec node cat-termix-upstream-smoke -e "const fs=require('node:fs'); const index=JSON.parse(fs.readFileSync('/app/dist/plugins/bundled-index.json','utf8')); const agent=index.plugins.agent; if(!agent?.onboarding?.recommended || agent.onboarding.consent) process.exit(1)"
+          agent_ready=false
+          for attempt in $(seq 1 60); do
+            if docker exec cat-termix-upstream-smoke wget -q -O - http://127.0.0.1:8080/agent/v1/health > /tmp/cat-termix-agent-health.json; then
+              agent_ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$agent_ready" != true ]; then
+            docker logs cat-termix-upstream-smoke | tail -n 160
+            exit 1
+          fi
+          node -e "const h=JSON.parse(require('node:fs').readFileSync('/tmp/cat-termix-agent-health.json','utf8')); if(h.status!=='ok') process.exit(1)"
+          CAT_TERMIX_SMOKE_URL=http://127.0.0.1:19080 node docker/agent/transport-smoke.mjs
+          docker cp docker/agent/preview-smoke.mjs cat-termix-upstream-smoke:/tmp/agent-preview-smoke.mjs
+          docker exec -e CAT_TERMIX_SMOKE_URL=http://127.0.0.1:8080 cat-termix-upstream-smoke node /tmp/agent-preview-smoke.mjs
+          echo "Fresh-volume Cat Agent health, Ed25519 enrollment, legacy route and HTTP transport checks passed." >> "$GITHUB_STEP_SUMMARY"
       - name: Collect logs and remove disposable test resources
         if: always()
         run: |
@@ -147,3 +165,183 @@ jobs:
           path: /tmp/cat-termix-upstream-smoke.log
           if-no-files-found: ignore
           retention-days: 7
+
+
+  # Build each architecture natively, run the exact pushed digest, then
+  # assemble a fixed multi-platform test tag. Never touch ai-dev or latest.
+  image:
+    if: github.repository == 'luoquan0/Cat-Termix' && github.event_name == 'push' && github.ref == 'refs/heads/cat-termix/test-upstream-26.11'
+    needs: [core-check, container-smoke]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: \${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: cat-termix-26-11-core-\${{ github.sha }}
+          path: .
+      - name: Stage exact compiled core and Cat Agent plugin
+        run: |
+          set -euo pipefail
+          context=/tmp/cat-termix-agent-beta-context
+          mkdir -p "$context/html" "$context/backend" "$context/sdk" "$context/agent"
+          cp -a dist/. "$context/html/"
+          rm -rf "$context/html/backend" "$context/html/plugins"
+          cp -a dist/backend/. "$context/backend/"
+          cp -a packages/plugin-sdk/dist/. "$context/sdk/"
+          cp -a cat-plugins/agent/dist "$context/agent/dist"
+          cp -a cat-plugins/agent/locales "$context/agent/locales"
+          cp cat-plugins/agent/manifest.json cat-plugins/agent/package.json "$context/agent/"
+          cp docker/Dockerfile.upstream-core-test "$context/Dockerfile"
+          test -s "$context/html/index.html"
+          test -s "$context/backend/package.json"
+          test -s "$context/agent/dist/backend.js"
+          test -s "$context/agent/dist/frontend.js"
+      - uses: docker/setup-buildx-action@v4
+        with:
+          buildkitd-config-inline: |
+            [worker.oci]
+              max-parallelism = 2
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: \${{ github.actor }}
+          password: \${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push architecture-specific candidate
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: /tmp/cat-termix-agent-beta-context
+          file: /tmp/cat-termix-agent-beta-context/Dockerfile
+          platforms: linux/\${{ matrix.arch }}
+          push: true
+          tags: \${{ env.IMAGE }}:build-\${{ github.sha }}-\${{ matrix.arch }}
+          cache-from: type=gha,scope=cat-termix-agent-beta-\${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=cat-termix-agent-beta-\${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/\${{ github.repository }}
+            org.opencontainers.image.revision=\${{ github.sha }}
+            org.opencontainers.image.version=26.11-agent-beta.1
+            org.opencontainers.image.title=Cat-Termix 26.11 Agent beta
+            org.opencontainers.image.description=Test-only multi-architecture Termix 26.11 image with Cat Local Agent beta
+      - name: Run the exact architecture image and test Agent routes
+        env:
+          DIGEST: \${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/cat-termix-agent-image
+          trap 'docker logs cat-termix-agent-smoke > /tmp/cat-termix-agent-image/container.log 2>&1 || true; docker rm -fv cat-termix-agent-smoke >/dev/null 2>&1 || true' EXIT
+          docker run -d --name cat-termix-agent-smoke -p 127.0.0.1:19080:8080 "$IMAGE@$DIGEST"
+          expected_arch="\${{ matrix.arch }}"
+          if [ "$expected_arch" = "amd64" ]; then expected_arch=x64; fi
+          actual_arch="$(docker exec cat-termix-agent-smoke node -p process.arch)"
+          test "$actual_arch" = "$expected_arch"
+          ready=false
+          for attempt in $(seq 1 60); do
+            if docker exec cat-termix-agent-smoke wget -q -O /dev/null http://127.0.0.1:30001/health &&
+               curl -fsS http://127.0.0.1:19080/ -o /tmp/cat-termix-agent-image/index.html; then
+              ready=true
+              break
+            fi
+            sleep 3
+          done
+          test "$ready" = true
+          grep -q 'id="root"' /tmp/cat-termix-agent-image/index.html
+          docker exec cat-termix-agent-smoke test -s /app/dist/plugins/agent/manifest.json
+          docker exec cat-termix-agent-smoke test -s /app/dist/plugins/agent/dist/backend.js
+          docker exec cat-termix-agent-smoke test -s /app/dist/plugins/agent/dist/frontend.js
+          agent_ready=false
+          for attempt in $(seq 1 60); do
+            if docker exec cat-termix-agent-smoke wget -q -O - http://127.0.0.1:8080/agent/v1/health > /tmp/cat-termix-agent-image/agent-health.json; then
+              agent_ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$agent_ready" != true ]; then
+            docker logs cat-termix-agent-smoke | tail -n 160
+            exit 1
+          fi
+          node -e "const h=JSON.parse(require('node:fs').readFileSync('/tmp/cat-termix-agent-image/agent-health.json','utf8')); if(h.status!=='ok') process.exit(1)"
+          CAT_TERMIX_SMOKE_URL=http://127.0.0.1:19080 node docker/agent/transport-smoke.mjs | tee /tmp/cat-termix-agent-image/transport.log
+          docker cp docker/agent/preview-smoke.mjs cat-termix-agent-smoke:/tmp/agent-preview-smoke.mjs
+          docker exec -e CAT_TERMIX_SMOKE_URL=http://127.0.0.1:8080 cat-termix-agent-smoke node /tmp/agent-preview-smoke.mjs | tee /tmp/cat-termix-agent-image/enrollment.log
+          printf '%s\n' "$IMAGE@$DIGEST" > /tmp/cat-termix-agent-image/image.txt
+          echo "Native \${{ matrix.arch }} image boot, Agent health, HTTP transport and Ed25519 enrollment passed: $IMAGE@$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cat-termix-agent-image-\${{ matrix.arch }}-\${{ github.run_id }}
+          path: /tmp/cat-termix-agent-image
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish-test-image:
+    if: github.repository == 'luoquan0/Cat-Termix' && github.event_name == 'push' && github.ref == 'refs/heads/cat-termix/test-upstream-26.11'
+    needs: [image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: \${{ github.actor }}
+          password: \${{ secrets.GITHUB_TOKEN }}
+      - name: Refuse to overwrite an existing beta tag
+        run: |
+          set -euo pipefail
+          if docker buildx imagetools inspect "$IMAGE:$BETA_TAG" >/dev/null 2>&1; then
+            echo "Refusing to overwrite existing $IMAGE:$BETA_TAG" >&2
+            exit 1
+          fi
+      - name: Publish the verified AMD64 and ARM64 manifests
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            --tag "$IMAGE:$BETA_TAG" \
+            --tag "$IMAGE:sha-$GITHUB_SHA" \
+            "$IMAGE:build-$GITHUB_SHA-amd64" \
+            "$IMAGE:build-$GITHUB_SHA-arm64"
+          mkdir -p /tmp/cat-termix-agent-release
+          docker buildx imagetools inspect "$IMAGE:$BETA_TAG" | tee /tmp/cat-termix-agent-release/manifest.txt
+          docker buildx imagetools inspect "$IMAGE:$BETA_TAG" --raw > /tmp/cat-termix-agent-release/index.json
+          jq -e '
+            ([.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "amd64")] | length) == 1 and
+            ([.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "arm64")] | length) == 1
+          ' /tmp/cat-termix-agent-release/index.json
+          digest="$(awk '/^Digest:/ {print $2; exit}' /tmp/cat-termix-agent-release/manifest.txt)"
+          printf 'Image: %s\nPinned image: %s:sha-%s\nDigest: %s\nSource commit: %s\nArchitectures: linux/amd64, linux/arm64\n' \
+            "$IMAGE:$BETA_TAG" "$IMAGE" "$GITHUB_SHA" "$digest" "$GITHUB_SHA" \
+            | tee /tmp/cat-termix-agent-release/release.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Check anonymous image access
+        run: |
+          set -euo pipefail
+          anonymous_config="$(mktemp -d)"
+          if DOCKER_CONFIG="$anonymous_config" docker manifest inspect "$IMAGE:$BETA_TAG" > /tmp/cat-termix-agent-release/anonymous-manifest.json; then
+            echo "Anonymous pull: available" | tee /tmp/cat-termix-agent-release/access.txt >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Anonymous pull: requires GHCR login with a token that has read:packages" | tee /tmp/cat-termix-agent-release/access.txt >> "$GITHUB_STEP_SUMMARY"
+          fi
+          rm -rf "$anonymous_config"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cat-termix-agent-beta-release-\${{ github.run_id }}
+          path: /tmp/cat-termix-agent-release
+          retention-days: 30
