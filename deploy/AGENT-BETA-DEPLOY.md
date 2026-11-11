@@ -1,7 +1,5 @@
 # Cat-Termix 26.11 Agent beta deployment
 
-<badge> </badge>
-
 ## Published image
 
 - Multi-architecture image: `ghcr.io/luoquan0/cat-termix:26.11-agent-beta.1`
@@ -10,6 +8,8 @@
 - AMD64 manifest: `sha256:6e3b194ff7f03fc7916971b824c81a8e0194b443d25bb43bf75ae7fdc9444221`
 - ARM64 manifest: `sha256:54dfd5563d503a6b8f3c74025cfef0cf2d69b3f0557c782ed217cb75d97d79e9`
 - Anonymous GHCR pull: available
+
+This image was built from source commit `9746f1ab813238adf9ee52f4c27ce38af4aa8caa` and passed native AMD64 and ARM64 image startup, Agent route, HTTP transport and Ed25519 enrollment checks.
 
 This is a disposable beta instance. It contains upstream Termix 26.11.0
 plus Cat Local Agent 1.1.0-beta.1. It does not contain the migrated Cat AI

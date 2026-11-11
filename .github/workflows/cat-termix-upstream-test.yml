@@ -173,9 +173,11 @@ jobs:
 
 
   # Build each architecture natively, run the exact pushed digest, then
-  # assemble a fixed multi-platform test tag. Never touch ai-dev or latest.
+  # assemble a fixed multi-platform test tag. A fixed beta tag is immutable;
+  # only an explicitly marked [publish-agent-beta] commit may publish it.
+  # Never touch ai-dev or latest.
   image:
-    if: github.repository == 'luoquan0/Cat-Termix' && github.event_name == 'push' && github.ref == 'refs/heads/cat-termix/test-upstream-26.11'
+    if: github.repository == 'luoquan0/Cat-Termix' && github.event_name == 'push' && github.ref == 'refs/heads/cat-termix/test-upstream-26.11' && contains(github.event.head_commit.message, '[publish-agent-beta]')
     needs: [core-check, container-smoke]
     strategy:
       fail-fast: false
@@ -298,7 +300,7 @@ jobs:
           retention-days: 7
 
   publish-test-image:
-    if: github.repository == 'luoquan0/Cat-Termix' && github.event_name == 'push' && github.ref == 'refs/heads/cat-termix/test-upstream-26.11'
+    if: github.repository == 'luoquan0/Cat-Termix' && github.event_name == 'push' && github.ref == 'refs/heads/cat-termix/test-upstream-26.11' && contains(github.event.head_commit.message, '[publish-agent-beta]')
     needs: [image]
     runs-on: ubuntu-latest
     timeout-minutes: 15
