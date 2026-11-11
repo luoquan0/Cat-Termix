@@ -87,6 +87,10 @@ if [ -n "$TRUSTED_PROXIES" ]; then
     mv /tmp/nginx/nginx.conf.tmp /tmp/nginx/nginx.conf
 fi
 
+# Agent HTTP/HTTPS decisions trust forwarded protocol only from explicitly
+# configured reverse-proxy peers. Direct clients cannot spoof X-Forwarded-Proto.
+/app/configure-agent-trusted-proxies.sh /tmp/nginx/nginx.conf
+
 if [ "$ENABLE_SSL" = "true" ] && [ "$PORT" = "$SSL_PORT" ]; then
     echo "HTTP and HTTPS use port $SSL_PORT; disabling the HTTP redirect listener"
     sed -i '/# BEGIN HTTP_REDIRECT_SERVER/,/# END HTTP_REDIRECT_SERVER/d' /tmp/nginx/nginx.conf

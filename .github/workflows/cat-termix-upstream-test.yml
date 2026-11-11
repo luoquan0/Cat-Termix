@@ -40,7 +40,7 @@ jobs:
         run: npm ci
       - name: Test transient plugin-download retry and digest safeguards
         run: node --test scripts/lib/bundled-plugins-retry.test.cjs
-      - name: Test legacy Agent Nginx route patch
+      - name: Test legacy Agent Nginx routes and trusted reverse proxies
         run: node --test docker/agent/patch-nginx-legacy-route.test.mjs
       - name: Validate and test Cat Agent SDK 1.0.22 migration
         run: |
@@ -95,6 +95,8 @@ jobs:
           context=/tmp/cat-termix-core-context
           mkdir -p "$context/html" "$context/backend" "$context/sdk" "$context/agent"
           cp docker/agent/patch-nginx-legacy-route.mjs "$context/patch-nginx-legacy-route.mjs"
+          cp docker/agent/configure-agent-trusted-proxies.sh "$context/configure-agent-trusted-proxies.sh"
+          cp docker/entrypoint.sh "$context/entrypoint.sh"
           cp -a dist/. "$context/html/"
           rm -rf "$context/html/backend" "$context/html/plugins"
           cp -a dist/backend/. "$context/backend/"
@@ -202,6 +204,8 @@ jobs:
           context=/tmp/cat-termix-agent-beta-context
           mkdir -p "$context/html" "$context/backend" "$context/sdk" "$context/agent"
           cp docker/agent/patch-nginx-legacy-route.mjs "$context/patch-nginx-legacy-route.mjs"
+          cp docker/agent/configure-agent-trusted-proxies.sh "$context/configure-agent-trusted-proxies.sh"
+          cp docker/entrypoint.sh "$context/entrypoint.sh"
           cp -a dist/. "$context/html/"
           rm -rf "$context/html/backend" "$context/html/plugins"
           cp -a dist/backend/. "$context/backend/"

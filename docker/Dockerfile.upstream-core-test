@@ -14,7 +14,9 @@ COPY --chown=node:node backend/ /app/dist/backend/
 COPY --chown=node:node sdk/ /app/packages/plugin-sdk/dist/
 COPY --chown=node:node agent/ /app/dist/plugins/agent/
 COPY patch-nginx-legacy-route.mjs /tmp/patch-nginx-legacy-route.mjs
-RUN node /tmp/patch-nginx-legacy-route.mjs && rm /tmp/patch-nginx-legacy-route.mjs
+COPY configure-agent-trusted-proxies.sh /app/configure-agent-trusted-proxies.sh
+COPY entrypoint.sh /entrypoint.sh
+RUN node /tmp/patch-nginx-legacy-route.mjs && chmod +x /app/configure-agent-trusted-proxies.sh /entrypoint.sh && rm /tmp/patch-nginx-legacy-route.mjs
 
 # The Local Agent is intentionally recommended and enabled on a fresh beta
 # volume so the owner can test pairing immediately. This is a disposable

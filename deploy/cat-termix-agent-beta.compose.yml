@@ -3,6 +3,8 @@ services:
     image: ghcr.io/luoquan0/cat-termix:26.11-agent-beta.1
     container_name: cat-termix-agent-beta
     restart: unless-stopped
+    environment:
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
     ports:
       - "2245:8080"
     volumes:
