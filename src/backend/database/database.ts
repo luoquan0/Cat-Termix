@@ -172,9 +172,9 @@ const upload = multer({
   },
 });
 
-// Skipped for /plugin-api: a plugin router brings its own parsers with its own
-// limit (see plugins/http.ts), and parsing here first would consume the body
-// and silently cap every plugin at this limit instead.
+// Skipped for /plugin-api and the signed legacy /agent route: plugin routers
+// bring their own parsers and Agent signatures require the exact raw bytes.
+// Parsing either path here first would consume the body before the plugin sees it.
 const coreJsonParser = bodyParser.json({ limit: "2mb" });
 const coreUrlencodedParser = bodyParser.urlencoded({
   limit: "2mb",
@@ -182,11 +182,11 @@ const coreUrlencodedParser = bodyParser.urlencoded({
 });
 
 app.use((req, res, next) => {
-  if (req.path.startsWith("/plugin-api/")) return next();
+  if (req.path.startsWith("/plugin-api/") || req.path.startsWith("/agent/")) return next();
   coreJsonParser(req, res, next);
 });
 app.use((req, res, next) => {
-  if (req.path.startsWith("/plugin-api/")) return next();
+  if (req.path.startsWith("/plugin-api/") || req.path.startsWith("/agent/")) return next();
   coreUrlencodedParser(req, res, next);
 });
 app.use(cookieParser());

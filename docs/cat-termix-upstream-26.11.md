@@ -114,3 +114,7 @@ the package integrity verifier.
   recovery after restart, revocation and sudo denial on a real test host,
   AMD64/ARM64 package publication, and migration/rollback with backup.
   None of this CI run touched a live 2244 instance or changed `ai-dev`.
+
+## Legacy signed request body compatibility
+
+The core's global JSON and urlencoded parsers now skip both `/plugin-api/` and the legacy `/agent/` mount. This preserves exact raw request bytes for Ed25519 body-hash verification on the old local-agent URL. The fresh-volume enrollment smoke must pass before any image publication.

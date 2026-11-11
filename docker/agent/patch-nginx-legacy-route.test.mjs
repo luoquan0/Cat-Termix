@@ -53,6 +53,15 @@ test("adds hardened legacy and SDK Agent routes to both HTTP and HTTPS templates
   }
 });
 
+test("core JSON parsers preserve signed raw bodies on both Agent API mounts", () => {
+  const source = fs.readFileSync(
+    path.join(here, "../../src/backend/database/database.ts"),
+    "utf8",
+  );
+  const bypass = 'if (req.path.startsWith("/plugin-api/") || req.path.startsWith("/agent/")) return next();';
+  assert.equal(source.split(bypass).length - 1, 2);
+});
+
 test("patch is idempotent", () => {
   const root = fixture();
   try {
