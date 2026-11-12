@@ -15,7 +15,7 @@ import {
   type AiChatPreferences,
   type ReasoningEffort,
 } from "../shared/reasoning";
-import { useTranslation } from "@termix/plugin-sdk/frontend";
+import { useTranslation } from "@termix-ssh/plugin-sdk/frontend";
 import {
   History,
   Loader2,
@@ -33,7 +33,7 @@ import {
   DialogContent,
   DialogTitle,
   DialogDescription,
-} from "@termix/plugin-sdk/ui";
+} from "@termix-ssh/plugin-sdk/ui";
 import {
   AI_PROVIDERS_CHANGED_EVENT,
   deleteAiConversation,

@@ -1,6 +1,6 @@
 import { ShieldAlert, ShieldCheck } from "lucide-react";
-import { useTranslation } from "@termix/plugin-sdk/frontend";
-import { Button } from "@termix/plugin-sdk/ui";
+import { useTranslation } from "@termix-ssh/plugin-sdk/frontend";
+import { Button } from "@termix-ssh/plugin-sdk/ui";
 import type { ApprovalMode } from "./AiSessionControls";
 
 /** Persistent user opt-in; RBAC, host scope and audit logging remain enabled. */
