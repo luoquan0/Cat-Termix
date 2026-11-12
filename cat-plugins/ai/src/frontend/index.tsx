@@ -4,7 +4,7 @@ import type {
   PanelProps,
   TabProps,
   TermixApp,
-} from "@termix/plugin-sdk/frontend";
+} from "@termix-ssh/plugin-sdk/frontend";
 import type {
   TerminalSidePanelProps,
   TerminalSlotApi,
@@ -12,12 +12,9 @@ import type {
 import { AiPanel } from "./AiPanel";
 import { TerminalAiPanel } from "./terminal/TerminalAiPanel";
 import { AiAssistantStep } from "./AiAssistantStep";
-import { UpdateSettings } from "./UpdateSettings";
 import { ProvidersSetting } from "./settings/ProvidersSetting";
 import { AI_STATUS_CHANGED_EVENT, getAiStatus } from "./ai-api";
 import { setAiApp } from "./app-ref";
-import { startUpdateRestartMonitor } from "./update-recovery";
-import type { UpdateInfo } from "../shared/update-policy";
 
 /** The rail id the assistant registers under. */
 const AI_RAIL_ID = "ai";
@@ -69,14 +66,6 @@ function TerminalSidePanel({
 export function activate(app: TermixApp): void {
   setAiApp(app);
   app.onDispose(() => setAiApp(null));
-
-  // The app container may disappear during replacement. Keep the recovery
-  // watcher alive even if the administrator closes the settings section.
-  app.onDispose(
-    startUpdateRestartMonitor(
-      async () => (await app.api.get<UpdateInfo>("/updates")).data,
-    ),
-  );
 
   let globallyEnabled = false;
   let userEnabled = false;
@@ -190,13 +179,6 @@ export function activate(app: TermixApp): void {
   );
 
   app.registerSettingsComponent("providers", ProvidersSetting);
-
-  // Application updates are system administration, not conversation settings.
-  // Register regardless of the assistant's global enable/disable switch.
-  app.registerExtension("system.adminSettings.sections", {
-    id: "software-updates",
-    components: { section: UpdateSettings },
-  });
 
   applyStatus();
   refresh();

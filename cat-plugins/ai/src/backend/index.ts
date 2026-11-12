@@ -1,9 +1,8 @@
 import type { Router } from "express";
-import type { PluginContext } from "@termix/plugin-sdk/backend";
+import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { hostImportNormalizer } from "./host-import.js";
 import { createAiRepository } from "./repository.js";
 import { registerProviderSync } from "./sync.js";
-import { registerUpdateSettings } from "./update-settings.js";
 import { registerAiRoutes } from "./routes.js";
 
 export async function activate(ctx: PluginContext) {
@@ -14,7 +13,6 @@ export async function activate(ctx: PluginContext) {
   // re-encodes each image before storing or forwarding it.
   const router = ctx.http.router<Router>({ bodyLimit: "18mb" });
   registerAiRoutes(router, repository, ctx);
-  registerUpdateSettings(router, ctx);
 
   ctx.registry.provide("ai.hostImportNormalizer", hostImportNormalizer);
   ctx.disposables.add(
