@@ -1,0 +1,18 @@
+services:
+  cat-termix-agent-ai-beta2:
+    image: ghcr.io/luoquan0/cat-termix:26.11-agent-ai-beta.2
+    container_name: cat-termix-agent-ai-beta2
+    restart: unless-stopped
+    environment:
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      HTTPS_PROXY: ${TERMIX_HTTPS_PROXY:-}
+      HTTP_PROXY: ${TERMIX_HTTP_PROXY:-}
+      NO_PROXY: ${TERMIX_NO_PROXY:-localhost,127.0.0.1,::1}
+    ports:
+      - "2246:8080"
+    volumes:
+      - cat-termix-agent-ai-beta2-data:/app/data
+
+volumes:
+  cat-termix-agent-ai-beta2-data:
+    name: cat-termix-agent-ai-beta2-data
