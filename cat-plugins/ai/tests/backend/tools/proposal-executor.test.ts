@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const execCommand = vi.fn();
-vi.mock("@termix-ssh/plugin-sdk/host-commands", async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  execCommand: (...args: unknown[]) => execCommand(...args),
+const execAiCommand = vi.fn();
+vi.mock("../../../src/backend/tools/ssh-command.js", () => ({
+  execAiCommand: (...args: unknown[]) => execAiCommand(...args),
 }));
 
 const { applyProposal } =
@@ -115,7 +114,7 @@ describe("applyProposal", () => {
   it("runs an approved command through ctx.ssh on the host id", async () => {
     // ctx.ssh resolves the host for the approving user, with the connect
     // access check, so the executor never holds a host row itself.
-    execCommand.mockResolvedValue({ stdout: "up 3 days", stderr: "", code: 0 });
+    execAiCommand.mockResolvedValue({ stdout: "up 3 days", stderr: "", code: 0 });
 
     const result = await applyProposal(
       "propose_run_command",
@@ -142,11 +141,11 @@ describe("applyProposal", () => {
         deps(),
       ),
     ).rejects.toThrow("Host not found");
-    expect(execCommand).not.toHaveBeenCalled();
+    expect(execAiCommand).not.toHaveBeenCalled();
   });
 
   it("surfaces a non-zero exit rather than reporting success", async () => {
-    execCommand.mockResolvedValue({ stdout: "", stderr: "denied", code: 1 });
+    execAiCommand.mockResolvedValue({ stdout: "", stderr: "denied", code: 1 });
 
     await expect(
       applyProposal(

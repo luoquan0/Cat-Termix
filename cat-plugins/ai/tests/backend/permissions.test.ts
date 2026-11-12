@@ -17,7 +17,6 @@ const EXPECTED = [
   "ai.apply_proposals",
   "ai.services.use",
   "ai.secrets.share",
-  "ai.manage_updates",
 ];
 
 describe("ai permissions", () => {
@@ -34,7 +33,7 @@ describe("ai permissions", () => {
     expect(manifest.errors).toEqual([]);
   });
 
-  it("retains existing ids and adds a distinct administrator-only update permission", () => {
+  it("retains chat permission ids without granting the old updater", () => {
     const ids = (manifest.manifest?.contributes?.permissions ?? []).map(
       (permission) => qualifyPermission("ai", permission.name),
     );
@@ -56,7 +55,7 @@ describe("ai permissions", () => {
     for (const permission of manifest.manifest?.contributes?.permissions ??
       []) {
       expect(permission.defaultRoles).toEqual(
-        permission.name === "manage_updates" ? ["admin"] : ["user"],
+        ["user"],
       );
     }
   });
