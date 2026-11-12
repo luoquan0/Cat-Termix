@@ -68,3 +68,121 @@ jobs:
             cat-plugins/ai/migrations/
             cat-plugins/ai/locales/
           retention-days: 10
+
+  ai-container-smoke:
+    needs: ai-plugin
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install matching core
+        run: npm ci
+      - name: Build core and SDK from this branch
+        run: |
+          set -euo pipefail
+          npm run build:sdk
+          npx vite build
+          node scripts/stamp-sw-build-info.cjs
+          npx tsc -p tsconfig.node.json
+          node -e "require('fs').copyFileSync('src/backend/package.json','dist/backend/package.json')"
+      - name: Build previously verified Local Agent alongside Cat AI
+        run: |
+          set -euo pipefail
+          cd cat-plugins/agent
+          node ../../packages/plugin-sdk/cli/index.mjs build
+          node ../../packages/plugin-sdk/cli/index.mjs validate
+      - uses: actions/download-artifact@v4
+        with:
+          name: cat-ai-26-11-${{ github.sha }}
+          path: cat-plugins/ai
+      - name: Stage core and two independent plugins
+        run: |
+          set -euo pipefail
+          context=/tmp/cat-termix-ai-context
+          mkdir -p "$context/html" "$context/backend" "$context/sdk" "$context/agent" "$context/ai"
+          cp -a dist/. "$context/html/"
+          rm -rf "$context/html/backend" "$context/html/plugins"
+          cp -a dist/backend/. "$context/backend/"
+          cp -a packages/plugin-sdk/dist/. "$context/sdk/"
+          cp -a cat-plugins/agent/dist "$context/agent/dist"
+          cp -a cat-plugins/agent/locales "$context/agent/locales"
+          cp cat-plugins/agent/manifest.json cat-plugins/agent/package.json "$context/agent/"
+          cp -a cat-plugins/ai/dist "$context/ai/dist"
+          cp -a cat-plugins/ai/migrations "$context/ai/migrations"
+          cp -a cat-plugins/ai/locales "$context/ai/locales"
+          cp cat-plugins/ai/manifest.json cat-plugins/ai/package.json "$context/ai/"
+          cp docker/agent/patch-nginx-legacy-route.mjs "$context/patch-nginx-legacy-route.mjs"
+          cp docker/agent/configure-agent-trusted-proxies.sh "$context/configure-agent-trusted-proxies.sh"
+          cp docker/entrypoint.sh "$context/entrypoint.sh"
+          test -s "$context/html/index.html"
+          test -s "$context/backend/package.json"
+          test -s "$context/agent/dist/backend.js"
+          test -s "$context/ai/dist/backend.js"
+          test -s "$context/ai/dist/frontend.js"
+      - name: Verify official 26.11.0 image base
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/termix-ssh/termix:26.11.0
+          version="$(docker run --rm --entrypoint node ghcr.io/termix-ssh/termix:26.11.0 -p "require('/app/package.json').version")"
+          test "$version" = "26.11.0"
+      - name: Build isolated Cat AI and Agent test overlay
+        run: docker build --progress=plain -t cat-termix-agent-ai:26.11.0 -f docker/Dockerfile.agent-ai-26.11-test /tmp/cat-termix-ai-context
+      - name: Start fresh-volume container and verify both plugins
+        run: |
+          set -euo pipefail
+          docker volume create cat-termix-ai-2611-smoke
+          docker run -d --name cat-termix-ai-smoke -p 127.0.0.1:19080:8080 -v cat-termix-ai-2611-smoke:/app/data cat-termix-agent-ai:26.11.0
+          ready=false
+          for attempt in $(seq 1 90); do
+            if docker exec cat-termix-ai-smoke wget -q -O /dev/null http://127.0.0.1:30001/health &&
+               curl -fsS http://127.0.0.1:19080/ -o /tmp/cat-termix-ai-index.html; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != true ]; then
+            docker logs cat-termix-ai-smoke | tail -n 150
+            exit 1
+          fi
+          grep -q 'id="root"' /tmp/cat-termix-ai-index.html
+          docker exec cat-termix-ai-smoke test -s /app/dist/plugins/ai/manifest.json
+          docker exec cat-termix-ai-smoke test -s /app/dist/plugins/ai/dist/backend.js
+          docker exec cat-termix-ai-smoke test -s /app/dist/plugins/ai/dist/frontend.js
+          docker exec cat-termix-ai-smoke test -s /app/dist/plugins/agent/dist/backend.js
+          docker exec cat-termix-ai-smoke node -e "const fs=require('fs'); const m=JSON.parse(fs.readFileSync('/app/dist/plugins/ai/manifest.json','utf8')); if(m.id!=='ai'||m.version!=='1.3.2-beta.1')process.exit(1)"
+          agent_ready=false
+          for attempt in $(seq 1 60); do
+            if docker exec cat-termix-ai-smoke wget -q -O - http://127.0.0.1:8080/agent/v1/health > /tmp/cat-termix-ai-agent.json; then
+              agent_ready=true
+              break
+            fi
+            sleep 2
+          done
+          test "$agent_ready" = true
+          node -e "const h=JSON.parse(require('fs').readFileSync('/tmp/cat-termix-ai-agent.json','utf8'));if(h.status!=='ok')process.exit(1)"
+          CAT_TERMIX_SMOKE_URL=http://127.0.0.1:19080 node docker/ai/ai-beta-smoke.mjs
+          if docker logs cat-termix-ai-smoke 2>&1 | grep -Ei 'Plugin ai did not activate|Plugin ai activation failed'; then
+            echo "Cat AI plugin did not activate" >&2
+            exit 1
+          fi
+          echo "Agent and Cat AI beta activated in a new-volume container, without production volumes or publishing any image." >> "$GITHUB_STEP_SUMMARY"
+      - name: Clean disposable container and upload startup logs
+        if: always()
+        run: |
+          docker logs cat-termix-ai-smoke > /tmp/cat-termix-ai-smoke.log 2>&1 || true
+          docker rm -fv cat-termix-ai-smoke >/dev/null 2>&1 || true
+          docker volume rm cat-termix-ai-2611-smoke >/dev/null 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cat-termix-ai-26-11-smoke-log
+          path: /tmp/cat-termix-ai-smoke.log
+          if-no-files-found: ignore
+          retention-days: 7

@@ -1,0 +1,28 @@
+# Disposable integration test only.
+# Core JS and UI come from this fork's own CI build; the matching official
+# versioned image supplies Node native modules and bundled official plugins.
+# The original docker/Dockerfile is unchanged and remains the future
+# production-build authority once artifact CDN availability is restored.
+FROM ghcr.io/termix-ssh/termix:26.11.0
+
+WORKDIR /app
+RUN rm -rf /app/html /app/dist/backend /app/packages/plugin-sdk/dist /app/dist/plugins/ai && \
+    mkdir -p /app/html /app/dist/backend /app/packages/plugin-sdk/dist && \
+    chown -R node:node /app/html /app/dist/backend /app/packages/plugin-sdk/dist
+COPY --chown=node:node html/ /app/html/
+COPY --chown=node:node backend/ /app/dist/backend/
+COPY --chown=node:node sdk/ /app/packages/plugin-sdk/dist/
+COPY --chown=node:node agent/ /app/dist/plugins/agent/
+COPY --chown=node:node ai/ /app/dist/plugins/ai/
+COPY patch-nginx-legacy-route.mjs /tmp/patch-nginx-legacy-route.mjs
+COPY configure-agent-trusted-proxies.sh /app/configure-agent-trusted-proxies.sh
+COPY entrypoint.sh /entrypoint.sh
+RUN node /tmp/patch-nginx-legacy-route.mjs && chmod +x /app/configure-agent-trusted-proxies.sh /entrypoint.sh && rm /tmp/patch-nginx-legacy-route.mjs
+
+# The Local Agent is intentionally recommended and enabled on a fresh beta
+# volume so the owner can test pairing immediately. This is a disposable
+# test image; never reuse a production data volume.
+RUN node -e 'const fs=require("node:fs"); const file="/app/dist/plugins/bundled-index.json"; const index=JSON.parse(fs.readFileSync(file,"utf8")); index.plugins ??= {}; const previous=index.plugins.agent ?? {}; index.plugins.agent={...previous,onboarding:{...(previous.onboarding ?? {}),recommended:true,consent:false}}; index.plugins.ai={...(index.plugins.ai??{}),onboarding:{...(index.plugins.ai?.onboarding??{}),recommended:true,consent:false}}; fs.writeFileSync(file,JSON.stringify(index,null,2));'
+
+LABEL org.opencontainers.image.title="Cat-Termix 26.11 Agent and AI test" \
+      org.opencontainers.image.description="TEST ONLY: fork-built Termix 26.11 core with Cat Agent and Cat AI beta; never production"
