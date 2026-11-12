@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useTranslation } from "@termix/plugin-sdk/frontend";
-import { Button, Input } from "@termix/plugin-sdk/ui";
+import { useTranslation } from "@termix-ssh/plugin-sdk/frontend";
+import { Button, Input } from "@termix-ssh/plugin-sdk/ui";
 import { parseEnabledModels } from "../shared/model-selection";
 
 /** Selection survives discovery failures; custom IDs do not need a /models endpoint. */

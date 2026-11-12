@@ -1,7 +1,7 @@
 import { providerModelOptions } from "../shared/model-selection";
 import { useEffect, useState } from "react";
 import { BrainCircuit, Layers3 } from "lucide-react";
-import { useTranslation } from "@termix/plugin-sdk/frontend";
+import { useTranslation } from "@termix-ssh/plugin-sdk/frontend";
 import {
   Select,
   SelectContent,
@@ -9,7 +9,7 @@ import {
   SelectItem,
   SelectLabel,
   SelectTrigger,
-} from "@termix/plugin-sdk/ui";
+} from "@termix-ssh/plugin-sdk/ui";
 import { getAiProviderModels, type AiProvider } from "./ai-api";
 import { REASONING_EFFORTS, type ReasoningEffort } from "../shared/reasoning";
 
