@@ -4,7 +4,7 @@ import {
   normalizeAiPreferences,
   type AiChatPreferences,
 } from "../shared/reasoning.js";
-import type { PluginContext } from "@termix/plugin-sdk/backend";
+import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import {
   chatPreferences as chatPreferencesDef,
   conversations as conversationsDef,

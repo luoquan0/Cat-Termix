@@ -1,7 +1,7 @@
 import { parseEnabledModels } from "../shared/model-selection.js";
 import { activeAiRequests, maintenance } from "./update-activity.js";
 import type { Request, Response, Router } from "express";
-import type { PluginContext } from "@termix/plugin-sdk/backend";
+import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { contextPolicy, readCheckpoint } from "../shared/context-policy.js";
 import { capacityNumber, detectModelContext } from "./model-context.js";
 import { buildSystemPrompt } from "./context.js";
