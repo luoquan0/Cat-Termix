@@ -1,7 +1,7 @@
 {
   "name": "@termix-plugin/ai",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.3.2-beta.1",
   "type": "module",
   "scripts": {
     "build": "termix-plugin build",
@@ -16,7 +16,6 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
-    "@termix/plugin-sdk": "^1.0.0",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
     "@types/node": "^26.2.0",
@@ -24,14 +23,18 @@
     "@types/react-dom": "^19.2.4",
     "better-sqlite3": "^13.0.3",
     "jsdom": "^30.0.1",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.11",
+    "@termix-ssh/plugin-sdk": "file:../../packages/plugin-sdk"
   },
   "peerDependencies": {
-    "@termix/plugin-sdk": "^1.0.0",
     "drizzle-orm": "^0.45.2",
     "express": "^5.2.1",
     "react": "^19.2.8",
     "sonner": "^2.0.8",
-    "ssh2": "^1.17.0"
+    "ssh2": "^1.17.0",
+    "@termix-ssh/plugin-sdk": "^1.0.22"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

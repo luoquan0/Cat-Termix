@@ -1,7 +1,15 @@
 # Changelog
 
-## 1.0.0
+## 1.3.2-beta.1
 
-First release, bundled with Termix 2.9.0.
+Standalone test migration of Cat AI to Termix 26.11 SDK.
 
-Adds an AI assistant that can read your hosts, snippets, fleets, alerts and automations and suggest changes for you to approve. Works with Ollama, Anthropic, OpenAI, Google Gemini and any OpenAI compatible provider.
+### Added
+
+- Preserve multi-channel chat, reasoning preferences, host-scoped history and image recognition.
+- Use a separate test-only AI plugin replacement for the official bundled `ai` plugin.
+
+### Changed
+
+- Disable the legacy Cat software updater in this beta; it requires an independent migration.
+- Keep production data and provider credentials separate from this clean-volume test image.

@@ -1,18 +1,18 @@
 {
   "id": "ai",
-  "name": "AI Assistant",
-  "version": "1.0.0",
-  "description": "An AI assistant that can read your hosts, snippets, fleets, alerts and automations, and suggest changes for you to approve.",
+  "name": "Cat AI Assistant",
+  "version": "1.3.2-beta.1",
+  "description": "Cat AI assistant: multi-provider and per-chat model settings, image understanding, host-scoped conversations and permission-gated SSH suggestions.",
   "author": {
-    "name": "Termix"
+    "name": "Cat-Termix"
   },
   "license": "MIT",
-  "repository": "https://github.com/Termix-SSH/Termix",
+  "repository": "https://github.com/luoquan0/Cat-Termix",
   "category": "Productivity",
   "icon": "Sparkles",
   "engine": {
-    "termix": ">=2.9.0",
-    "api": "1"
+    "termix": ">=26.11.0",
+    "api": "^1.13.0"
   },
   "capabilities": [
     "hosts:read",
@@ -97,7 +97,10 @@
         "id": "ai",
         "titleKey": "nav.ai",
         "icon": "Sparkles",
-        "openFrom": ["rail", "palette"]
+        "openFrom": [
+          "rail",
+          "palette"
+        ]
       }
     ],
     "actions": [
@@ -116,37 +119,41 @@
         "name": "use",
         "titleKey": "permissions.use.title",
         "descriptionKey": "permissions.use.description",
-        "defaultRoles": ["user"]
+        "defaultRoles": [
+          "user"
+        ]
       },
       {
         "name": "manage_providers",
         "titleKey": "permissions.manage_providers.title",
         "descriptionKey": "permissions.manage_providers.description",
-        "defaultRoles": ["user"]
+        "defaultRoles": [
+          "user"
+        ]
       },
       {
         "name": "apply_proposals",
         "titleKey": "permissions.apply_proposals.title",
         "descriptionKey": "permissions.apply_proposals.description",
-        "defaultRoles": ["user"]
+        "defaultRoles": [
+          "user"
+        ]
       },
       {
         "name": "services.use",
         "titleKey": "permissions.services.use.title",
         "descriptionKey": "permissions.services.use.description",
-        "defaultRoles": ["user"]
+        "defaultRoles": [
+          "user"
+        ]
       },
       {
         "name": "secrets.share",
         "titleKey": "permissions.secrets.share.title",
         "descriptionKey": "permissions.secrets.share.description",
-        "defaultRoles": ["user"]
-      },
-      {
-        "name": "manage_updates",
-        "titleKey": "permissions.manage_updates.title",
-        "descriptionKey": "permissions.manage_updates.description",
-        "defaultRoles": ["admin"]
+        "defaultRoles": [
+          "user"
+        ]
       }
     ],
     "settings": {
@@ -204,8 +211,22 @@
         ]
       }
     },
-    "uses": ["terminal.sidePanel", "terminal.toolbar"]
+    "uses": [
+      "terminal.sidePanel",
+      "terminal.toolbar"
+    ]
   },
   "locales": "locales",
-  "platforms": ["linux", "win32", "darwin"]
+  "platforms": [
+    "linux",
+    "win32",
+    "darwin"
+  ],
+  "docs": "https://github.com/luoquan0/Cat-Termix/blob/cat-termix/ai-port-26.11/cat-plugins/ai/README.md",
+  "features": [
+    "Multiple OpenAI-compatible, Anthropic, Gemini and Ollama providers",
+    "Saved host-scoped conversations and per-chat model/reasoning preferences",
+    "Images, pasted screenshots and vision requests",
+    "Permission-gated host inspection and SSH change suggestions"
+  ]
 }

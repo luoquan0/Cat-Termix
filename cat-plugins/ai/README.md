@@ -1,3 +1,7 @@
+# Cat AI Assistant — Termix 26.11 beta
+
+> **Test-only:** Cat AI 1.3.2-beta.1 is for the isolated upstream 26.11 branch. It has the same `ai` ID as the upstream bundled plugin and must replace that bundled copy only in a disposable test image. The old software updater is deliberately excluded.
+
 # AI Assistant
 
 An AI assistant that can read your hosts, snippets, fleets, alerts and automations, and suggest changes for you to approve.
