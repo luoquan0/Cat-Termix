@@ -1,6 +1,6 @@
 import type { Client } from "ssh2";
 import type { PluginHostUpdateInput } from "@termix-ssh/plugin-sdk/backend";
-import { execCommand } from "@termix-ssh/plugin-sdk/host-commands";
+import { execAiCommand } from "./ssh-command.js";
 import { getTool } from "./catalog.js";
 import type { ToolDeps } from "./types.js";
 import { requireService, SERVICE } from "../services.js";
@@ -260,10 +260,10 @@ export async function runCommandOnHost(
     if (signal?.aborted) throw new Error("The user stopped this run");
     if (deps.runCommand) return await deps.runCommand(hostId, command, signal);
     const result = await deps.ssh.withConnection<
-      Awaited<ReturnType<typeof execCommand>>,
+      Awaited<ReturnType<typeof execAiCommand>>,
       Client
     >(hostId, { pool: "ai", purpose: "fleet" }, (client) =>
-      execCommand(client, command, COMMAND_TIMEOUT_MS, {
+      execAiCommand(client, command, COMMAND_TIMEOUT_MS, {
         signal,
         maxOutputBytes: 64 * 1024,
       }),
