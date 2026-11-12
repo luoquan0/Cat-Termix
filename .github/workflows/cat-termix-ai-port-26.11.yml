@@ -176,6 +176,7 @@ jobs:
       - name: Clean disposable container and upload startup logs
         if: always()
         run: |
+          docker logs cat-termix-ai-smoke 2>&1 | tail -n 180 || true
           docker logs cat-termix-ai-smoke > /tmp/cat-termix-ai-smoke.log 2>&1 || true
           docker rm -fv cat-termix-ai-smoke >/dev/null 2>&1 || true
           docker volume rm cat-termix-ai-2611-smoke >/dev/null 2>&1 || true
