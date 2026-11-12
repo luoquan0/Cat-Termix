@@ -1,0 +1,54 @@
+name: Sync pristine Termix upstream baseline
+
+on:
+  push:
+    branches:
+      - automation/upstream-original-sync
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact upstream main snapshot
+        uses: actions/checkout@v4
+        with:
+          repository: Termix-SSH/Termix
+          ref: 8cdcd91c258bdaa6cc6f34fefb9ee93c9c1ad89a
+          fetch-depth: 0
+          path: upstream
+          persist-credentials: false
+
+      - name: Verify pristine upstream source
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "8cdcd91c258bdaa6cc6f34fefb9ee93c9c1ad89a"
+          test "$(git rev-parse 'HEAD^{tree}')" = "2d490814b56d73f978fb228bf3d978c323f263b0"
+          test -f src/ui/plugins/PluginsTab.tsx
+          test -f src/backend/plugins/registry-index.ts
+          test -f src/ui/sidebar/rail-items.ts
+          test -f docker/bundled-plugins.json
+          test -f packages/plugin-sdk/PLUGIN-GUIDE.md
+          echo "Verified exact upstream tree and original plugin manager."
+
+      - name: Push untouched upstream source to isolated branch
+        working-directory: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git remote add cat-target "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git"
+          git push cat-target HEAD:refs/heads/cat-termix/upstream-original-26.11.1
+          remote_sha="$(git ls-remote cat-target refs/heads/cat-termix/upstream-original-26.11.1 | awk '{print $1}')"
+          test "$remote_sha" = "8cdcd91c258bdaa6cc6f34fefb9ee93c9c1ad89a"
+          echo "## Pristine upstream baseline" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Branch: `cat-termix/upstream-original-26.11.1`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Source: `Termix-SSH/Termix`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: `$remote_sha`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tree: `$(git rev-parse 'HEAD^{tree}')`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Cat custom plugins/core patches: none" >> "$GITHUB_STEP_SUMMARY"
