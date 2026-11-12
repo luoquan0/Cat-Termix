@@ -5,8 +5,12 @@
 Image: `ghcr.io/luoquan0/cat-termix:26.11-agent-ai-beta.2`
 
 This beta combines the Termix 26.11.0 core with the separate Cat Agent
-1.1.0-beta.1 and Cat AI 1.3.2-beta.1 plugins. Native AMD64 and ARM64 CI
-must succeed before the image tag is published. The original Termix AI plugin
+1.1.0-beta.1 and Cat AI 1.3.2-beta.1 plugins. The beta.2 tag was published from the source commit
+`963fd5b17e08739760002cfcc086da12745990b8` after native AMD64 and
+ARM64 image smoke tests succeeded in [GitHub Actions #43140837092](https://github.com/luoquan0/Cat-Termix/actions/runs/43140837092).
+The immutable OCI index digest is:
+
+`sha256:7e9e962f572f111394d003b5ba070a2d7b45bb77725f892c08ac725d2b8682ac`. The original Termix AI plugin
 is replaced only inside the disposable Beta.2 image to avoid duplicate IDs.
 
 **No Cat updater is included. Agent sudo requests return
@@ -58,7 +62,7 @@ hostnames/exact hosts, not CIDR ranges.
 Check the raw registry and a specific plugin release URL from **inside the
 container** (use the affected plugin's actual URL from its registry entry).
 Preserve exact error status, plugin id/version, and redacted container
-logs. A 404, permission/consent 409, signature failure or incompatible SDK
+logs. See [plugin-center diagnostics](../docs/cat-termix-plugin-center-diagnostics.md). A 404, permission/consent 409, signature failure or incompatible SDK
 version is not fixed by a proxy. Do **not** bypass signed archive checks or
 use an untrusted registry mirror.
 
