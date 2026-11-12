@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { useTranslation } from "@termix/plugin-sdk/frontend";
+import { useTranslation } from "@termix-ssh/plugin-sdk/frontend";
 import { Bot, GripVertical, X } from "lucide-react";
-import { Button } from "@termix/plugin-sdk/ui";
+import { Button } from "@termix-ssh/plugin-sdk/ui";
 import { AiPanel } from "../AiPanel";
 import {
   clampToolbarPosition,
