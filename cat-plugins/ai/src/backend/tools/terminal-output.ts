@@ -1,4 +1,4 @@
-import type { PluginHostSummary } from "@termix/plugin-sdk/backend";
+import type { PluginHostSummary } from "@termix-ssh/plugin-sdk/backend";
 import { readService, SERVICE } from "../services.js";
 import { num, str, objectSchema, type AiTool } from "./types.js";
 
