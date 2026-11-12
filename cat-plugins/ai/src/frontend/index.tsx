@@ -1,0 +1,211 @@
+import type { ComponentType } from "react";
+import { Bot, Sparkles } from "lucide-react";
+import type {
+  PanelProps,
+  TabProps,
+  TermixApp,
+} from "@termix/plugin-sdk/frontend";
+import type {
+  TerminalSidePanelProps,
+  TerminalSlotApi,
+} from "./terminal/terminal-slot-types";
+import { AiPanel } from "./AiPanel";
+import { TerminalAiPanel } from "./terminal/TerminalAiPanel";
+import { AiAssistantStep } from "./AiAssistantStep";
+import { UpdateSettings } from "./UpdateSettings";
+import { ProvidersSetting } from "./settings/ProvidersSetting";
+import { AI_STATUS_CHANGED_EVENT, getAiStatus } from "./ai-api";
+import { setAiApp } from "./app-ref";
+import { startUpdateRestartMonitor } from "./update-recovery";
+import type { UpdateInfo } from "../shared/update-policy";
+
+/** The rail id the assistant registers under. */
+const AI_RAIL_ID = "ai";
+const ASSISTANT_ACTION = "ai.openWithContext";
+const SIDE_PANEL_ID = "ai.assistant";
+
+function AssistantPanel({ activeTabType, targetTab }: PanelProps) {
+  return (
+    <div className="flex flex-col flex-1 min-h-0">
+      <AiPanel
+        activeTab={activeTabType ?? null}
+        terminalContext={
+          targetTab?.type === "terminal" && targetTab.host
+            ? {
+                hostId: Number(targetTab.host.id),
+                tabInstanceId: targetTab.instanceId ?? targetTab.id,
+              }
+            : undefined
+        }
+      />
+    </div>
+  );
+}
+
+function AssistantTab() {
+  return <AiPanel />;
+}
+
+/** The assistant beside a terminal, in its "terminal.sidePanel" slot. */
+function TerminalSidePanel({
+  host,
+  hostId,
+  hostLabel,
+  onClose,
+  getTerminalSessionId,
+}: TerminalSidePanelProps) {
+  if (!hostId) return null;
+  return (
+    <TerminalAiPanel
+      hostLabel={hostLabel}
+      hostId={hostId}
+      activeTab={`terminal:${host?.name || host?.ip || ""}`}
+      onClose={onClose}
+      getTerminalSessionId={getTerminalSessionId}
+    />
+  );
+}
+
+export function activate(app: TermixApp): void {
+  setAiApp(app);
+  app.onDispose(() => setAiApp(null));
+
+  // The app container may disappear during replacement. Keep the recovery
+  // watcher alive even if the administrator closes the settings section.
+  app.onDispose(
+    startUpdateRestartMonitor(
+      async () => (await app.api.get<UpdateInfo>("/updates")).data,
+    ),
+  );
+
+  let globallyEnabled = false;
+  let userEnabled = false;
+  const surface: (() => void)[] = [];
+
+  const clearSurface = () => {
+    while (surface.length > 0) surface.pop()!();
+  };
+
+  // What the assistant shows depends on the admin switch and the user's own
+  // choice, so it is re-registered whenever either changes.
+  const applyStatus = () => {
+    clearSurface();
+
+    surface.push(
+      app.registerRailItem({
+        id: AI_RAIL_ID,
+        icon: Sparkles,
+        titleKey: "nav.ai",
+        promotable: true,
+        rightDockable: true,
+        after: "macros",
+        order: 40,
+        // Off for everyone: not even a Navigation toggle.
+        hidden: !globallyEnabled,
+      }),
+    );
+
+    if (!globallyEnabled) {
+      app.tabs.closeTab(AI_RAIL_ID);
+      return;
+    }
+
+    surface.push(
+      app.registerTab(AI_RAIL_ID, AssistantTab as ComponentType<TabProps>, {
+        icon: Sparkles,
+        titleKey: "nav.ai",
+        singleton: true,
+        hostless: true,
+        panelFrame: true,
+      }),
+    );
+
+    // Every connected host may open the workspace after admin/user opt-in.
+    // Command execution still checks host permissions on the backend.
+    const offeredOnHost = (context: Record<string, unknown>) =>
+      userEnabled && Boolean(context.host);
+
+    surface.push(
+      app.registerSlotContribution("terminal.toolbar", {
+        actionId: ASSISTANT_ACTION,
+        titleKey: "ai.assistant",
+        icon: Bot,
+        kind: "button",
+        when: offeredOnHost,
+      }),
+    );
+    surface.push(
+      app.registerSlotContribution("terminal.sidePanel", {
+        actionId: SIDE_PANEL_ID,
+        titleKey: "ai.assistant",
+        icon: Bot,
+        kind: "component",
+        component: TerminalSidePanel as unknown as ComponentType<
+          Record<string, unknown>
+        >,
+        when: offeredOnHost,
+      }),
+    );
+    surface.push(
+      app.registerSlotContribution("onboarding.steps", {
+        actionId: "ai.onboarding",
+        titleKey: "onboarding.aiTitle",
+        kind: "component",
+        component: AiAssistantStep as unknown as ComponentType<
+          Record<string, unknown>
+        >,
+      }),
+    );
+  };
+
+  const refresh = () => {
+    getAiStatus()
+      .then((status) => {
+        globallyEnabled = status.globallyEnabled;
+        userEnabled = status.globallyEnabled && status.enabled;
+      })
+      .catch(() => {
+        globallyEnabled = false;
+        userEnabled = false;
+      })
+      .finally(() => {
+        if (!disposed) applyStatus();
+      });
+  };
+
+  let disposed = false;
+  app.onDispose(() => {
+    disposed = true;
+    clearSurface();
+  });
+
+  app.registerPanel(AI_RAIL_ID, AssistantPanel);
+
+  // Opening a chat never copies screen contents into its draft. The model
+  // can read this session's output on demand through terminal.context.
+  app.registerAction(
+    ASSISTANT_ACTION,
+    (terminal: TerminalSlotApi) => terminal?.openSidePanel(SIDE_PANEL_ID),
+    { permission: "services.use" },
+  );
+
+  app.registerSettingsComponent("providers", ProvidersSetting);
+
+  // Application updates are system administration, not conversation settings.
+  // Register regardless of the assistant's global enable/disable switch.
+  app.registerExtension("system.adminSettings.sections", {
+    id: "software-updates",
+    components: { section: UpdateSettings },
+  });
+
+  applyStatus();
+  refresh();
+  // The admin switch and the user's own choice are settings, saved from
+  // the settings screen.
+  app.onSettingsChanged(() => refresh());
+  const events = [AI_STATUS_CHANGED_EVENT, "termix:plugins-changed"];
+  for (const event of events) window.addEventListener(event, refresh);
+  app.onDispose(() => {
+    for (const event of events) window.removeEventListener(event, refresh);
+  });
+}

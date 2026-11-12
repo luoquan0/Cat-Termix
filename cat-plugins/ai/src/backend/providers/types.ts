@@ -1,0 +1,109 @@
+/**
+ * The shape every provider adapter normalizes to. Adding a provider means
+ * translating its wire format into these events; nothing downstream (the
+ * engine, the tool dispatcher, the SSE route) knows which vendor is in use.
+ */
+
+export type AiProviderType =
+  "ollama" | "anthropic" | "openai" | "gemini" | "openai_compatible";
+
+export const AI_PROVIDER_TYPES: AiProviderType[] = [
+  "ollama",
+  "anthropic",
+  "openai",
+  "gemini",
+  "openai_compatible",
+];
+
+export function isAiProviderType(value: unknown): value is AiProviderType {
+  return (
+    typeof value === "string" && (AI_PROVIDER_TYPES as string[]).includes(value)
+  );
+}
+
+export interface ChatMessage {
+  /** Internal database ID, never sent to a provider. */
+  storedId?: number;
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  /** Validated image data URLs; only user turns carry image content. */
+  images?: string[];
+  /** Set on assistant turns that requested tools. */
+  toolCalls?: ToolCall[];
+  /** Set on tool turns, matching the id of the call being answered. */
+  toolCallId?: string;
+  toolName?: string;
+}
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+  /**
+   * Opaque provider state that has to be echoed back verbatim on the next
+   * turn. Gemini 2.5+ rejects a follow-up whose functionCall parts have lost
+   * their thoughtSignature, so this rides along rather than being dropped.
+   */
+  providerSignature?: string;
+}
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+import type { ReasoningEffort } from "../../shared/reasoning.js";
+
+export interface ChatRequest {
+  model: string;
+  reasoningEffort?: ReasoningEffort;
+  system: string;
+  messages: ChatMessage[];
+  tools: ToolDefinition[];
+  maxOutputTokens?: number;
+  signal?: AbortSignal;
+}
+
+export type ChatChunk =
+  | { type: "usage"; inputTokens: number; outputTokens?: number }
+  | { type: "text"; text: string }
+  | { type: "tool_call"; call: ToolCall }
+  | { type: "done"; stopReason?: string }
+  | { type: "error"; message: string };
+
+/**
+ * How an adapter reaches its provider. Always the egress-checked fetch from
+ * http.ts, never the global one.
+ */
+export type ProviderFetch = (
+  url: string,
+  init: RequestInit,
+) => Promise<Response>;
+
+export interface ProviderConfig {
+  providerType: AiProviderType;
+  baseUrl?: string | null;
+  apiKey?: string | null;
+  fetch: ProviderFetch;
+}
+
+export interface ProviderAdapter {
+  /** Streams a single assistant turn. Tool execution happens in the engine. */
+  streamChat(
+    config: ProviderConfig,
+    request: ChatRequest,
+  ): AsyncIterable<ChatChunk>;
+  /** Model ids to offer in the picker, best effort. */
+  listModels(config: ProviderConfig): Promise<string[]>;
+}
+
+export class AiProviderError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = "AiProviderError";
+  }
+}

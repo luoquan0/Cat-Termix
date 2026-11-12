@@ -1,0 +1,419 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ChatChunk } from "../../src/backend/providers/types.js";
+
+const streamChat = vi.fn();
+const handler = vi.fn();
+
+vi.mock("../../src/backend/providers/registry.js", () => ({
+  getAdapter: () => ({ streamChat, listModels: async () => [] }),
+}));
+
+const { runAgent } = await import("../../src/backend/engine.js");
+
+function chunks(...values: ChatChunk[]) {
+  return (async function* () {
+    for (const value of values) yield value;
+  })();
+}
+
+const BASE = {
+  config: { providerType: "ollama" as const, fetch: vi.fn() },
+  model: "test",
+  system: "system",
+  context: {
+    userId: "user-1",
+    conversationId: 1,
+    allowReadOnlyCommands: false,
+    deps: {} as never,
+  },
+  // Only what was offered can run, so this is the whole catalog here.
+  tools: [
+    {
+      name: "list_hosts",
+      description: "List hosts",
+      category: "read" as const,
+      parameters: { type: "object", properties: {} },
+      handler,
+    },
+  ],
+};
+
+async function collect(history: any[] = []) {
+  const events: any[] = [];
+  for await (const event of runAgent({ ...BASE, history })) {
+    events.push(event);
+  }
+  return events;
+}
+
+describe("runAgent", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("streams text and finishes when no tools are called", async () => {
+    streamChat.mockReturnValueOnce(
+      chunks({ type: "text", text: "hello" }, { type: "done" }),
+    );
+
+    const events = await collect();
+
+    expect(events.filter((e) => e.type === "token")).toHaveLength(1);
+    expect(events.at(-1).type).toBe("done");
+  });
+
+  it("runs a known tool and feeds the result back", async () => {
+    handler.mockResolvedValue({ hosts: [{ id: 1, name: "web-1" }] });
+    streamChat
+      .mockReturnValueOnce(
+        chunks(
+          {
+            type: "tool_call",
+            call: { id: "c1", name: "list_hosts", arguments: {} },
+          },
+          { type: "done" },
+        ),
+      )
+      .mockReturnValueOnce(
+        chunks({ type: "text", text: "ok" }, { type: "done" }),
+      );
+
+    const events = await collect();
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(events.some((e) => e.type === "tool_result")).toBe(true);
+    expect(streamChat).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses a tool that is not in the catalog", async () => {
+    streamChat
+      .mockReturnValueOnce(
+        chunks(
+          {
+            type: "tool_call",
+            call: { id: "c1", name: "read_credentials", arguments: {} },
+          },
+          { type: "done" },
+        ),
+      )
+      .mockReturnValueOnce(
+        chunks({ type: "text", text: "ok" }, { type: "done" }),
+      );
+
+    const events = await collect();
+
+    // A model can emit any name it likes; only the catalog decides what runs.
+    expect(handler).not.toHaveBeenCalled();
+    const result = events.find((e) => e.type === "tool_result");
+    expect(JSON.stringify(result.result)).toContain("Unknown tool");
+  });
+
+  it("surfaces a handler failure without ending the run", async () => {
+    handler.mockRejectedValue(new Error("database is down"));
+    streamChat
+      .mockReturnValueOnce(
+        chunks(
+          {
+            type: "tool_call",
+            call: { id: "c1", name: "list_hosts", arguments: {} },
+          },
+          { type: "done" },
+        ),
+      )
+      .mockReturnValueOnce(
+        chunks({ type: "text", text: "ok" }, { type: "done" }),
+      );
+
+    const events = await collect();
+
+    const result = events.find((e) => e.type === "tool_result");
+    expect(JSON.stringify(result.result)).toContain("database is down");
+    expect(events.at(-1).type).toBe("done");
+  });
+
+  it("closes the tool call when a tool returns a proposal", async () => {
+    // Without a matching tool_result the call rendered as permanently
+    // running, even though the work was done and awaiting the user.
+    handler.mockResolvedValue({
+      __proposal: true,
+      kind: "propose_create_host",
+      summary: "Add host web-1",
+      payload: {},
+    });
+    streamChat
+      .mockReturnValueOnce(
+        chunks(
+          {
+            type: "tool_call",
+            call: { id: "c1", name: "list_hosts", arguments: {} },
+          },
+          { type: "done" },
+        ),
+      )
+      .mockReturnValueOnce(
+        chunks({ type: "text", text: "ok" }, { type: "done" }),
+      );
+
+    const events = await collect();
+
+    const callIndex = events.findIndex((e) => e.type === "tool_call");
+    const resultIndex = events.findIndex((e) => e.type === "tool_result");
+    const proposalIndex = events.findIndex((e) => e.type === "proposal");
+
+    expect(resultIndex).toBeGreaterThan(callIndex);
+    expect(proposalIndex).toBeGreaterThan(resultIndex);
+    expect(events[resultIndex]).toMatchObject({
+      name: "list_hosts",
+      result: { status: "awaiting_user_approval" },
+    });
+  });
+
+  it("reports a provider failure as an error and stops", async () => {
+    streamChat.mockImplementationOnce(() => {
+      throw new Error("provider unreachable");
+    });
+
+    const events = await collect();
+
+    const errors = events.filter((event) => event.type !== "context");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      type: "error",
+      message: "provider unreachable",
+    });
+  });
+
+  it("stops after too many tool turns", async () => {
+    handler.mockResolvedValue({ ok: true });
+    streamChat.mockImplementation(() =>
+      chunks(
+        {
+          type: "tool_call",
+          call: { id: "c", name: "list_hosts", arguments: {} },
+        },
+        { type: "done" },
+      ),
+    );
+
+    const events = await collect();
+
+    // A model that never stops calling tools must not spin forever.
+    expect(events.at(-1)).toMatchObject({ type: "error" });
+    expect(streamChat.mock.calls.length).toBeLessThanOrEqual(8);
+  });
+
+  it("emits every message it adds so the caller can store the run", async () => {
+    handler.mockResolvedValue({ hosts: [] });
+    streamChat
+      .mockReturnValueOnce(
+        chunks(
+          { type: "text", text: "Looking" },
+          {
+            type: "tool_call",
+            call: { id: "c1", name: "list_hosts", arguments: {} },
+          },
+          { type: "done" },
+        ),
+      )
+      .mockReturnValueOnce(
+        chunks({ type: "text", text: "none" }, { type: "done" }),
+      );
+
+    const stored = (await collect())
+      .filter((e) => e.type === "message")
+      .map((e) => e.message);
+
+    expect(stored).toEqual([
+      {
+        role: "assistant",
+        content: "Looking",
+        toolCalls: [{ id: "c1", name: "list_hosts", arguments: {} }],
+      },
+      {
+        role: "tool",
+        content: JSON.stringify({ hosts: [] }),
+        toolCallId: "c1",
+        toolName: "list_hosts",
+      },
+      { role: "assistant", content: "none" },
+    ]);
+  });
+
+  it("explains a stream the provider cut off", async () => {
+    streamChat.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "text", text: "par" } as ChatChunk;
+        throw Object.assign(new TypeError("terminated"), {
+          cause: Object.assign(new Error("Body Timeout Error"), {
+            code: "UND_ERR_BODY_TIMEOUT",
+          }),
+        });
+      })(),
+    );
+
+    const events = await collect();
+    expect(events.at(-1).type).toBe("error");
+    expect(events.at(-1).message).toMatch(/stopped sending data/);
+  });
+
+  it("stays quiet when the user stopped it", async () => {
+    const controller = new AbortController();
+    streamChat.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "text", text: "" } as ChatChunk;
+        controller.abort();
+        throw new Error("This operation was aborted");
+      })(),
+    );
+
+    const events: any[] = [];
+    for await (const event of runAgent({
+      ...BASE,
+      history: [],
+      signal: controller.signal,
+    })) {
+      events.push(event);
+    }
+    expect(events.some((e) => e.type === "error")).toBe(false);
+  });
+});
+
+describe("Cat-Termix execution and summary boundaries", () => {
+  beforeEach(() => {
+    streamChat.mockReset();
+    handler.mockReset();
+  });
+  async function events(options: Partial<Parameters<typeof runAgent>[0]> = {}) {
+    const result = [];
+    for await (const event of runAgent({ ...BASE, history: [], ...options }))
+      result.push(event);
+    return result;
+  }
+  const draft = {
+    __proposal: true,
+    kind: "propose_run_command",
+    summary: "Check host",
+    payload: { hostId: 1, command: "uptime" },
+  };
+  const toolChunk: ChatChunk = {
+    type: "tool_call",
+    call: { id: "c1", name: "list_hosts", arguments: {} },
+  };
+
+  it("feeds automatic action results to the model instead of emitting an approval card", async () => {
+    handler.mockResolvedValue(draft);
+    const executeProposal = vi
+      .fn()
+      .mockResolvedValue({ status: "applied", summary: "up 3 days" });
+    streamChat
+      .mockReturnValueOnce(chunks(toolChunk))
+      .mockReturnValueOnce(chunks({ type: "text", text: "The host is up." }));
+    const result = await events({ executeProposal });
+    expect(executeProposal).toHaveBeenCalledWith(draft);
+    expect(result.some((event) => event.type === "proposal")).toBe(false);
+    expect(JSON.stringify(streamChat.mock.calls[1][1].messages)).toContain(
+      "up 3 days",
+    );
+    expect(result.at(-1)?.type).toBe("done");
+  });
+
+  it("does not execute another action once the user stops", async () => {
+    const controller = new AbortController();
+    handler.mockResolvedValue(draft);
+    const executeProposal = vi.fn(async () => {
+      controller.abort();
+      return { status: "applied" };
+    });
+    streamChat.mockReturnValueOnce(chunks(toolChunk, toolChunk));
+    await events({ executeProposal, signal: controller.signal });
+    expect(executeProposal).toHaveBeenCalledOnce();
+    expect(streamChat).toHaveBeenCalledOnce();
+  });
+
+  it("refuses a tool targeting another host in terminal chat", async () => {
+    streamChat
+      .mockReturnValueOnce(
+        chunks({
+          type: "tool_call",
+          call: { id: "c", name: "list_hosts", arguments: { hostId: 2 } },
+        }),
+      )
+      .mockReturnValueOnce(chunks({ type: "text", text: "Wrong host" }));
+    const result = await events({ context: { ...BASE.context, hostId: 1 } });
+    expect(handler).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).toContain("bound to host 1");
+  });
+
+  it("retries an empty final response with a tool-free summary request", async () => {
+    streamChat
+      .mockReturnValueOnce(chunks())
+      .mockReturnValueOnce(
+        chunks({ type: "text", text: "Here is the explanation." }),
+      );
+    const result = await events();
+    expect(streamChat.mock.calls[1][1].tools).toEqual([]);
+    expect(result.at(-1)?.type).toBe("done");
+  });
+
+  it("reserves the last turn for a summary without executing hallucinated tools", async () => {
+    handler.mockResolvedValue({ ok: true });
+    streamChat.mockImplementation(() => chunks(toolChunk));
+    const result = await events();
+    expect(streamChat.mock.calls.at(-1)?.[1].tools).toEqual([]);
+    expect(handler).toHaveBeenCalledTimes(7);
+    expect(result.at(-1)?.type).toBe("error");
+  });
+});
+
+describe("context accounting and overflow recovery", () => {
+  beforeEach(() => vi.clearAllMocks());
+  it("emits estimated occupancy and keeps actual provider usage separate", async () => {
+    streamChat.mockReturnValueOnce(
+      chunks(
+        { type: "usage", inputTokens: 321, outputTokens: 12 },
+        { type: "text", text: "done" },
+        { type: "done" },
+      ),
+    );
+    const events = await collect();
+    expect(events.findLast((e) => e.type === "context").usage).toMatchObject({
+      estimated: true,
+      actualInputTokens: 321,
+      actualOutputTokens: 12,
+      state: "ready",
+    });
+  });
+  it("retries only the rejected provider request and never reruns an executed tool", async () => {
+    handler.mockResolvedValue({ ok: true });
+    streamChat
+      .mockImplementationOnce(() => {
+        throw new Error("context_length_exceeded");
+      })
+      .mockReturnValueOnce(
+        chunks(
+          { type: "text", text: "Earlier inspection; no changes." },
+          { type: "done" },
+        ),
+      )
+      .mockReturnValueOnce(
+        chunks(
+          {
+            type: "tool_call",
+            call: { id: "c1", name: "list_hosts", arguments: {} },
+          },
+          { type: "done" },
+        ),
+      )
+      .mockReturnValueOnce(
+        chunks({ type: "text", text: "inspected" }, { type: "done" }),
+      );
+    const events = await collect([
+      { role: "user", content: "old" },
+      { role: "assistant", content: "old reply" },
+      { role: "user", content: "check" },
+    ]);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(streamChat).toHaveBeenCalledTimes(4);
+    expect(events.at(-1).type).toBe("done");
+  });
+});

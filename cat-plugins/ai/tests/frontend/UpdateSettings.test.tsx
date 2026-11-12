@@ -1,0 +1,233 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { UpdateSettings } from "../../src/frontend/UpdateSettings";
+import type { UpdateInfo } from "../../src/shared/update-policy";
+import {
+  clearUpdateRestartIntent,
+  readUpdateRestartIntent,
+} from "../../src/frontend/update-recovery";
+
+const api = vi.hoisted(() => ({
+  get: vi.fn(),
+  put: vi.fn(),
+  post: vi.fn(),
+}));
+
+vi.mock("../../src/frontend/app-ref", () => ({
+  aiApp: () => ({ api }),
+}));
+vi.mock("react-i18next", async (original) => ({
+  ...(await original<object>()),
+  useTranslation: () => ({ t: (key: string) => key }),
+}));
+
+const requestId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+let snapshot: UpdateInfo;
+beforeEach(() => {
+  clearUpdateRestartIntent();
+  window.sessionStorage.clear();
+  vi.clearAllMocks();
+  snapshot = {
+    canManage: true,
+    installed: true,
+    policy: { enabled: false, intervalHours: 6, proxyUrl: "" },
+    proxyConfigured: false,
+    status: {
+      phase: "current",
+      lastCheckAt: "2026-10-09T01:00:00.000Z",
+      currentRevision: "a".repeat(40),
+      availableRevision: "a".repeat(40),
+    },
+    request: null,
+  };
+  api.get.mockImplementation(async () => ({ data: structuredClone(snapshot) }));
+  api.put.mockResolvedValue({ data: { success: true } });
+  api.post.mockImplementation(async () => {
+    snapshot = {
+      ...snapshot,
+      request: {
+        id: requestId,
+        action: "check",
+        requestedAt: "2026-10-10T00:00:00.000Z",
+        state: "queued",
+      },
+    };
+    return { data: { accepted: true, requestId } };
+  });
+});
+afterEach(() => {
+  cleanup();
+  clearUpdateRestartIntent();
+  window.sessionStorage.clear();
+});
+
+async function showSettings() {
+  render(<UpdateSettings />);
+  await screen.findByText("ai.updateLatest");
+  fireEvent.click(screen.getByText("ai.updateSettings"));
+}
+
+describe("updater check feedback", () => {
+  it("preserves the complete proxy scheme while typing and on save", async () => {
+    await showSettings();
+    const input = screen.getByPlaceholderText(
+      "http://192.168.1.2:7890",
+    ) as HTMLInputElement;
+    for (const value of [
+      "h",
+      "ht",
+      "http",
+      "http:",
+      "http:/",
+      "http://",
+      "http://192.168.1.2:7890",
+    ]) {
+      fireEvent.change(input, { target: { value } });
+      await Promise.resolve();
+      expect(input.value).toBe(value);
+    }
+    // A new translation function is returned on each render by the test
+    // mock; it must not trigger another config fetch that erases typing.
+    expect(api.get).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "common.save" }));
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith("/updates", {
+        enabled: false,
+        intervalHours: 6,
+        proxyUrl: "http://192.168.1.2:7890",
+        keepProxy: false,
+      }),
+    );
+    expect(input.value).toBe("http://192.168.1.2:7890");
+  });
+
+  it("preserves an existing HTTP proxy and accepts an HTTPS replacement", async () => {
+    snapshot.policy.proxyUrl = "http://proxy.internal:7890";
+    snapshot.proxyConfigured = true;
+    await showSettings();
+    const input = screen.getByPlaceholderText(
+      "http://192.168.1.2:7890",
+    ) as HTMLInputElement;
+    expect(input.value).toBe("http://proxy.internal:7890");
+    fireEvent.change(input, {
+      target: { value: "https://secure-proxy.internal:8443" },
+    });
+    await Promise.resolve();
+    expect(input.value).toBe("https://secure-proxy.internal:8443");
+    fireEvent.click(screen.getByRole("button", { name: "common.save" }));
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith("/updates", {
+        enabled: false,
+        intervalHours: 6,
+        proxyUrl: "https://secure-proxy.internal:8443",
+        keepProxy: false,
+      }),
+    );
+  });
+
+  it("spins immediately and keeps spinning after HTTP 202 until the helper finishes", async () => {
+    await showSettings();
+    const check = screen.getByRole("button", { name: "ai.updateCheck" });
+    fireEvent.click(check);
+    await screen.findByText("ai.updateQueued");
+    const checking = screen.getByRole("button", { name: "ai.updateChecking" });
+    expect((checking as HTMLButtonElement).disabled).toBe(true);
+    expect(checking.querySelector(".animate-spin")).not.toBeNull();
+    expect(screen.getByTestId("updater-progress").textContent).toContain(
+      "ai.updateQueued",
+    );
+    expect(api.post).toHaveBeenCalledWith("/updates/check", {
+      confirmRestart: false,
+    });
+
+    snapshot = {
+      ...snapshot,
+      request: { ...snapshot.request!, state: "running" },
+      status: { ...snapshot.status, phase: "checking" },
+    };
+    await waitFor(
+      () =>
+        expect(screen.getByTestId("updater-progress").textContent).toContain(
+          "ai.updateCheckingUpstream",
+        ),
+      { timeout: 5000 },
+    );
+    snapshot = {
+      ...snapshot,
+      request: { ...snapshot.request!, state: "completed" },
+      status: {
+        ...snapshot.status,
+        phase: "current",
+        lastCheckAt: "2026-10-10T00:00:05.000Z",
+      },
+    };
+    await waitFor(
+      () =>
+        expect(screen.getByTestId("updater-progress").textContent).toContain(
+          "ai.updateLatest",
+        ),
+      { timeout: 5000 },
+    );
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "ai.updateCheck",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+  }, 15000);
+
+  it("shows updater errors and their message without a misleading completion", async () => {
+    snapshot.request = {
+      id: requestId,
+      action: "check",
+      requestedAt: "2026-10-10T00:00:00.000Z",
+      state: "failed",
+    };
+    snapshot.status = {
+      ...snapshot.status,
+      phase: "error",
+      message: "Registry request failed (502); check proxy",
+    };
+    render(<UpdateSettings />);
+    await screen.findByText("ai.updateCheckFailed");
+    expect(screen.getByTestId("updater-progress").textContent).toContain(
+      "Registry request failed (502)",
+    );
+    expect(screen.getByTestId("updater-progress").textContent).not.toContain(
+      "ai.updateLatest",
+    );
+  });
+
+  it("tracks a confirmed installation separately from a check, across the restart", async () => {
+    await showSettings();
+    api.post.mockResolvedValueOnce({
+      data: { accepted: true, requestId },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "ai.updateApply" }));
+    fireEvent.click(screen.getByRole("button", { name: "ai.updateConfirm" }));
+    await waitFor(() =>
+      expect(readUpdateRestartIntent()).toMatchObject({
+        trigger: "manual",
+        requestId,
+        previousRevision: "a".repeat(40),
+      }),
+    );
+    expect(api.post).toHaveBeenCalledWith("/updates/apply", {
+      confirmRestart: true,
+    });
+  });
+
+  it("does not expose updater controls to an account without admin grants", async () => {
+    snapshot.canManage = false;
+    render(<UpdateSettings />);
+    await waitFor(() => expect(api.get).toHaveBeenCalled());
+    expect(screen.queryByTestId("system-software-updates")).toBeNull();
+  });
+});

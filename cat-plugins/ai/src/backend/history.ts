@@ -1,0 +1,134 @@
+import type { ChatMessage, ToolCall } from "./providers/types.js";
+
+export interface StoredMessage {
+  id?: number;
+  role: string;
+  content: string;
+  toolCalls: string | null;
+  images?: string | null;
+}
+
+const INTERRUPTED_RESULT = JSON.stringify({
+  error: "No result: the reply was interrupted before this tool finished.",
+});
+
+/** Existing conversations from older versions have no images column data. */
+export function parseStoredImages(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) &&
+      parsed.length <= 3 &&
+      parsed.every(
+        (value) =>
+          typeof value === "string" &&
+          /^data:image\/webp;base64,[a-zA-Z0-9+/]+=*$/.test(value),
+      )
+      ? parsed
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseCalls(raw: string | null): ToolCall[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/** A tool row keeps the call it answers in toolCalls, as a one-item list. */
+export function toStoredMessage(message: ChatMessage): StoredMessage {
+  if (message.role === "tool") {
+    return {
+      role: "tool",
+      content: message.content,
+      toolCalls: JSON.stringify([
+        { id: message.toolCallId, name: message.toolName },
+      ]),
+    };
+  }
+  return {
+    role: message.role,
+    content: message.content,
+    toolCalls: message.toolCalls?.length
+      ? JSON.stringify(message.toolCalls)
+      : null,
+    ...(message.images?.length
+      ? { images: JSON.stringify(message.images) }
+      : {}),
+  };
+}
+
+/**
+ * Rebuilds what the provider sees from the stored rows.
+ *
+ * Every provider rejects an assistant turn whose tool calls have no results,
+ * which is what a run cut off mid-way leaves behind, so any missing result is
+ * filled in as interrupted. Tool rows that answer nothing are dropped.
+ */
+export function toChatHistory(rows: StoredMessage[]): ChatMessage[] {
+  const history: ChatMessage[] = [];
+  let open: ToolCall[] = [];
+  let openId: number | undefined;
+
+  const closeOpen = () => {
+    for (const call of open) {
+      history.push({
+        role: "tool",
+        content: INTERRUPTED_RESULT,
+        storedId: openId,
+        toolCallId: call.id,
+        toolName: call.name,
+      });
+    }
+    open = [];
+    openId = undefined;
+  };
+
+  for (const row of rows) {
+    if (row.role === "tool") {
+      const answered = parseCalls(row.toolCalls)[0];
+      const index = open.findIndex((call) => call.id === answered?.id);
+      if (index === -1) continue;
+      const [call] = open.splice(index, 1);
+      history.push({
+        role: "tool",
+        storedId: row.id,
+        content: row.content,
+        toolCallId: call.id,
+        toolName: call.name,
+      });
+      continue;
+    }
+
+    closeOpen();
+
+    if (row.role === "assistant") {
+      const calls = parseCalls(row.toolCalls);
+      history.push({
+        role: "assistant",
+        storedId: row.id,
+        content: row.content,
+        ...(calls.length ? { toolCalls: calls } : {}),
+      });
+      open = [...calls];
+      openId = row.id;
+    } else if (row.role === "user") {
+      const images = parseStoredImages(row.images);
+      history.push({
+        role: "user",
+        storedId: row.id,
+        content: row.content,
+        ...(images.length ? { images } : {}),
+      });
+    }
+  }
+
+  closeOpen();
+  return history;
+}
