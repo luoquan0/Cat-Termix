@@ -187,3 +187,193 @@ jobs:
           path: /tmp/cat-termix-ai-smoke.log
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Upload validated build outputs for both native architectures
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cat-termix-agent-ai-build-${{ github.sha }}
+          path: |
+            dist/
+            packages/plugin-sdk/dist/
+            cat-plugins/agent/dist/
+            cat-plugins/agent/manifest.json
+            cat-plugins/agent/package.json
+            cat-plugins/agent/locales/
+            cat-plugins/ai/dist/
+            cat-plugins/ai/manifest.json
+            cat-plugins/ai/package.json
+            cat-plugins/ai/migrations/
+            cat-plugins/ai/locales/
+          retention-days: 7
+
+  # The immutable Beta.2 tag is published only from a deliberate, tagged
+  # [publish-ai-beta] commit after the plugin and container checks pass.
+  image:
+    if: github.repository == 'luoquan0/Cat-Termix' && github.event_name == 'push' && github.ref == 'refs/heads/cat-termix/ai-port-26.11' && contains(github.event.head_commit.message, '[publish-ai-beta]')
+    needs: [ai-container-smoke]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: cat-termix-agent-ai-build-${{ github.sha }}
+          path: .
+      - name: Stage previously tested source-built core and both plugins
+        run: |
+          set -euo pipefail
+          context=/tmp/cat-termix-agent-ai-beta-context
+          mkdir -p "$context/html" "$context/backend" "$context/sdk" "$context/agent" "$context/ai"
+          cp -a dist/. "$context/html/"
+          rm -rf "$context/html/backend" "$context/html/plugins"
+          cp -a dist/backend/. "$context/backend/"
+          cp -a packages/plugin-sdk/dist/. "$context/sdk/"
+          cp -a cat-plugins/agent/dist "$context/agent/dist"
+          cp -a cat-plugins/agent/locales "$context/agent/locales"
+          cp cat-plugins/agent/manifest.json cat-plugins/agent/package.json "$context/agent/"
+          cp -a cat-plugins/ai/dist "$context/ai/dist"
+          cp -a cat-plugins/ai/migrations "$context/ai/migrations"
+          cp -a cat-plugins/ai/locales "$context/ai/locales"
+          cp cat-plugins/ai/manifest.json cat-plugins/ai/package.json "$context/ai/"
+          cp docker/agent/patch-nginx-legacy-route.mjs "$context/patch-nginx-legacy-route.mjs"
+          cp docker/agent/configure-agent-trusted-proxies.sh "$context/configure-agent-trusted-proxies.sh"
+          cp docker/entrypoint.sh "$context/entrypoint.sh"
+          cp docker/Dockerfile.agent-ai-26.11-test "$context/Dockerfile"
+          test -s "$context/html/index.html"
+          test -s "$context/backend/package.json"
+          test -s "$context/agent/dist/backend.js"
+          test -s "$context/ai/dist/backend.js"
+          test -s "$context/ai/dist/frontend.js"
+      - uses: docker/setup-buildx-action@v4
+        with:
+          buildkitd-config-inline: |
+            [worker.oci]
+              max-parallelism = 2
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build native architecture candidate and push by source SHA
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: /tmp/cat-termix-agent-ai-beta-context
+          file: /tmp/cat-termix-agent-ai-beta-context/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          push: true
+          tags: ghcr.io/luoquan0/cat-termix:build-${{ github.sha }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=cat-ai-2611-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=cat-ai-2611-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/luoquan0/Cat-Termix
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=26.11-agent-ai-beta.2
+            org.opencontainers.image.description=TEST ONLY: Termix 26.11.0 with Cat Agent and Cat AI plugins
+      - name: Verify exact candidate image with isolated data
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/cat-termix-ai-arch-logs
+          trap 'docker logs cat-termix-ai-arch-smoke > /tmp/cat-termix-ai-arch-logs/container.log 2>&1 || true; docker rm -fv cat-termix-ai-arch-smoke >/dev/null 2>&1 || true' EXIT
+          docker run -d --name cat-termix-ai-arch-smoke -p 127.0.0.1:19080:8080 "ghcr.io/luoquan0/cat-termix@$DIGEST"
+          expected_arch="${{ matrix.arch }}"
+          if [ "$expected_arch" = "amd64" ]; then expected_arch=x64; fi
+          actual_arch="$(docker exec cat-termix-ai-arch-smoke node -p process.arch)"
+          test "$actual_arch" = "$expected_arch"
+          ready=false
+          for attempt in $(seq 1 90); do
+            if docker exec cat-termix-ai-arch-smoke wget -q -O /dev/null http://127.0.0.1:30001/health &&
+               curl -fsS http://127.0.0.1:19080/ -o /tmp/cat-termix-ai-arch-logs/index.html; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" = true
+          grep -q 'id="root"' /tmp/cat-termix-ai-arch-logs/index.html
+          docker exec cat-termix-ai-arch-smoke node -e "const fs=require('fs');const m=JSON.parse(fs.readFileSync('/app/dist/plugins/ai/manifest.json','utf8'));if(m.id!=='ai'||m.version!=='1.3.2-beta.1')process.exit(1)"
+          docker exec cat-termix-ai-arch-smoke test -s /app/dist/plugins/agent/dist/backend.js
+          CAT_TERMIX_SMOKE_URL=http://127.0.0.1:19080 node docker/ai/ai-beta-smoke.mjs | tee /tmp/cat-termix-ai-arch-logs/ai-api.log
+          CAT_TERMIX_SMOKE_URL=http://127.0.0.1:19080 node docker/agent/transport-smoke.mjs | tee /tmp/cat-termix-ai-arch-logs/agent-transport.log
+          docker cp docker/agent/preview-smoke.mjs cat-termix-ai-arch-smoke:/tmp/agent-preview-smoke.mjs
+          docker exec -e CAT_TERMIX_SMOKE_URL=http://127.0.0.1:8080 cat-termix-ai-arch-smoke node /tmp/agent-preview-smoke.mjs | tee /tmp/cat-termix-ai-arch-logs/agent-signing.log
+          printf '%s\n' "ghcr.io/luoquan0/cat-termix@$DIGEST" > /tmp/cat-termix-ai-arch-logs/digest.txt
+          echo "Native ${{ matrix.arch }}: verified Agent and Cat AI, container boot, image digest, signed pairing and transport." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cat-termix-ai-beta-${{ matrix.arch }}-${{ github.run_id }}
+          path: /tmp/cat-termix-ai-arch-logs
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish-ai-test-image:
+    if: github.repository == 'luoquan0/Cat-Termix' && github.event_name == 'push' && github.ref == 'refs/heads/cat-termix/ai-port-26.11' && contains(github.event.head_commit.message, '[publish-ai-beta]')
+    needs: [image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Refuse to overwrite previously published beta.2
+        run: |
+          set -euo pipefail
+          if docker buildx imagetools inspect ghcr.io/luoquan0/cat-termix:26.11-agent-ai-beta.2 >/dev/null 2>&1; then
+            echo "Beta.2 already published; use a new beta tag" >&2
+            exit 1
+          fi
+      - name: Publish only verified native AMD64/ARM64 manifests
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/cat-termix-ai-release
+          docker buildx imagetools create \
+            --tag ghcr.io/luoquan0/cat-termix:26.11-agent-ai-beta.2 \
+            --tag ghcr.io/luoquan0/cat-termix:sha-$GITHUB_SHA \
+            ghcr.io/luoquan0/cat-termix:build-$GITHUB_SHA-amd64 \
+            ghcr.io/luoquan0/cat-termix:build-$GITHUB_SHA-arm64
+          docker buildx imagetools inspect ghcr.io/luoquan0/cat-termix:26.11-agent-ai-beta.2 | tee /tmp/cat-termix-ai-release/manifest.txt
+          docker buildx imagetools inspect ghcr.io/luoquan0/cat-termix:26.11-agent-ai-beta.2 --raw > /tmp/cat-termix-ai-release/index.json
+          jq -e '
+            ([.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "amd64")] | length) == 1 and
+            ([.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "arm64")] | length) == 1
+          ' /tmp/cat-termix-ai-release/index.json
+          digest="$(awk '/^Digest:/ {print $2; exit}' /tmp/cat-termix-ai-release/manifest.txt)"
+          printf 'Image: ghcr.io/luoquan0/cat-termix:26.11-agent-ai-beta.2\nDigest: %s\nSource SHA: %s\nAMD64 and ARM64: verified\n' "$digest" "$GITHUB_SHA" | tee /tmp/cat-termix-ai-release/release.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Probe anonymous GHCR pull without logged-in credentials
+        run: |
+          set -euo pipefail
+          anonymous="$(mktemp -d)"
+          if DOCKER_CONFIG="$anonymous" docker manifest inspect ghcr.io/luoquan0/cat-termix:26.11-agent-ai-beta.2 >/tmp/cat-termix-ai-release/anonymous.json; then
+            echo "Anonymous pull: available" | tee /tmp/cat-termix-ai-release/access.txt >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Anonymous pull: GitHub token with read:packages required" | tee /tmp/cat-termix-ai-release/access.txt >> "$GITHUB_STEP_SUMMARY"
+          fi
+          rm -rf "$anonymous"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cat-termix-ai-beta-release-${{ github.run_id }}
+          path: /tmp/cat-termix-ai-release
+          retention-days: 30
