@@ -22,7 +22,7 @@ jobs:
           path: upstream
           persist-credentials: false
 
-      - name: Verify pristine upstream source
+      - name: Verify exact upstream source
         working-directory: upstream
         run: |
           set -euo pipefail
@@ -33,10 +33,27 @@ jobs:
           test -f src/ui/sidebar/rail-items.ts
           test -f docker/bundled-plugins.json
           test -f packages/plugin-sdk/PLUGIN-GUIDE.md
-          echo "Verified exact upstream tree and original plugin manager."
+          echo "Verified exact upstream source."
 
-      - name: Push untouched upstream source to isolated branch
+      - name: Create clean source snapshot without workflow files
         working-directory: upstream
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/termix-upstream-snapshot
+          git archive HEAD | tar -x -C /tmp/termix-upstream-snapshot
+          rm -rf /tmp/termix-upstream-snapshot/.github/workflows
+          cd /tmp/termix-upstream-snapshot
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore(sync): pristine Termix upstream main snapshot 8cdcd91"
+          echo "Snapshot commit: $(git rev-parse HEAD)"
+          echo "Snapshot tree: $(git rev-parse 'HEAD^{tree}')"
+          echo "Runtime source files: $(git ls-files | wc -l)"
+
+      - name: Push clean upstream source to isolated branch
+        working-directory: /tmp/termix-upstream-snapshot
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_REPO: ${{ github.repository }}
@@ -45,10 +62,9 @@ jobs:
           git remote add cat-target "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git"
           git push cat-target HEAD:refs/heads/cat-termix/upstream-original-26.11.1
           remote_sha="$(git ls-remote cat-target refs/heads/cat-termix/upstream-original-26.11.1 | awk '{print $1}')"
-          test "$remote_sha" = "8cdcd91c258bdaa6cc6f34fefb9ee93c9c1ad89a"
-          echo "## Pristine upstream baseline" >> "$GITHUB_STEP_SUMMARY"
+          test "$remote_sha" = "$(git rev-parse HEAD)"
+          echo "## Pristine upstream source snapshot" >> "$GITHUB_STEP_SUMMARY"
           echo "- Branch: `cat-termix/upstream-original-26.11.1`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Source: `Termix-SSH/Termix`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Commit: `$remote_sha`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Tree: `$(git rev-parse 'HEAD^{tree}')`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Cat custom plugins/core patches: none" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Upstream main commit: `8cdcd91c258bdaa6cc6f34fefb9ee93c9c1ad89a`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Snapshot commit: `$remote_sha`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Upstream workflow definitions are restored separately using the repository file API." >> "$GITHUB_STEP_SUMMARY"
