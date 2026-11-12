@@ -1,0 +1,70 @@
+name: Cat-Termix 26.11 Cat AI port checks
+
+on:
+  push:
+    branches:
+      - cat-termix/ai-port-26.11
+  pull_request:
+    branches:
+      - cat-termix/ai-port-26.11
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cat-termix-ai-port-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+  HUSKY: "0"
+
+jobs:
+  ai-plugin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Verify pinned core and plugin catalog
+        run: node scripts/cat-termix-upstream-check.cjs
+      - name: Install locked core dependencies
+        run: npm ci
+      - name: Build local Termix 26.11 SDK
+        run: npm run build:sdk
+      - name: Install AI provider dependencies without changing root lockfile
+        run: npm install --prefix cat-plugins/ai --omit=dev --no-save --no-package-lock --ignore-scripts --legacy-peer-deps --no-audit
+      - name: Type-check migrated Cat AI plugin
+        run: |
+          set -euo pipefail
+          cd cat-plugins/ai
+          node ../../node_modules/typescript/bin/tsc -p .
+      - name: Run Cat AI regression suite
+        run: |
+          set -euo pipefail
+          cd cat-plugins/ai
+          node ../../node_modules/vitest/vitest.mjs run --maxWorkers=2
+      - name: Build and validate standalone Cat AI
+        run: |
+          set -euo pipefail
+          cd cat-plugins/ai
+          node ../../packages/plugin-sdk/cli/index.mjs build
+          node ../../packages/plugin-sdk/cli/index.mjs validate
+          test -s dist/backend.js
+          test -s dist/frontend.js
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: cat-ai-26-11-${{ github.sha }}
+          path: |
+            cat-plugins/ai/dist/
+            cat-plugins/ai/manifest.json
+            cat-plugins/ai/package.json
+            cat-plugins/ai/migrations/
+            cat-plugins/ai/locales/
+          retention-days: 10
