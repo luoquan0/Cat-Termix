@@ -1,0 +1,592 @@
+/* Plugin utilities (termix-plugin build) rank above base, below core's own. */
+@layer properties, termix-plugin-properties, theme, base, components,
+  termix-plugin-utilities, utilities;
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./theme.css";
+@import "@fontsource-variable/jetbrains-mono";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/400-italic.css";
+@import "@fontsource/jetbrains-mono/700.css";
+@import "@fontsource/jetbrains-mono/700-italic.css";
+@import "@fontsource/fira-code/400.css";
+@import "@fontsource/fira-code/700.css";
+@import "@fontsource/source-code-pro/400.css";
+@import "@fontsource/source-code-pro/400-italic.css";
+@import "@fontsource/source-code-pro/700.css";
+@import "@fontsource/source-code-pro/700-italic.css";
+
+@font-face {
+  font-family: "Caskaydia Cove Nerd Font Mono";
+  src: url("/fonts/CaskaydiaCoveNerdFontMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Caskaydia Cove Nerd Font Mono";
+  src: url("/fonts/CaskaydiaCoveNerdFontMono-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Caskaydia Cove Nerd Font Mono";
+  src: url("/fonts/CaskaydiaCoveNerdFontMono-Italic.ttf") format("truetype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Caskaydia Cove Nerd Font Mono";
+  src: url("/fonts/CaskaydiaCoveNerdFontMono-BoldItalic.ttf") format("truetype");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+:root {
+  --accent-brand: #f59145;
+  --motion-duration-micro: 110ms;
+  --motion-duration-panel: 220ms;
+  --motion-duration-context: 340ms;
+  --motion-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.1802 0.0043 128.73);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.1802 0.0043 128.73);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.1802 0.0043 128.73);
+  --primary: oklch(0.2115 0.0042 128.68);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.2115 0.0042 128.68);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.44 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.2115 0.0042 128.68);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --surface: oklch(0.97 0 0);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.1802 0.0043 128.73);
+  --sidebar-primary: oklch(0.2115 0.0042 128.68);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.2115 0.0042 128.68);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+  --warning: oklch(0.795 0.162 86.05);
+  --terminal-bg: #ffffff;
+  --surface-dim: oklch(0.945 0 0);
+  --bg-base: var(--background);
+  --border-base: var(--border);
+  --foreground-secondary: var(--muted-foreground);
+  --canvas: var(--background);
+  --overlay: oklch(0 0 0 / 50%);
+}
+
+.dark {
+  --background: oklch(0.155 0.004 128.73);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.21 0.004 128.68);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.21 0.004 128.68);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.2115 0.0042 128.68);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --surface: oklch(0.185 0.004 128.73);
+  --surface-dim: oklch(0.165 0.003 128.73);
+  --muted: oklch(0.255 0 0);
+  --muted-foreground: oklch(0.72 0 0);
+  --accent: oklch(0.255 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: #292a28;
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.195 0.004 128.68);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.255 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: #303130;
+  --sidebar-ring: oklch(0.556 0 0);
+  --warning: oklch(0.852 0.156 91.94);
+  --terminal-bg: #0c0d0b;
+}
+
+@layer base {
+  * {
+    /* Tailwind v4 defaults border-color to currentColor, so any bare "border"
+       utility picked up the text color and rendered near-white. */
+    @apply border-border outline-none;
+    scrollbar-width: thin;
+    scrollbar-color: oklch(1 0 0 / 20%) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: oklch(1 0 0 / 20%);
+    border-radius: 3px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: oklch(1 0 0 / 35%);
+  }
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  html,
+  body,
+  #root {
+    height: 100dvh;
+    @apply overflow-hidden;
+  }
+  body {
+    @apply bg-background text-foreground font-mono;
+  }
+  html {
+    @apply font-mono;
+  }
+}
+
+/* Icons sized with the size prop carry width/height attributes in px, which
+   the interface size setting cannot reach. These restate them in CSS, where
+   they become rem like every other length. A size class on the icon wins. */
+@layer base {
+  svg.lucide[width="8"] {
+    width: 8px;
+    height: 8px;
+  }
+  svg.lucide[width="9"] {
+    width: 9px;
+    height: 9px;
+  }
+  svg.lucide[width="10"] {
+    width: 10px;
+    height: 10px;
+  }
+  svg.lucide[width="11"] {
+    width: 11px;
+    height: 11px;
+  }
+  svg.lucide[width="12"] {
+    width: 12px;
+    height: 12px;
+  }
+  svg.lucide[width="13"] {
+    width: 13px;
+    height: 13px;
+  }
+  svg.lucide[width="14"] {
+    width: 14px;
+    height: 14px;
+  }
+  svg.lucide[width="15"] {
+    width: 15px;
+    height: 15px;
+  }
+  svg.lucide[width="16"] {
+    width: 16px;
+    height: 16px;
+  }
+  svg.lucide[width="17"] {
+    width: 17px;
+    height: 17px;
+  }
+  svg.lucide[width="18"] {
+    width: 18px;
+    height: 18px;
+  }
+  svg.lucide[width="19"] {
+    width: 19px;
+    height: 19px;
+  }
+  svg.lucide[width="20"] {
+    width: 20px;
+    height: 20px;
+  }
+  svg.lucide[width="21"] {
+    width: 21px;
+    height: 21px;
+  }
+  svg.lucide[width="22"] {
+    width: 22px;
+    height: 22px;
+  }
+  svg.lucide[width="23"] {
+    width: 23px;
+    height: 23px;
+  }
+  svg.lucide[width="24"] {
+    width: 24px;
+    height: 24px;
+  }
+  svg.lucide[width="25"] {
+    width: 25px;
+    height: 25px;
+  }
+  svg.lucide[width="26"] {
+    width: 26px;
+    height: 26px;
+  }
+  svg.lucide[width="27"] {
+    width: 27px;
+    height: 27px;
+  }
+  svg.lucide[width="28"] {
+    width: 28px;
+    height: 28px;
+  }
+  svg.lucide[width="29"] {
+    width: 29px;
+    height: 29px;
+  }
+  svg.lucide[width="30"] {
+    width: 30px;
+    height: 30px;
+  }
+  svg.lucide[width="31"] {
+    width: 31px;
+    height: 31px;
+  }
+  svg.lucide[width="32"] {
+    width: 32px;
+    height: 32px;
+  }
+  svg.lucide[width="36"] {
+    width: 36px;
+    height: 36px;
+  }
+  svg.lucide[width="40"] {
+    width: 40px;
+    height: 40px;
+  }
+  svg.lucide[width="48"] {
+    width: 48px;
+    height: 48px;
+  }
+  svg.lucide[width="64"] {
+    width: 64px;
+    height: 64px;
+  }
+  svg.lucide[width="96"] {
+    width: 96px;
+    height: 96px;
+  }
+}
+
+/* Font size scale applied to html element */
+html.fs-xs {
+  font-size: 12px;
+}
+html.fs-sm {
+  font-size: 13px;
+}
+html.fs-md {
+  font-size: 14px;
+}
+html.fs-lg {
+  font-size: 17px;
+}
+html.fs-xl {
+  font-size: 20px;
+}
+
+/* Small icons in buttons snap to even pixels so they sit centered and sharp at every font size. */
+:is(button, [role="button"]) svg:is(.size-3, .size-3\.5) {
+  width: round(nearest, 0.875rem, 2px);
+  height: round(nearest, 0.875rem, 2px);
+}
+:is(button, [role="button"]) svg.size-3 {
+  width: round(nearest, 0.75rem, 2px);
+  height: round(nearest, 0.75rem, 2px);
+}
+
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Motion communicates state and hierarchy. Keep it off the terminal glyph layer. */
+.motion-interactive {
+  transition-duration: var(--motion-duration-micro);
+  transition-timing-function: var(--motion-ease-enter);
+}
+
+.motion-meter {
+  transition: width var(--motion-duration-panel) var(--motion-ease-enter);
+}
+
+.motion-panel-enter {
+  animation: motion-panel-enter var(--motion-duration-panel)
+    var(--motion-ease-enter) both;
+}
+
+.motion-context-enter {
+  animation: motion-context-enter var(--motion-duration-context)
+    var(--motion-ease-enter) both;
+}
+
+.motion-fade-enter {
+  animation: motion-fade-enter var(--motion-duration-context)
+    var(--motion-ease-enter) both;
+}
+
+.motion-workspace-enter {
+  animation: motion-workspace-enter var(--motion-duration-panel)
+    var(--motion-ease-enter) both;
+}
+
+.motion-workspace-layout {
+  animation: motion-workspace-layout var(--motion-duration-context)
+    var(--motion-ease-enter) both;
+}
+
+.motion-transfer-phase {
+  animation: motion-transfer-phase var(--motion-duration-micro)
+    var(--motion-ease-enter) both;
+}
+
+.transfer-progress-track {
+  position: relative;
+  height: 5px;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--primary) 16%, transparent);
+}
+
+.transfer-progress-fill {
+  width: 100%;
+  height: 100%;
+  background: var(--accent-brand);
+  transform: scaleX(var(--transfer-progress, 0));
+  transform-origin: left center;
+  transition: transform var(--motion-duration-panel) var(--motion-ease-enter);
+}
+
+.transfer-progress-indeterminate {
+  width: 32%;
+  transform: translateX(-110%);
+  animation: transfer-progress-flow 1.1s var(--motion-ease-enter) infinite;
+}
+
+.transfer-progress-stalled {
+  background: var(--destructive);
+  animation: none;
+}
+
+.transfer-progress-indeterminate.transfer-progress-stalled {
+  transform: translateX(105%);
+}
+
+.host-status-stripe {
+  position: relative;
+  isolation: isolate;
+}
+
+.host-status-stripe[data-locking="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0 -3px;
+  z-index: -1;
+  background: inherit;
+  opacity: 0;
+  transform: scaleX(1);
+  animation: host-signal-lock var(--motion-duration-context)
+    var(--motion-ease-enter) both;
+}
+
+@keyframes motion-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes motion-context-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.995);
+    filter: saturate(0.65);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: saturate(1);
+  }
+}
+
+@keyframes motion-fade-enter {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes motion-workspace-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes motion-workspace-layout {
+  from {
+    opacity: 0.72;
+    transform: scale(0.996);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes motion-transfer-phase {
+  from {
+    opacity: 0.45;
+    transform: translateX(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes transfer-progress-flow {
+  to {
+    transform: translateX(420%);
+  }
+}
+
+@keyframes host-signal-lock {
+  0% {
+    opacity: 0;
+    transform: scaleX(3.2);
+  }
+  38% {
+    opacity: 0.48;
+  }
+  100% {
+    opacity: 0;
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration-micro: 1ms;
+    --motion-duration-panel: 1ms;
+    --motion-duration-context: 1ms;
+  }
+
+  .motion-panel-enter,
+  .motion-context-enter,
+  .motion-fade-enter,
+  .motion-workspace-enter,
+  .motion-workspace-layout,
+  .motion-transfer-phase,
+  .transfer-progress-indeterminate,
+  .host-status-stripe[data-locking="true"]::after {
+    animation: none;
+  }
+
+  .motion-meter {
+    transition: none;
+  }
+
+  .transfer-progress-indeterminate {
+    transform: translateX(105%);
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* A settings search result, marked briefly after the page opens. */
+.settings-search-hit {
+  outline: 1px solid var(--accent-brand);
+  outline-offset: 2px;
+  transition: outline-color 1.2s ease;
+}
+
+/* Cards and rows the settings page search filtered out. */
+[data-search-hidden] {
+  display: none !important;
+}
+
+::highlight(settings-search) {
+  background-color: color-mix(in oklab, var(--accent-brand) 35%, transparent);
+  color: inherit;
+}
+
+/*
+ * The title bar the desktop app draws on top of its window. The window has
+ * no native frame, so this strip is what moves the window around: the whole
+ * bar drags, everything inside it that takes clicks does not.
+ */
+.termix-titlebar {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.termix-titlebar button,
+.termix-titlebar a,
+.termix-titlebar input,
+.termix-titlebar [role="button"] {
+  -webkit-app-region: no-drag;
+}
+
+/*
+ * Layouts size themselves to the viewport with h-dvh. Under the app-drawn
+ * title bar the usable height is shorter, so trim it while the bar shows.
+ */
+.h-dvh {
+  height: calc(100dvh - var(--termix-titlebar-height, 0px));
+}

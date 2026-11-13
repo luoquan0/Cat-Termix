@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+    <id>com.karmaa.termix</id>
+    <name>Termix</name>
+    <summary>Self-hosted, plugin-based server management.</summary>
+
+    <metadata_license>CC0-1.0</metadata_license>
+    <project_license>Apache-2.0</project_license>
+
+    <developer id="site.termix">
+        <name>Termix</name>
+    </developer>
+
+    <description>
+        <p>
+            Termix is a free, open source, self-hosted platform for managing your servers, built on plugins. The core
+            keeps your hosts, credentials, users and sharing, and plugins add the SSH terminal, remote desktop (RDP, VNC,
+            Telnet), file manager, tunnels, Docker, metrics and more. It runs on web, desktop and mobile, and it is a
+            free, self-hosted alternative to Termius.
+        </p>
+    </description>
+
+    <launchable type="desktop-id">com.karmaa.termix.desktop</launchable>
+
+    <url type="homepage">https://github.com/Termix-SSH/Termix</url>
+    <url type="bugtracker">https://github.com/Termix-SSH/Termix/issues</url>
+    <url type="help">https://docs.termix.site</url>
+    <url type="vcs-browser">https://github.com/Termix-SSH/Termix</url>
+
+    <content_rating type="oars-1.1">
+        <content_attribute id="social-info">moderate</content_attribute>
+    </content_rating>
+
+    <releases>
+        <release version="VERSION_PLACEHOLDER" date="DATE_PLACEHOLDER">
+            <description>
+                <p>Latest release of Termix</p>
+            </description>
+            <url>https://github.com/Termix-SSH/Termix/releases</url>
+        </release>
+    </releases>
+
+    <categories>
+        <category>Development</category>
+        <category>Network</category>
+        <category>System</category>
+    </categories>
+
+    <keywords>
+        <keyword>docker</keyword>
+        <keyword>ssh</keyword>
+        <keyword>terminal</keyword>
+        <keyword>telnet</keyword>
+        <keyword>self-hosted</keyword>
+        <keyword>rdp</keyword>
+        <keyword>file-management</keyword>
+        <keyword>vnc</keyword>
+        <keyword>ssh-tunnel</keyword>
+        <keyword>server-stats</keyword>
+        <keyword>termix</keyword>
+
+    </keywords>
+
+
+    <requires>
+        <internet>always</internet>
+    </requires>
+</component>

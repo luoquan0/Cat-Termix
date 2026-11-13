@@ -1,0 +1,364 @@
+import fs from "node:fs";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import * as esbuild from "esbuild";
+import { BACKEND_EXTERNALS, FRONTEND_EXTERNALS } from "../lib/externals.mjs";
+import { staticUrlImports } from "../lib/static-url-imports.mjs";
+import {
+  readManifest,
+  resolveEntry,
+  copyDir,
+  isThemeOnly,
+} from "../lib/plugin-dir.mjs";
+import { openapi } from "./openapi.mjs";
+import { splitByCoreClasses } from "../lib/css-classes.mjs";
+
+const BACKEND_ENTRIES = [
+  "src/backend/index.ts",
+  "src/backend/index.mjs",
+  "src/backend/index.js",
+];
+const FRONTEND_ENTRIES = [
+  "src/frontend/index.tsx",
+  "src/frontend/index.ts",
+  "src/frontend/index.mjs",
+  "src/frontend/index.js",
+];
+const MOBILE_ENTRIES = [
+  "src/mobile/index.tsx",
+  "src/mobile/index.ts",
+  "src/mobile/index.mjs",
+  "src/mobile/index.js",
+];
+
+/** Builds a bundle that runs in a browser against core's shared modules. */
+async function buildBrowserBundle(entry, outfile, outDir) {
+  await esbuild.build({
+    entryPoints: [entry],
+    outfile,
+    bundle: true,
+    format: "esm",
+    platform: "browser",
+    target: "es2022",
+    jsx: "automatic",
+    sourcemap: true,
+    logLevel: "warning",
+    external: FRONTEND_EXTERNALS,
+    // Vite replaces these in the dev server; a plugin bundle has to have
+    // them too, or code that reads them throws when the plugin loads.
+    define: {
+      "process.env.NODE_ENV": '"production"',
+      "import.meta.env.DEV": "false",
+      "import.meta.env.PROD": "true",
+      "import.meta.env.MODE": '"production"',
+      "import.meta.env.SSR": "false",
+      "import.meta.env":
+        '{"DEV":false,"PROD":true,"MODE":"production","SSR":false,"BASE_URL":"/"}',
+    },
+    plugins: [
+      externalRequireInterop(FRONTEND_EXTERNALS),
+      staticUrlImports({ outDir }),
+    ],
+  });
+}
+
+/**
+ * A bundled CommonJS package that calls require("react/jsx-runtime") (or any
+ * other host-provided package) cannot reach it: the package is external, and
+ * esbuild's ESM output has no require, so the plugin throws "Dynamic require
+ * is not supported" as soon as it loads. Each such require is pointed at a
+ * small ES module that imports the external and re-exports it, which esbuild
+ * can hand to CommonJS code.
+ */
+export function externalRequireInterop(externals) {
+  const names = new Set(externals.filter((name) => !name.includes("*")));
+  return {
+    name: "termix-external-require",
+    setup(build) {
+      build.onResolve({ filter: /.*/ }, (args) => {
+        if (args.kind !== "require-call" || !names.has(args.path)) return;
+        return { path: args.path, namespace: "termix-external-require" };
+      });
+      build.onLoad(
+        { filter: /.*/, namespace: "termix-external-require" },
+        (args) => {
+          const id = JSON.stringify(args.path);
+          return {
+            contents: `import * as mod from ${id};\nexport * from ${id};\nexport default mod.default ?? mod;\n`,
+            loader: "js",
+          };
+        },
+      );
+    },
+  };
+}
+
+// A .wasm or font import becomes its bytes (a Uint8Array) inside the bundle,
+// so it ships in backend.js or a worker with no separate file to find.
+export const BINARY_EXTENSIONS = [".wasm", ".ttf", ".otf"];
+const BINARY_LOADERS = Object.fromEntries(
+  BINARY_EXTENSIONS.map((ext) => [ext, "binary"]),
+);
+
+const REQUIRE_BANNER =
+  "import { createRequire as __termixCreateRequire } from 'node:module'; const require = __termixCreateRequire(import.meta.url);";
+
+/**
+ * package.json "termix": { "workers": { "engine": "src/backend/engine/worker.ts" } }
+ * bundles each entry on its own into dist/workers/<name>.js, for
+ * new Worker(new URL("./workers/<name>.js", import.meta.url)). Nothing is left
+ * external: core's import fallback only runs on the main thread, so a worker
+ * can't rely on host packages and must not import the SDK.
+ */
+export function readWorkerEntries(cwd, pluginId) {
+  const pkgPath = path.join(cwd, "package.json");
+  const pkg = fs.existsSync(pkgPath)
+    ? JSON.parse(fs.readFileSync(pkgPath, "utf8"))
+    : {};
+  const workers = pkg.termix?.workers ?? {};
+  return Object.entries(workers).map(([name, entry]) => {
+    if (!/^[a-z0-9-]+$/.test(name)) {
+      throw new Error(`${pluginId}: worker name "${name}" must be lowercase`);
+    }
+    const file = path.resolve(cwd, String(entry));
+    if (!fs.existsSync(file)) {
+      throw new Error(
+        `${pluginId}: worker "${name}" entry ${entry} is missing`,
+      );
+    }
+    return { name, file };
+  });
+}
+
+const SDK_PATCHES = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "patches",
+);
+
+/**
+ * Patches a dependency before it is bundled, so the fix ships inside the
+ * plugin rather than depending on whoever ran npm install.
+ *
+ * package.json "termix": { "patches": ["xterm-android-ime"] } names patches
+ * the SDK ships for libraries several plugins share. Any .cjs file in the
+ * plugin's own patches/ folder runs too. Every patch must be safe to run
+ * twice.
+ */
+export function applyPatches(cwd, pluginId) {
+  const pkgPath = path.join(cwd, "package.json");
+  const pkg = fs.existsSync(pkgPath)
+    ? JSON.parse(fs.readFileSync(pkgPath, "utf8"))
+    : {};
+  const scripts = [];
+  for (const name of pkg.termix?.patches ?? []) {
+    const file = path.join(SDK_PATCHES, `${name}.cjs`);
+    if (!/^[a-z0-9-]+$/.test(name) || !fs.existsSync(file)) {
+      throw new Error(`${pluginId}: the SDK has no patch named "${name}"`);
+    }
+    scripts.push(file);
+  }
+  const own = path.join(cwd, "patches");
+  if (fs.existsSync(own)) {
+    for (const file of fs.readdirSync(own).sort()) {
+      if (file.endsWith(".cjs")) scripts.push(path.join(own, file));
+    }
+  }
+  for (const file of scripts) {
+    const result = spawnSync(process.execPath, [file], {
+      cwd,
+      env: { ...process.env, TERMIX_PATCH_ROOT: cwd },
+      stdio: "inherit",
+    });
+    if (result.status !== 0) {
+      throw new Error(`${pluginId}: patch ${path.basename(file)} failed`);
+    }
+  }
+}
+
+const HOST_DIR = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "dist",
+  "host",
+);
+const THEME_CSS = path.join(HOST_DIR, "theme.css");
+const CORE_CLASSES = path.join(HOST_DIR, "core-classes.json");
+
+/**
+ * Moves a plugin's Tailwind layers under their own names. Core orders
+ * termix-plugin-utilities above its base styles and below its own utilities,
+ * so a plugin's copy of `.hidden` can never beat core's `md:flex` just
+ * because the plugin's file loaded later. Only classes core also ships go
+ * there; `utilities: false` keeps the rest in core's own utilities layer.
+ */
+export function lowerPluginLayers(css, { utilities = true } = {}) {
+  const layers = utilities ? "properties|utilities" : "properties";
+  return css.replace(
+    new RegExp(`@layer (${layers})(?=[\\s{;,])`, "g"),
+    "@layer termix-plugin-$1",
+  );
+}
+
+/** Classes core's CSS has rules for, or null with an SDK built before 1.0.4. */
+function readCoreClasses() {
+  if (!fs.existsSync(CORE_CLASSES)) return null;
+  return new Set(JSON.parse(fs.readFileSync(CORE_CLASSES, "utf8")));
+}
+
+/**
+ * Compiles the Tailwind classes the plugin's frontend uses into
+ * dist/frontend.css, against the theme core ships in the SDK. Core only
+ * compiles its own classes, so a class no core file happens to use would
+ * otherwise have no CSS at all. Appended to whatever CSS the bundle already
+ * produced (a library's stylesheet the plugin imports).
+ */
+export async function buildTailwind(cwd, outDir) {
+  const { compile, optimize } = await import("@tailwindcss/node");
+  const { Scanner } = await import("@tailwindcss/oxide");
+  if (!fs.existsSync(THEME_CSS)) {
+    throw new Error("The SDK theme is missing. Run: npm run build:sdk");
+  }
+  const input = [
+    '@import "tailwindcss/theme.css" theme(reference);',
+    `@import ${JSON.stringify(THEME_CSS.replaceAll("\\", "/"))};`,
+    '@import "tailwindcss/utilities.css" layer(utilities);',
+  ].join("\n");
+  // build() adds to what a compiler already emitted, so each half gets its own.
+  const compiler = () =>
+    compile(input, { base: path.dirname(THEME_CSS), onDependency: () => {} });
+  // The mobile bundle uses the same stylesheet.
+  const sources = ["frontend", "mobile"]
+    .map((dir) => path.join(cwd, "src", dir))
+    .filter((dir, index) => index === 0 || fs.existsSync(dir))
+    .map((base) => ({ base, pattern: "**/*", negated: false }));
+  const scanner = new Scanner({ sources });
+  // Flattened and minified the way core's own CSS is, so it does not rely
+  // on native CSS nesting.
+  const emit = async (candidates, options) =>
+    candidates.length === 0
+      ? ""
+      : lowerPluginLayers(
+          optimize((await compiler()).build(candidates), {
+            minify: true,
+          }).code.trim(),
+          options,
+        );
+  const candidates = scanner.scan();
+  const coreClasses = readCoreClasses();
+  const { shared, own } = coreClasses
+    ? splitByCoreClasses(candidates, coreClasses)
+    : { shared: candidates, own: [] };
+  const css = [await emit(shared), await emit(own, { utilities: false })]
+    .filter(Boolean)
+    .join("\n");
+  if (!css) return;
+  const target = path.join(outDir, "frontend.css");
+  const existing = fs.existsSync(target) ? fs.readFileSync(target, "utf8") : "";
+  fs.writeFileSync(target, `${existing}${existing ? "\n" : ""}${css}\n`);
+}
+
+export async function build({ cwd }) {
+  const manifest = readManifest(cwd);
+  const pluginId = manifest.id ?? path.basename(cwd);
+  const outDir = path.join(cwd, "dist");
+
+  applyPatches(cwd, pluginId);
+
+  fs.rmSync(outDir, { recursive: true, force: true });
+  fs.mkdirSync(outDir, { recursive: true });
+
+  try {
+    await buildInto(cwd, manifest, pluginId, outDir);
+  } catch (error) {
+    // A half build looks newer than the sources, so dev would keep staging it.
+    fs.rmSync(outDir, { recursive: true, force: true });
+    throw error;
+  }
+  console.log(`built ${pluginId}`);
+}
+
+async function buildInto(cwd, manifest, pluginId, outDir) {
+  const backendEntry = resolveEntry(cwd, BACKEND_ENTRIES);
+  if (!backendEntry && !isThemeOnly(manifest)) {
+    throw new Error(
+      `${pluginId}: no backend entry (looked for ${BACKEND_ENTRIES.join(", ")})`,
+    );
+  }
+
+  if (backendEntry) {
+    await esbuild.build({
+      entryPoints: [backendEntry],
+      outfile: path.join(outDir, "backend.js"),
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      target: "node22",
+      sourcemap: true,
+      logLevel: "warning",
+      // A native dependency's compiled .node binary is resolved by the
+      // package's own relative paths, which break once esbuild inlines its JS
+      // elsewhere. Declaring it in nativeDependencies keeps it a real
+      // node_modules import instead, resolved at runtime like a host-provided
+      // package.
+      external: [...BACKEND_EXTERNALS, ...(manifest.nativeDependencies ?? [])],
+      loader: BINARY_LOADERS,
+      // Bundled CJS deps still call require() for Node builtins at runtime.
+      // ESM has no ambient require, so give esbuild's require shim a real one.
+      banner: { js: REQUIRE_BANNER },
+    });
+  } else {
+    // Core loads every plugin through a backend entry, so a theme only
+    // plugin gets an empty one.
+    fs.writeFileSync(
+      path.join(outDir, "backend.js"),
+      "export function activate() {}\n",
+    );
+  }
+
+  for (const worker of readWorkerEntries(cwd, pluginId)) {
+    await esbuild.build({
+      entryPoints: [worker.file],
+      outfile: path.join(outDir, "workers", `${worker.name}.js`),
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      target: "node22",
+      sourcemap: true,
+      logLevel: "warning",
+      loader: BINARY_LOADERS,
+      banner: { js: REQUIRE_BANNER },
+    });
+  }
+
+  // Without this Node finds the host's typeless package.json, tries backend.js
+  // as CommonJS first and warns before reparsing it as ESM.
+  fs.writeFileSync(
+    path.join(outDir, "package.json"),
+    `${JSON.stringify({ type: "module" }, null, 2)}\n`,
+  );
+
+  const frontendEntry = resolveEntry(cwd, FRONTEND_ENTRIES);
+  if (frontendEntry) {
+    await buildBrowserBundle(
+      frontendEntry,
+      path.join(outDir, "frontend.js"),
+      outDir,
+    );
+  }
+
+  // A bundle the mobile app loads in its WebView, next to the frontend one.
+  const mobileEntry = resolveEntry(cwd, MOBILE_ENTRIES);
+  const mobileOut = manifest.contributes?.mobile?.entry;
+  if (mobileEntry && typeof mobileOut === "string") {
+    await buildBrowserBundle(mobileEntry, path.join(cwd, mobileOut), outDir);
+  }
+
+  if (frontendEntry) await buildTailwind(cwd, outDir);
+
+  copyDir(path.join(cwd, "locales"), path.join(outDir, "locales"));
+  copyDir(path.join(cwd, "migrations"), path.join(outDir, "migrations"));
+  await openapi({ cwd, quiet: true });
+}

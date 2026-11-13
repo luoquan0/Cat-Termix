@@ -1,0 +1,386 @@
+import { eq } from "drizzle-orm";
+import { afterEach, describe, expect, it } from "vitest";
+import { sessions } from "../../../database/db/schema.js";
+import type { DatabaseContext } from "../../../database/repositories/database-context.js";
+import { TestSqliteDatabase } from "./test-support.js";
+import {
+  SessionRepository,
+  hashSessionToken,
+} from "../../../database/repositories/session-repository.js";
+import { UserRepository } from "../../../database/repositories/user-repository.js";
+
+describe("UserRepository and SessionRepository", () => {
+  let adapter: TestSqliteDatabase | null = null;
+
+  afterEach(async () => {
+    if (adapter) {
+      await adapter.close();
+      adapter = null;
+    }
+  });
+
+  async function createRepositories(): Promise<{
+    users: UserRepository;
+    sessions: SessionRepository;
+  }>;
+  async function createRepositories(options: {
+    onUserWrite?: () => void | Promise<void>;
+    onSessionWrite?: () => void | Promise<void>;
+    onSessionActivity?: () => void | Promise<void>;
+  }): Promise<{
+    users: UserRepository;
+    sessions: SessionRepository;
+  }>;
+  async function createRepositories(
+    options: {
+      onUserWrite?: () => void | Promise<void>;
+      onSessionWrite?: () => void | Promise<void>;
+      onSessionActivity?: () => void | Promise<void>;
+    } = {},
+  ): Promise<{
+    users: UserRepository;
+    sessions: SessionRepository;
+  }> {
+    adapter = new TestSqliteDatabase();
+    const context = await adapter.connect();
+
+    return {
+      users: new UserRepository(context, options.onUserWrite),
+      sessions: new SessionRepository(
+        context,
+        options.onSessionWrite,
+        options.onSessionActivity,
+      ),
+    };
+  }
+
+  it("creates, finds, updates, and deletes users", async () => {
+    const repo = await createRepositories();
+
+    await repo.users.create({
+      id: "user-1",
+      username: "admin",
+      passwordHash: "hash",
+      isAdmin: true,
+    });
+
+    expect(await repo.users.countAdmins()).toBe(1);
+    expect((await repo.users.listAll()).map((user) => user.id)).toEqual([
+      "user-1",
+    ]);
+    expect((await repo.users.findByUsername("admin"))?.id).toBe("user-1");
+    expect(
+      (await repo.users.listByIds(["user-1", "user-1"])).map((u) => u.id),
+    ).toEqual(["user-1"]);
+    expect(await repo.users.listByIds([])).toEqual([]);
+
+    const updated = await repo.users.update("user-1", { isAdmin: false });
+    expect(updated).toMatchObject({ isAdmin: false, isExternal: false });
+
+    await adapter!.exec(`
+      INSERT INTO user_external_identities (user_id, provider_id, subject)
+      VALUES ('user-1', '3', 'sub-1');
+    `);
+    expect((await repo.users.findById("user-1"))?.isExternal).toBe(true);
+    expect((await repo.users.listAll())[0].isExternal).toBe(true);
+
+    expect(await repo.users.delete("user-1")).toBe(true);
+    expect(await repo.users.findById("user-1")).toBeNull();
+  });
+
+  it("creates the first local user as admin inside the repository", async () => {
+    const repo = await createRepositories();
+
+    const first = await repo.users.createFirstLocalUser({
+      id: "user-1",
+      username: "first",
+      passwordHash: "hash",
+    });
+    const second = await repo.users.createFirstLocalUser({
+      id: "user-2",
+      username: "second",
+      passwordHash: "hash",
+    });
+
+    expect(first.isFirstUser).toBe(true);
+    expect(first.user.isAdmin).toBe(true);
+    expect(second.isFirstUser).toBe(false);
+    expect(second.user.isAdmin).toBe(false);
+    expect(await repo.users.countAll()).toBe(2);
+  });
+
+  it("creates SSO users with first-user and provider admin semantics", async () => {
+    const repo = await createRepositories();
+
+    const first = await repo.users.createFirstSsoUser({
+      id: "user-1",
+      username: "first",
+      passwordHash: "",
+      isAdmin: false,
+    });
+    const providerAdmin = await repo.users.createFirstSsoUser({
+      id: "user-2",
+      username: "provider-admin",
+      passwordHash: "",
+      isAdmin: true,
+    });
+    const regular = await repo.users.createFirstSsoUser({
+      id: "user-3",
+      username: "regular",
+      passwordHash: "",
+      isAdmin: false,
+    });
+
+    expect(first.isFirstUser).toBe(true);
+    expect(first.user.isAdmin).toBe(true);
+    expect(providerAdmin.isFirstUser).toBe(false);
+    expect(providerAdmin.user.isAdmin).toBe(true);
+    expect(regular.isFirstUser).toBe(false);
+    expect(regular.user.isAdmin).toBe(false);
+    expect(await repo.users.countAll()).toBe(3);
+  });
+
+  it("runs the user write hook after user writes", async () => {
+    let writeCount = 0;
+    const repo = await createRepositories({
+      onUserWrite: () => {
+        writeCount += 1;
+      },
+    });
+
+    await repo.users.create({
+      id: "user-1",
+      username: "admin",
+      passwordHash: "hash",
+      isAdmin: true,
+    });
+    await repo.users.update("user-1", { isAdmin: false });
+    await repo.users.delete("user-1");
+
+    expect(writeCount).toBe(3);
+  });
+
+  it("creates, touches, lists, and revokes sessions", async () => {
+    const repo = await createRepositories();
+    await repo.users.create({
+      id: "user-1",
+      username: "user",
+      passwordHash: "hash",
+      isAdmin: false,
+    });
+
+    await repo.sessions.create({
+      id: "session-1",
+      userId: "user-1",
+      jwtToken: "token",
+      deviceType: "desktop",
+      deviceInfo: "Firefox",
+      createdAt: "2026-06-26T00:00:00.000Z",
+      expiresAt: "2026-06-27T00:00:00.000Z",
+      lastActiveAt: "2026-06-26T00:00:00.000Z",
+    });
+
+    await repo.sessions.touch("session-1", "2026-06-26T01:00:00.000Z");
+
+    expect((await repo.sessions.findById("session-1"))?.lastActiveAt).toBe(
+      "2026-06-26T01:00:00.000Z",
+    );
+    expect(await repo.sessions.listByUserId("user-1")).toHaveLength(1);
+    expect(await repo.sessions.revoke("session-1")).toBe(true);
+    expect(await repo.sessions.findById("session-1")).toBeNull();
+  });
+
+  it("persists session activity at most once per minute", async () => {
+    let writeCount = 0;
+    const repo = await createRepositories({
+      onSessionWrite: () => {
+        writeCount += 1;
+      },
+    });
+    await repo.users.create({
+      id: "user-1",
+      username: "user",
+      passwordHash: "hash",
+      isAdmin: false,
+    });
+    await repo.sessions.create({
+      id: "session-1",
+      userId: "user-1",
+      jwtToken: "token",
+      deviceType: "desktop",
+      deviceInfo: "Firefox",
+      createdAt: "2026-06-26T00:00:00.000Z",
+      expiresAt: "2026-06-27T00:00:00.000Z",
+      lastActiveAt: "2026-06-26T00:00:00.000Z",
+    });
+
+    expect(
+      await repo.sessions.touch("session-1", "2026-06-26T00:00:30.000Z"),
+    ).toBe(false);
+    expect(
+      await repo.sessions.touch("session-1", "2026-06-26T00:01:00.000Z"),
+    ).toBe(true);
+
+    expect(writeCount).toBe(2);
+    expect((await repo.sessions.findById("session-1"))?.lastActiveAt).toBe(
+      "2026-06-26T00:01:00.000Z",
+    );
+  });
+
+  it("separates activity persistence from security-critical session writes", async () => {
+    let writes = 0,
+      activity = 0;
+    const repo = await createRepositories({
+      onSessionWrite: () => {
+        writes++;
+      },
+      onSessionActivity: () => {
+        activity++;
+      },
+    });
+    await repo.users.create({
+      id: "user-1",
+      username: "user",
+      passwordHash: "hash",
+      isAdmin: false,
+    });
+    await repo.sessions.create({
+      id: "session-1",
+      userId: "user-1",
+      jwtToken: "token",
+      deviceType: "desktop",
+      deviceInfo: "Firefox",
+      createdAt: "2026-06-26T00:00:00.000Z",
+      expiresAt: "2026-06-27T00:00:00.000Z",
+      lastActiveAt: "2026-06-26T00:00:00.000Z",
+    });
+    expect(writes).toBe(1);
+    await repo.sessions.touch("session-1", "2026-06-26T00:01:00.000Z");
+    expect(activity).toBe(1);
+    expect(writes).toBe(1);
+    await repo.sessions.touch("session-1", "2026-06-26T00:01:10.000Z");
+    expect(activity).toBe(1);
+    await repo.sessions.updateToken("session-1", "renewed");
+    expect(writes).toBe(2);
+    await repo.sessions.revoke("session-1");
+    expect(writes).toBe(3);
+  });
+
+  it("revokes all user sessions except an optional current session", async () => {
+    const repo = await createRepositories();
+    await repo.users.create({
+      id: "user-1",
+      username: "user",
+      passwordHash: "hash",
+      isAdmin: false,
+    });
+
+    for (const id of ["keep", "drop-1", "drop-2"]) {
+      await repo.sessions.create({
+        id,
+        userId: "user-1",
+        jwtToken: `${id}-token`,
+        deviceType: "desktop",
+        deviceInfo: "Firefox",
+        expiresAt: "2026-06-27T00:00:00.000Z",
+      });
+    }
+
+    expect(await repo.sessions.revokeAllForUser("user-1", "keep")).toBe(2);
+    expect(
+      (await repo.sessions.listByUserId("user-1")).map((s) => s.id),
+    ).toEqual(["keep"]);
+  });
+
+  it("deletes expired sessions", async () => {
+    const repo = await createRepositories();
+    await repo.users.create({
+      id: "user-1",
+      username: "user",
+      passwordHash: "hash",
+      isAdmin: false,
+    });
+
+    await repo.sessions.create({
+      id: "expired",
+      userId: "user-1",
+      jwtToken: "expired-token",
+      deviceType: "desktop",
+      deviceInfo: "Firefox",
+      expiresAt: "2026-06-25T00:00:00.000Z",
+    });
+    await repo.sessions.create({
+      id: "active",
+      userId: "user-1",
+      jwtToken: "active-token",
+      deviceType: "desktop",
+      deviceInfo: "Firefox",
+      expiresAt: "2026-06-27T00:00:00.000Z",
+    });
+
+    expect(
+      await repo.sessions.deleteExpired(new Date("2026-06-26T00:00:00.000Z")),
+    ).toBe(1);
+    expect(
+      (await repo.sessions.listByUserId("user-1")).map((s) => s.id),
+    ).toEqual(["active"]);
+  });
+
+  it("keeps only a hash of each session token", async () => {
+    const repo = await createRepositories();
+    await repo.users.create({
+      id: "user-1",
+      username: "user",
+      passwordHash: "hash",
+      isAdmin: false,
+    });
+    await repo.sessions.create({
+      id: "s1",
+      userId: "user-1",
+      jwtToken: "secret-token",
+      deviceType: "desktop",
+      deviceInfo: "Firefox",
+      expiresAt: "2026-06-27T00:00:00.000Z",
+    });
+    const stored = (await repo.sessions.findById("s1"))?.jwtToken;
+    expect(stored).toBe(hashSessionToken("secret-token"));
+    expect(stored).not.toContain("secret-token");
+
+    await repo.sessions.updateToken("s1", "next-token");
+    expect((await repo.sessions.findById("s1"))?.jwtToken).toBe(
+      hashSessionToken("next-token"),
+    );
+    expect(hashSessionToken(hashSessionToken("x"))).toBe(hashSessionToken("x"));
+  });
+
+  it("hashes tokens saved by older versions", async () => {
+    const repo = await createRepositories();
+    await repo.users.create({
+      id: "user-1",
+      username: "user",
+      passwordHash: "hash",
+      isAdmin: false,
+    });
+    await repo.sessions.create({
+      id: "s1",
+      userId: "user-1",
+      jwtToken: "x",
+      deviceType: "desktop",
+      deviceInfo: "Firefox",
+      expiresAt: "2026-06-27T00:00:00.000Z",
+    });
+    // Write a raw token the way older versions did.
+    const context = (repo.sessions as unknown as { context: DatabaseContext })
+      .context;
+    await context.drizzle
+      .update(sessions)
+      .set({ jwtToken: "old-raw" })
+      .where(eq(sessions.id, "s1"));
+
+    expect(await repo.sessions.hashStoredTokens()).toBe(1);
+    expect((await repo.sessions.findById("s1"))?.jwtToken).toBe(
+      hashSessionToken("old-raw"),
+    );
+    expect(await repo.sessions.hashStoredTokens()).toBe(0);
+  });
+});

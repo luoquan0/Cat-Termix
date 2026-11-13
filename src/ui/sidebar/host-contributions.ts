@@ -1,0 +1,189 @@
+import { useEffect, type ComponentType } from "react";
+import type { Host } from "@/types/ui-types";
+import { byOrderThenId, createRegistry } from "@/lib/registry";
+import type { TabShellCallbacks } from "@/shell/tab-registry";
+
+type Icon = ComponentType<{ className?: string; size?: number | string }>;
+
+/**
+ * What a plugin adds to a host: ways to connect or open a tool, badges on its
+ * row, and entries in its context menu. The host list, quick connect and the
+ * command palette all read these instead of knowing about each protocol.
+ */
+export interface HostActionDef {
+  id: string;
+  pluginId?: string;
+  titleKey: string;
+  icon: Icon;
+  kind: "connect" | "open";
+  priority?: number;
+  tabType?: string;
+  when: (host: Host) => boolean;
+  run?: (host: Host, shell: TabShellCallbacks) => void;
+  tray?: boolean;
+  copyUrlView?: string;
+  /** Where the dashboard's host status list sends a click. */
+  overview?: boolean;
+  /** Offered as a button in Quick Connect, opening tabType. */
+  quickConnect?: boolean;
+  order?: number;
+  /** A label worked out per host, e.g. a single endpoint's name. */
+  label?: (host: Host) => string | undefined;
+  /** Several targets: two or more become a picker, one runs directly. */
+  items?: (host: Host) => {
+    id: string;
+    label: string;
+    run: (host: Host, shell: TabShellCallbacks) => void;
+  }[];
+}
+
+/** A problem a plugin wants shown as the host row's one status dot. */
+export interface HostDot {
+  tone: "bad" | "warn";
+  label: string;
+}
+
+/** Calls a plugin's dot hook and passes the answer up to the dot group. */
+export type HostDotReporter = ComponentType<{
+  host: Host;
+  report: (dot: HostDot | null) => void;
+}>;
+
+export interface HostBadgeDef {
+  id: string;
+  pluginId?: string;
+  when: (host: Host) => boolean;
+  /** Drawn as is. Leave out when the badge is only a dot. */
+  component?: ComponentType<{ host: Host }>;
+  /** Merged with every other dot into one dot on the row. */
+  dot?: HostDotReporter;
+  order?: number;
+}
+
+/** The dot or stripe on a host row that shows its status. */
+export type HostStatusIndicatorDef = HostBadgeDef;
+
+/** A button in the host editor's toolbar. */
+export type HostEditorToolbarItemDef = HostBadgeDef;
+
+export interface HostContextMenuItemDef {
+  id: string;
+  pluginId?: string;
+  titleKey: string;
+  icon?: Icon;
+  when: (host: Host) => boolean;
+  run: (host: Host, shell: TabShellCallbacks) => void;
+  order?: number;
+}
+
+const actions = createRegistry<HostActionDef>(byOrderThenId);
+const badges = createRegistry<HostBadgeDef>(byOrderThenId);
+const statusIndicators = createRegistry<HostStatusIndicatorDef>(byOrderThenId);
+const editorToolbarItems =
+  createRegistry<HostEditorToolbarItemDef>(byOrderThenId);
+const menuItems = createRegistry<HostContextMenuItemDef>(byOrderThenId);
+
+export const registerHostAction = actions.register;
+export const useHostActions = actions.useList;
+
+/** Plugin actions sort by order; connect actions default to the end. */
+export function actionOrder(action: HostActionDef): number {
+  return action.order ?? (action.kind === "connect" ? 100 : 50);
+}
+export const listHostActions = actions.list;
+export const registerHostBadge = badges.register;
+export const useHostBadges = badges.useList;
+export const registerHostStatusIndicator = statusIndicators.register;
+export const useHostStatusIndicators = statusIndicators.useList;
+export const registerHostEditorToolbarItem = editorToolbarItems.register;
+export const useHostEditorToolbarItems = editorToolbarItems.useList;
+export const registerHostContextMenuItem = menuItems.register;
+export const useHostContextMenuItems = menuItems.useList;
+
+/** A predicate from a plugin must never take the host list down with it. */
+function safeWhen(predicate: (host: Host) => boolean, host: Host): boolean {
+  try {
+    return predicate(host);
+  } catch {
+    return false;
+  }
+}
+
+export function hostActionsFor(
+  all: HostActionDef[],
+  host: Host,
+  kind?: HostActionDef["kind"],
+): HostActionDef[] {
+  return all.filter(
+    (action) => (!kind || action.kind === kind) && safeWhen(action.when, host),
+  );
+}
+
+/** The connect action a click on the host should run, by priority. */
+export function defaultConnectAction(
+  all: HostActionDef[],
+  host: Host,
+): HostActionDef | undefined {
+  return hostActionsFor(all, host, "connect").sort(
+    (a, b) => (b.priority ?? 0) - (a.priority ?? 0),
+  )[0];
+}
+
+/** Turns a plugin's dot hook into a component the dot group can mount. */
+export function hostDotReporter(
+  useDot: (host: Host) => HostDot | null,
+): HostDotReporter {
+  return function HostDotReport({ host, report }) {
+    const dot = useDot(host);
+    const tone = dot?.tone;
+    const label = dot?.label ?? "";
+    useEffect(() => {
+      report(tone ? { tone, label } : null);
+    }, [tone, label, report]);
+    useEffect(() => () => report(null), [report]);
+    return null;
+  };
+}
+
+export function hostBadgesFor(all: HostBadgeDef[], host: Host): HostBadgeDef[] {
+  return all.filter((badge) => safeWhen(badge.when, host));
+}
+
+export function hostStatusIndicatorsFor(
+  all: HostStatusIndicatorDef[],
+  host: Host,
+): HostStatusIndicatorDef[] {
+  return all.filter((item) => safeWhen(item.when, host));
+}
+
+export function hostEditorToolbarItemsFor(
+  all: HostEditorToolbarItemDef[],
+  host: Host,
+): HostEditorToolbarItemDef[] {
+  return all.filter((item) => safeWhen(item.when, host));
+}
+
+export function hostMenuItemsFor(
+  all: HostContextMenuItemDef[],
+  host: Host,
+): HostContextMenuItemDef[] {
+  return all.filter((item) => safeWhen(item.when, host));
+}
+
+/** Runs an action, falling back to opening its tab type. */
+export function runHostAction(
+  action: HostActionDef,
+  host: Host,
+  shell: TabShellCallbacks,
+): void {
+  if (action.run) action.run(host, shell);
+  else if (action.tabType) shell.openTab(host, action.tabType);
+}
+
+export function resetHostContributions(): void {
+  actions.reset();
+  badges.reset();
+  statusIndicators.reset();
+  editorToolbarItems.reset();
+  menuItems.reset();
+}

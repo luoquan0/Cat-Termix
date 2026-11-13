@@ -1,0 +1,171 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import {
+  defaultLookPluginIds,
+  initialPluginState,
+  isDefaultLookPlugin,
+  onboardingDefaults,
+  resetBundledIndexCache,
+  shippedCatalog,
+} from "../../plugins/bundled-index.js";
+
+let dir: string;
+
+function writeIndex(
+  plugins: Record<string, unknown>,
+  extra: Record<string, unknown> = {},
+) {
+  fs.writeFileSync(
+    path.join(dir, "bundled-index.json"),
+    JSON.stringify({ version: 1, plugins, ...extra }),
+  );
+  resetBundledIndexCache();
+}
+
+beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), "termix-bundled-index-"));
+  process.env.TERMIX_BUNDLED_PLUGINS_DIR = dir;
+  resetBundledIndexCache();
+});
+
+afterEach(() => {
+  delete process.env.TERMIX_BUNDLED_PLUGINS_DIR;
+  delete process.env.ELECTRON_EMBEDDED;
+  delete process.env.TEST_SSO_CLIENT;
+  fs.rmSync(dir, { recursive: true, force: true });
+  resetBundledIndexCache();
+});
+
+describe("onboardingDefaults", () => {
+  it("treats everything as recommended without an index", () => {
+    expect(onboardingDefaults("anything")).toEqual({
+      recommended: true,
+      consent: false,
+    });
+  });
+
+  it("reads recommended and consent from the index", () => {
+    writeIndex({
+      kept: { onboarding: { recommended: true, consent: false } },
+      ask: { onboarding: { recommended: true, consent: true } },
+    });
+    expect(onboardingDefaults("kept")).toEqual({
+      recommended: true,
+      consent: false,
+    });
+    expect(onboardingDefaults("ask").consent).toBe(true);
+    expect(onboardingDefaults("other")).toEqual({
+      recommended: false,
+      consent: false,
+    });
+  });
+
+  it("recommends desktop-only plugins in the desktop app only", () => {
+    writeIndex({ desk: { onboarding: { recommended: "desktop" } } });
+    expect(onboardingDefaults("desk").recommended).toBe(false);
+    process.env.ELECTRON_EMBEDDED = "true";
+    expect(onboardingDefaults("desk").recommended).toBe(true);
+  });
+});
+
+describe("enabledByEnv", () => {
+  it("recommends a plugin once its environment config is set", () => {
+    writeIndex({
+      sso: { onboarding: { enabledByEnv: ["TEST_SSO_CLIENT"] } },
+    });
+    expect(onboardingDefaults("sso").recommended).toBe(false);
+    expect(initialPluginState("sso", "bundled", true)).toBe("disabled");
+    process.env.TEST_SSO_CLIENT = "  ";
+    expect(onboardingDefaults("sso").recommended).toBe(false);
+    process.env.TEST_SSO_CLIENT = "termix";
+    expect(onboardingDefaults("sso").recommended).toBe(true);
+    expect(initialPluginState("sso", "bundled", true)).toBe("enabled");
+  });
+});
+
+describe("initialPluginState", () => {
+  beforeEach(() => {
+    writeIndex({
+      kept: { onboarding: { recommended: true } },
+      ask: { onboarding: { recommended: true, consent: true } },
+    });
+  });
+
+  it("enables only recommended plugins an existing install sees for the first time", () => {
+    expect(initialPluginState("kept", "bundled", false)).toBe("enabled");
+    expect(initialPluginState("other", "bundled", false)).toBe("disabled");
+    expect(initialPluginState("ask", "bundled", false)).toBe("disabled");
+  });
+
+  it("enables only recommended, non-consent plugins on a fresh install", () => {
+    expect(initialPluginState("kept", "bundled", true)).toBe("enabled");
+    expect(initialPluginState("ask", "bundled", true)).toBe("disabled");
+    expect(initialPluginState("other", "bundled", true)).toBe("disabled");
+  });
+
+  it("never enables a plugin dropped into the data directory", () => {
+    expect(initialPluginState("kept", "user", true)).toBe("disabled");
+    expect(initialPluginState("kept", "user", false)).toBe("disabled");
+  });
+});
+
+describe("shippedCatalog", () => {
+  it("is empty for an index without a catalog", () => {
+    writeIndex({});
+    expect(shippedCatalog().size).toBe(0);
+  });
+
+  it("keeps the pins of the image's tier and smaller ones", () => {
+    writeIndex(
+      {},
+      {
+        profile: "standard",
+        catalog: {
+          look: { tier: "minimal", version: "1.0.0" },
+          ops: { tier: "standard", version: "1.0.0" },
+          big: { tier: "full", version: "2.0.0" },
+          odd: { tier: "huge" },
+        },
+      },
+    );
+    expect([...shippedCatalog().keys()].sort()).toEqual(["look", "ops"]);
+  });
+
+  it("follows a minimal image", () => {
+    writeIndex(
+      {},
+      {
+        profile: "minimal",
+        catalog: { look: { tier: "minimal" }, ops: { tier: "standard" } },
+      },
+    );
+    expect([...shippedCatalog().keys()]).toEqual(["look"]);
+  });
+});
+
+describe("default look", () => {
+  it("lists the plugins flagged as the default look", () => {
+    writeIndex({
+      "some-layout": { defaultLook: true },
+      "some-themes": { defaultLook: true, onboarding: { recommended: false } },
+      other: { onboarding: { recommended: true } },
+    });
+    expect(defaultLookPluginIds()).toEqual(["some-layout", "some-themes"]);
+    expect(isDefaultLookPlugin("some-themes")).toBe(true);
+    expect(isDefaultLookPlugin("other")).toBe(false);
+  });
+
+  it("has none without an index", () => {
+    expect(defaultLookPluginIds()).toEqual([]);
+  });
+
+  it("starts the default look enabled even on a fresh install", () => {
+    writeIndex({
+      "some-themes": { defaultLook: true, onboarding: { recommended: false } },
+    });
+    expect(initialPluginState("some-themes", "bundled", true)).toBe("enabled");
+    expect(initialPluginState("some-themes", "user", true)).toBe("disabled");
+  });
+});

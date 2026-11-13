@@ -1,0 +1,13 @@
+build
+coverage
+dist
+node_modules
+package-lock.json
+
+dist-ssr
+release
+db
+*.min.js
+*.min.css
+openapi.json
+drizzle/

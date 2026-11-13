@@ -1,0 +1,294 @@
+import { generateKeyPairSync } from "node:crypto";
+import ssh2 from "ssh2";
+import sshpk from "sshpk";
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import {
+  parseSSHKey,
+  parsePublicKey,
+  preparePrivateKeyForSSH2,
+  isPrivateKeyPassphraseError,
+  getFriendlyKeyTypeName,
+  validateKeyPair,
+  isSecurityKeyFile,
+  clearUnlockedKeyCache,
+} from "../../utils/ssh-key-utils.js";
+
+const { parsePrivateKey } = sshpk;
+
+// A real OpenSSH ed25519 keypair generated solely for these tests. It grants no
+// access to anything and exists only so the ssh2 parsing path is exercised for
+// real rather than only via the text-fallback heuristics.
+const ED25519_PRIVATE = `-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACBR/hJLX7eMinS4wJMfG2gWSttUiuSLvqDwVYT53x0qewAAAJihJo4koSaO
+JAAAAAtzc2gtZWQyNTUxOQAAACBR/hJLX7eMinS4wJMfG2gWSttUiuSLvqDwVYT53x0qew
+AAAEDLo85Twyg0v6V1zsJaeRaxq9KPQXkqGY0HiJtVMzCXEFH+Ektft4yKdLjAkx8baBZK
+21SK5Iu+oPBVhPnfHSp7AAAAEHRlc3RAdGVybWl4LnRlc3QBAgMEBQ==
+-----END OPENSSH PRIVATE KEY-----`;
+
+const ED25519_PUBLIC =
+  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFH+Ektft4yKdLjAkx8baBZK21SK5Iu+oPBVhPnfHSp7 test@termix.test";
+
+const PPK_RSA_PRIVATE = readFileSync(
+  "node_modules/ssh2/test/fixtures/keyParser/ppk_rsa",
+  "utf8",
+);
+
+describe("parsePublicKey", () => {
+  it("detects ssh-ed25519 public keys", () => {
+    const info = parsePublicKey(ED25519_PUBLIC);
+    expect(info.keyType).toBe("ssh-ed25519");
+    expect(info.success).toBe(true);
+  });
+
+  it("detects ssh-rsa public keys", () => {
+    const info = parsePublicKey("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABFakeData");
+    expect(info.keyType).toBe("ssh-rsa");
+    expect(info.success).toBe(true);
+  });
+
+  it("detects ecdsa public keys", () => {
+    const info = parsePublicKey(
+      "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYData",
+    );
+    expect(info.keyType).toBe("ecdsa-sha2-nistp256");
+  });
+
+  it("detects OpenSSH certificate types before plain types", () => {
+    const info = parsePublicKey(
+      "ssh-ed25519-cert-v01@openssh.com AAAAData comment",
+    );
+    expect(info.keyType).toBe("ssh-ed25519-cert-v01@openssh.com");
+  });
+
+  it("returns unknown for unrecognized content", () => {
+    const info = parsePublicKey("not-a-key");
+    expect(info.keyType).toBe("unknown");
+    expect(info.success).toBe(false);
+  });
+});
+
+describe("parseSSHKey", () => {
+  it("parses a valid ed25519 private key and derives its type", () => {
+    const info = parseSSHKey(ED25519_PRIVATE);
+    expect(info.success).toBe(true);
+    expect(info.keyType).toContain("ed25519");
+    // ssh2 successfully derives the public key for a real OpenSSH key.
+    expect(info.publicKey).toContain("ssh-ed25519");
+  });
+
+  it("reports failure for garbage input", () => {
+    const info = parseSSHKey("definitely not a key");
+    expect(info.success).toBe(false);
+    expect(info.keyType).toBe("unknown");
+  });
+
+  it("accepts PuTTY PPK v2 private keys supported by ssh2", () => {
+    const info = parseSSHKey(PPK_RSA_PRIVATE);
+    expect(info.success).toBe(true);
+    expect(info.keyType).toBe("ssh-rsa");
+    expect(info.publicKey).toContain("ssh-rsa");
+  });
+
+  it("prepares PuTTY PPK v2 private keys for ssh2 connections", () => {
+    const prepared = preparePrivateKeyForSSH2(PPK_RSA_PRIVATE);
+    expect(prepared.toString("utf8")).toContain("PuTTY-User-Key-File-2");
+  });
+
+  it("reports unsupported PuTTY PPK versions clearly", () => {
+    const info = parseSSHKey(
+      "PuTTY-User-Key-File-3: ssh-ed25519\nEncryption: none\n",
+    );
+    expect(info.success).toBe(false);
+    expect(info.error).toMatch(/Unsupported PuTTY PPK v3/);
+  });
+});
+
+describe("isPrivateKeyPassphraseError", () => {
+  it("recognizes missing and incorrect passphrase errors", () => {
+    expect(
+      isPrivateKeyPassphraseError(
+        new Error(
+          "Encrypted OpenSSH private key detected, but no passphrase given",
+        ),
+      ),
+    ).toBe(true);
+    expect(isPrivateKeyPassphraseError(new Error("Bad passphrase"))).toBe(true);
+    expect(
+      isPrivateKeyPassphraseError(new Error("Unsupported key format")),
+    ).toBe(false);
+  });
+});
+
+describe("getFriendlyKeyTypeName", () => {
+  it("maps known key types to friendly names", () => {
+    expect(getFriendlyKeyTypeName("ssh-rsa")).toBe("RSA");
+    expect(getFriendlyKeyTypeName("ssh-ed25519")).toBe("Ed25519");
+    expect(getFriendlyKeyTypeName("ecdsa-sha2-nistp256")).toBe("ECDSA P-256");
+    expect(getFriendlyKeyTypeName("ssh-dss")).toBe("DSA");
+  });
+
+  it("passes unknown types through unchanged", () => {
+    expect(getFriendlyKeyTypeName("some-future-type")).toBe("some-future-type");
+  });
+});
+
+describe("validateKeyPair", () => {
+  it("validates a genuinely matching ed25519 key pair", () => {
+    const result = validateKeyPair(ED25519_PRIVATE, ED25519_PUBLIC);
+    expect(result.isValid).toBe(true);
+    expect(result.privateKeyType).toContain("ed25519");
+    expect(result.publicKeyType).toBe("ssh-ed25519");
+  });
+
+  it("fails when private and public key types mismatch", () => {
+    const result = validateKeyPair(
+      ED25519_PRIVATE,
+      "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABFakeData",
+    );
+    expect(result.isValid).toBe(false);
+    expect(result.error).toMatch(/mismatch|match/i);
+  });
+
+  it("fails when the public key is invalid", () => {
+    const result = validateKeyPair(ED25519_PRIVATE, "garbage");
+    expect(result.isValid).toBe(false);
+  });
+
+  it("fails when the private key is invalid", () => {
+    const result = validateKeyPair(
+      "garbage",
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAData",
+    );
+    expect(result.isValid).toBe(false);
+    expect(result.error).toMatch(/private key/i);
+  });
+});
+
+describe("PKCS#8 runtime key normalization", () => {
+  it.each(["ed25519", "rsa", "ec"] as const)(
+    "converts %s without changing its public key",
+    (type) => {
+      const { privateKey, publicKey } =
+        type === "rsa"
+          ? generateKeyPairSync("rsa", { modulusLength: 2048 })
+          : type === "ec"
+            ? generateKeyPairSync("ec", { namedCurve: "prime256v1" })
+            : generateKeyPairSync("ed25519");
+      const pem = privateKey
+        .export({ type: "pkcs8", format: "pem" })
+        .toString();
+      const prepared = preparePrivateKeyForSSH2(pem);
+      const parsed = ssh2.utils.parseKey(prepared);
+      expect(parsed).not.toBeInstanceOf(Error);
+      if (parsed instanceof Error) throw parsed;
+      expect(
+        parsePrivateKey(prepared).toPublic().toBuffer("pkcs8").toString(),
+      ).toBe(publicKey.export({ type: "spki", format: "pem" }).toString());
+    },
+  );
+
+  it("decrypts encrypted PKCS#8 only with the correct passphrase", () => {
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const pem = privateKey
+      .export({
+        type: "pkcs8",
+        format: "pem",
+        cipher: "aes-256-cbc",
+        passphrase: " key passphrase ",
+      })
+      .toString();
+    expect(
+      ssh2.utils.parseKey(preparePrivateKeyForSSH2(pem, " key passphrase ")),
+    ).not.toBeInstanceOf(Error);
+    expect(() => preparePrivateKeyForSSH2(pem)).toThrow();
+    expect(() => preparePrivateKeyForSSH2(pem, "wrong")).toThrow();
+  });
+
+  it("keeps an already usable OpenSSH key unchanged", () => {
+    expect(preparePrivateKeyForSSH2(ED25519_PRIVATE).toString()).toBe(
+      ED25519_PRIVATE,
+    );
+  });
+
+  it("rejects unsupported X25519 keys", () => {
+    const { privateKey } = generateKeyPairSync("x25519");
+    const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    expect(() => preparePrivateKeyForSSH2(pem)).toThrow();
+  });
+
+  it("rejects malformed PKCS#8 instead of guessing from its header", () => {
+    expect(() =>
+      preparePrivateKeyForSSH2(
+        "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----",
+      ),
+    ).toThrow();
+  });
+});
+
+describe("encrypted OpenSSH keys", () => {
+  const key = sshpk.generatePrivateKey("ed25519");
+  const encrypted = key.toString("openssh", { passphrase: "pw" }).trim();
+
+  it("unlocks once and hands ssh2 a key that needs no passphrase", () => {
+    clearUnlockedKeyCache();
+    const first = preparePrivateKeyForSSH2(encrypted, "pw");
+    const parsed = ssh2.utils.parseKey(first);
+    expect(parsed).not.toBeInstanceOf(Error);
+    expect(parsePrivateKey(first.toString()).fingerprint().toString()).toBe(
+      key.fingerprint().toString(),
+    );
+    expect(preparePrivateKeyForSSH2(encrypted, "pw").toString()).toBe(
+      first.toString(),
+    );
+  });
+
+  it("leaves the key locked for a wrong or missing passphrase", () => {
+    clearUnlockedKeyCache();
+    expect(preparePrivateKeyForSSH2(encrypted, "wrong").toString()).toBe(
+      encrypted,
+    );
+    expect(preparePrivateKeyForSSH2(encrypted).toString()).toBe(encrypted);
+  });
+});
+
+describe("security key files", () => {
+  const str = (v: string | Buffer) => {
+    const b = Buffer.from(v);
+    const l = Buffer.alloc(4);
+    l.writeUInt32BE(b.length);
+    return Buffer.concat([l, b]);
+  };
+  const skFile = (type: string) => {
+    const body = Buffer.concat([
+      Buffer.from("openssh-key-v1\u0000"),
+      str("none"),
+      str("none"),
+      str(""),
+      Buffer.from([0, 0, 0, 1]),
+      str(Buffer.concat([str(type), str(Buffer.alloc(32, 1)), str("ssh:")])),
+      str(Buffer.alloc(16)),
+    ]).toString("base64");
+    return `-----BEGIN OPENSSH PRIVATE KEY-----
+${body}
+-----END OPENSSH PRIVATE KEY-----`;
+  };
+
+  it("detects sk key files", () => {
+    expect(isSecurityKeyFile(skFile("sk-ssh-ed25519@openssh.com"))).toBe(true);
+    expect(
+      isSecurityKeyFile(skFile("sk-ecdsa-sha2-nistp256@openssh.com")),
+    ).toBe(true);
+  });
+
+  it("ignores normal keys", () => {
+    expect(isSecurityKeyFile(ED25519_PRIVATE)).toBe(false);
+  });
+
+  it("explains how to use a security key instead of failing to decode", () => {
+    expect(() =>
+      preparePrivateKeyForSSH2(skFile("sk-ssh-ed25519@openssh.com")),
+    ).toThrow("ssh-add");
+  });
+});

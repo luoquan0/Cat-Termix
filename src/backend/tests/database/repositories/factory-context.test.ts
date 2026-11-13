@@ -1,0 +1,161 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DATABASE_DIALECT_ENV } from "../../../database/db/dialect.js";
+
+// getDb() throws unless a database was initialized; the context's handle is
+// not what this file is about.
+vi.mock("../../../database/db/index.js", () => ({
+  getDb: vi.fn(() => ({})),
+  getSqlite: () => ({}),
+  DatabaseSaveTrigger: { forceSave: vi.fn(), triggerSave: vi.fn() },
+}));
+
+const {
+  createCurrentAuditLogRepository,
+  createCurrentSessionRepository,
+  createCurrentRepositoryContext,
+  createCurrentRepositoryWriteHook,
+  createCurrentRepositoryLazyWriteHook,
+} = await import("../../../database/repositories/factory.js");
+
+// Neither cross-dialect harness reaches this function: both
+// tests/database/repositories/test-support.ts and scripts/verify-dialects.mjs
+// construct a DatabaseContext of their own. That is why the production path
+// could report "sqlite" while connected to MySQL with CI green on all three
+// engines, and why this asserts on the real factory rather than a fixture.
+describe("createCurrentRepositoryContext", () => {
+  const saved = process.env[DATABASE_DIALECT_ENV];
+
+  beforeEach(() => {
+    delete process.env[DATABASE_DIALECT_ENV];
+  });
+
+  afterEach(() => {
+    if (saved === undefined) delete process.env[DATABASE_DIALECT_ENV];
+    else process.env[DATABASE_DIALECT_ENV] = saved;
+  });
+
+  it("defaults to sqlite when nothing is configured", () => {
+    expect(createCurrentRepositoryContext().dialect).toBe("sqlite");
+  });
+
+  it("reports the configured dialect", () => {
+    for (const dialect of ["sqlite", "postgres", "mysql"]) {
+      process.env[DATABASE_DIALECT_ENV] = dialect;
+      expect(createCurrentRepositoryContext().dialect).toBe(dialect);
+    }
+  });
+
+  it("rejects an unsupported dialect rather than falling back to sqlite", () => {
+    process.env[DATABASE_DIALECT_ENV] = "oracle";
+    expect(() => createCurrentRepositoryContext()).toThrow(/oracle/);
+  });
+});
+
+describe("createCurrentRepositoryWriteHook", () => {
+  const saved = process.env[DATABASE_DIALECT_ENV];
+
+  afterEach(() => {
+    if (saved === undefined) delete process.env[DATABASE_DIALECT_ENV];
+    else process.env[DATABASE_DIALECT_ENV] = saved;
+  });
+
+  it("installs a persist hook only for sqlite", () => {
+    process.env[DATABASE_DIALECT_ENV] = "sqlite";
+    expect(createCurrentRepositoryWriteHook("test")).toBeTypeOf("function");
+
+    for (const dialect of ["postgres", "mysql"]) {
+      process.env[DATABASE_DIALECT_ENV] = dialect;
+      expect(createCurrentRepositoryWriteHook("test")).toBeUndefined();
+    }
+  });
+});
+
+describe("createCurrentRepositoryLazyWriteHook", () => {
+  const saved = process.env[DATABASE_DIALECT_ENV];
+
+  afterEach(() => {
+    if (saved === undefined) delete process.env[DATABASE_DIALECT_ENV];
+    else process.env[DATABASE_DIALECT_ENV] = saved;
+  });
+
+  it("installs a debounced persist hook only for sqlite", () => {
+    process.env[DATABASE_DIALECT_ENV] = "sqlite";
+    expect(createCurrentRepositoryLazyWriteHook("test")).toBeTypeOf("function");
+
+    for (const dialect of ["postgres", "mysql"]) {
+      process.env[DATABASE_DIALECT_ENV] = dialect;
+      expect(createCurrentRepositoryLazyWriteHook("test")).toBeUndefined();
+    }
+  });
+});
+
+it("wires SQLite activity to the periodic flush and token changes to immediate persistence", async () => {
+  const saved = process.env[DATABASE_DIALECT_ENV];
+  process.env[DATABASE_DIALECT_ENV] = "sqlite";
+  const { getDb } = await import("../../../database/db/index.js");
+  const { DatabaseSaveTrigger } =
+    await import("../../../utils/database-save-trigger.js");
+  const dirty = vi
+    .spyOn(DatabaseSaveTrigger, "markDirty")
+    .mockImplementation(() => {});
+  const force = vi.spyOn(DatabaseSaveTrigger, "forceSave").mockResolvedValue();
+  const query = {
+    update: () => query,
+    set: () => query,
+    where: async () => ({ changes: 1 }),
+  };
+  vi.mocked(getDb).mockReturnValue(
+    query as unknown as ReturnType<typeof getDb>,
+  );
+  try {
+    const repo = createCurrentSessionRepository();
+    await repo.touch("session-1");
+    expect(dirty).toHaveBeenCalledOnce();
+    expect(force).not.toHaveBeenCalled();
+    await repo.updateToken("session-1", "new-token");
+    expect(force).toHaveBeenCalledOnce();
+  } finally {
+    vi.restoreAllMocks();
+    if (saved === undefined) delete process.env[DATABASE_DIALECT_ENV];
+    else process.env[DATABASE_DIALECT_ENV] = saved;
+  }
+});
+
+// Audit rows land on every audited call; a forced save per row rewrote the
+// whole SQLite file each time.
+it("saves SQLite audit rows lazily instead of forcing a save per row", async () => {
+  const saved = process.env[DATABASE_DIALECT_ENV];
+  process.env[DATABASE_DIALECT_ENV] = "sqlite";
+  const { getDb } = await import("../../../database/db/index.js");
+  const { DatabaseSaveTrigger } =
+    await import("../../../utils/database-save-trigger.js");
+  const lazy = vi.spyOn(DatabaseSaveTrigger, "triggerSave").mockResolvedValue();
+  const force = vi.spyOn(DatabaseSaveTrigger, "forceSave").mockResolvedValue();
+  const query = {
+    insert: () => query,
+    values: async () => ({ changes: 1 }),
+    select: () => query,
+    from: async () => [{ count: 1 }],
+  };
+  vi.mocked(getDb).mockReturnValue(
+    query as unknown as ReturnType<typeof getDb>,
+  );
+  try {
+    const repo = createCurrentAuditLogRepository();
+    for (let i = 0; i < 100; i++) {
+      await repo.create({
+        userId: null,
+        username: "plugin:host-metrics",
+        action: "plugin_db_client",
+        resourceType: "plugin",
+        success: true,
+      });
+    }
+    expect(force).not.toHaveBeenCalled();
+    expect(lazy).toHaveBeenCalledTimes(100);
+  } finally {
+    vi.restoreAllMocks();
+    if (saved === undefined) delete process.env[DATABASE_DIALECT_ENV];
+    else process.env[DATABASE_DIALECT_ENV] = saved;
+  }
+});

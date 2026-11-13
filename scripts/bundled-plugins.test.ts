@@ -1,0 +1,744 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import * as tar from "tar";
+import {
+  parseBundledPlugins,
+  loadBundledPlugins,
+  fetchArtifact,
+  extractArtifact,
+  pinsFromIndex,
+  parsePluginTiers,
+  buildBundledIndex,
+  findLocalPluginBuilds,
+  isLocalBuildStale,
+  localSdkBuildCommand,
+  rebuildLocalPlugins,
+  copyLocalBuild,
+  resolveProfile,
+  pluginsForProfile,
+} from "./lib/bundled-plugins.cjs";
+
+const cleanups: Array<() => void> = [];
+
+function tempDir(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "termix-bundled-"));
+  cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true }));
+  return dir;
+}
+
+afterEach(() => {
+  while (cleanups.length) cleanups.pop()?.();
+});
+
+const SHA = "a".repeat(64);
+
+async function artifactFor(id: string): Promise<Buffer> {
+  const src = tempDir();
+  fs.writeFileSync(path.join(src, "manifest.json"), JSON.stringify({ id }));
+  fs.mkdirSync(path.join(src, "dist"));
+  fs.writeFileSync(path.join(src, "dist", "backend.js"), "export {}\n");
+  const file = path.join(tempDir(), `${id}.tmxplug`);
+  await tar.c({ gzip: true, file, cwd: src }, ["manifest.json", "dist"]);
+  return fs.readFileSync(file);
+}
+
+const sha256 = (buffer: Buffer) =>
+  crypto.createHash("sha256").update(buffer).digest("hex");
+
+describe("parseBundledPlugins", () => {
+  it("accepts tmxplug entries", () => {
+    const { plugins, problems } = parseBundledPlugins({
+      plugins: [
+        {
+          id: "two",
+          source: "tmxplug",
+          url: "https://x/two.tmxplug",
+          sha256: SHA,
+        },
+        {
+          id: "three",
+          source: "tmxplug",
+          path: "vendor/three.tmxplug",
+          sha256: SHA,
+        },
+      ],
+    });
+    expect(problems).toEqual([]);
+    expect(plugins.map((p: { id: string }) => p.id)).toEqual(["two", "three"]);
+  });
+
+  it("reports bad entries", () => {
+    const { problems } = parseBundledPlugins({
+      plugins: [
+        { id: "nohash", source: "tmxplug", url: "https://x" },
+        { id: "plain", source: "tmxplug", url: "http://x", sha256: SHA },
+        { id: "ok", source: "tmxplug", path: "a", sha256: SHA },
+        { id: "ok", source: "tmxplug", path: "a", sha256: SHA },
+        { id: "odd", source: "workspace" },
+      ],
+    });
+    expect(problems).toEqual([
+      "nohash needs a lowercase hex sha256",
+      "plain needs exactly one of an https url or a path",
+      "ok is listed twice",
+      'odd has an unknown source "workspace"',
+    ]);
+  });
+
+  it("reads onboarding defaults", () => {
+    const { plugins, problems } = parseBundledPlugins({
+      plugins: [
+        {
+          id: "kept",
+          source: "tmxplug",
+          path: "a",
+          sha256: SHA,
+          onboarding: { recommended: true },
+        },
+        {
+          id: "desk",
+          source: "tmxplug",
+          path: "a",
+          sha256: SHA,
+          onboarding: { recommended: "desktop" },
+        },
+        {
+          id: "ask",
+          source: "tmxplug",
+          path: "a",
+          sha256: SHA,
+          onboarding: { recommended: true, consent: true },
+        },
+        {
+          id: "env",
+          source: "tmxplug",
+          path: "a",
+          sha256: SHA,
+          onboarding: { enabledByEnv: ["OIDC_CLIENT_ID"] },
+        },
+        { id: "plain", source: "tmxplug", path: "a", sha256: SHA },
+      ],
+    });
+    expect(problems).toEqual([]);
+    expect(plugins.map((p: { onboarding: unknown }) => p.onboarding)).toEqual([
+      { recommended: true, consent: false },
+      { recommended: "desktop", consent: false },
+      { recommended: true, consent: true },
+      { recommended: false, consent: false, enabledByEnv: ["OIDC_CLIENT_ID"] },
+      null,
+    ]);
+  });
+
+  it("rejects bad onboarding defaults", () => {
+    const entry = { source: "tmxplug", path: "a", sha256: SHA };
+    const { plugins, problems } = parseBundledPlugins({
+      plugins: [
+        { ...entry, id: "a", onboarding: "yes" },
+        { ...entry, id: "b", onboarding: { recommended: "web" } },
+        { ...entry, id: "c", onboarding: { consent: 1 } },
+        { ...entry, id: "d", onboarding: { pinned: true } },
+        { ...entry, id: "e", onboarding: { enabledByEnv: ["lower"] } },
+        { ...entry, id: "f", onboarding: { enabledByEnv: [] } },
+      ],
+    });
+    expect(plugins).toEqual([]);
+    expect(problems).toEqual([
+      "a has an onboarding field that is not an object",
+      'b onboarding.recommended must be true, false or "desktop"',
+      "c onboarding.consent must be a boolean",
+      'd has an unknown onboarding field "pinned"',
+      "e onboarding.enabledByEnv must be a list of environment variable names",
+      "f onboarding.enabledByEnv must be a list of environment variable names",
+    ]);
+  });
+
+  it("reads the list in this repo", () => {
+    const root = path.resolve(__dirname, "..");
+    expect(() => loadBundledPlugins(root)).not.toThrow();
+  });
+});
+
+describe("tmxplug entries", () => {
+  it("unpacks an artifact that matches its pinned sha256", async () => {
+    const root = tempDir();
+    const buffer = await artifactFor("demo");
+    fs.writeFileSync(path.join(root, "demo.tmxplug"), buffer);
+
+    const fetched = await fetchArtifact(
+      { id: "demo", path: "demo.tmxplug", sha256: sha256(buffer) },
+      root,
+    );
+    const out = path.join(root, "dist", "plugins", "demo");
+    await extractArtifact(fetched, out, "demo");
+    expect(fs.existsSync(path.join(out, "dist", "backend.js"))).toBe(true);
+  });
+
+  it("refuses an artifact whose sha256 differs", async () => {
+    const root = tempDir();
+    fs.writeFileSync(
+      path.join(root, "demo.tmxplug"),
+      await artifactFor("demo"),
+    );
+    await expect(
+      fetchArtifact({ id: "demo", path: "demo.tmxplug", sha256: SHA }, root),
+    ).rejects.toThrow(/bundled-plugins.json pins/);
+  });
+
+  it("downloads once and reuses the cache", async () => {
+    const root = tempDir();
+    const buffer = await artifactFor("demo");
+    let calls = 0;
+    const fakeFetch = async () => {
+      calls++;
+      return new Response(buffer);
+    };
+    const entry = {
+      id: "demo",
+      url: "https://example.test/demo.tmxplug",
+      sha256: sha256(buffer),
+    };
+    await fetchArtifact(entry, root, fakeFetch);
+    await fetchArtifact(entry, root, fakeFetch);
+    expect(calls).toBe(1);
+  });
+
+  it("refuses an artifact for a different id", async () => {
+    const out = path.join(tempDir(), "demo");
+    await expect(
+      extractArtifact(await artifactFor("other"), out, "demo"),
+    ).rejects.toThrow(/is for "other"/);
+  });
+});
+
+describe("buildBundledIndex", () => {
+  it("lists the onboarding defaults of staged plugins only", () => {
+    const plugins = [
+      { id: "a", onboarding: { recommended: true, consent: false } },
+      { id: "b", onboarding: { recommended: "desktop", consent: false } },
+      { id: "c", onboarding: null },
+    ];
+    expect(buildBundledIndex(plugins, ["a", "c", "local"])).toEqual({
+      version: 1,
+      profile: "standard",
+      plugins: { a: { onboarding: { recommended: true, consent: false } } },
+      catalog: {
+        a: { tier: "full" },
+        b: { tier: "full" },
+        c: { tier: "full" },
+      },
+    });
+  });
+
+  it("lists every pin with its tier and version", () => {
+    const plugins = [
+      {
+        id: "a",
+        tier: "standard",
+        url: "https://example.com/v1.2.0/a-1.2.0.tmxplug",
+        onboarding: null,
+      },
+      {
+        id: "b",
+        tier: "minimal",
+        path: "x/b-2.0.0-beta.1.tmxplug",
+        onboarding: null,
+      },
+    ];
+    expect(buildBundledIndex(plugins, [], "minimal").catalog).toEqual({
+      a: { tier: "standard", version: "1.2.0" },
+      b: { tier: "minimal", version: "2.0.0-beta.1" },
+    });
+  });
+});
+
+describe("parsePluginTiers", () => {
+  it("reads tiers and onboarding", () => {
+    expect(
+      parsePluginTiers({
+        plugins: {
+          a: { tier: "full" },
+          b: { tier: "standard", onboarding: { recommended: true } },
+        },
+      }),
+    ).toEqual({
+      tiers: {
+        a: { tier: "full" },
+        b: {
+          tier: "standard",
+          onboarding: { recommended: true, consent: false },
+        },
+      },
+      problems: [],
+    });
+  });
+
+  it("reports a bad tier", () => {
+    expect(
+      parsePluginTiers({ plugins: { a: { tier: "huge" } } }).problems,
+    ).toEqual(["a tier must be one of minimal, standard, full"]);
+  });
+});
+
+describe("pinsFromIndex", () => {
+  const index = {
+    plugins: [
+      {
+        id: "beta",
+        versions: [
+          {
+            version: "1.1.0",
+            url: "https://example.test/beta-1.1.0.tmxplug",
+            sha256: "b".repeat(64),
+          },
+          {
+            version: "1.0.0",
+            url: "https://example.test/beta-1.0.0.tmxplug",
+            sha256: SHA,
+          },
+        ],
+      },
+      {
+        id: "alpha",
+        versions: [
+          {
+            version: "1.0.0",
+            url: "https://example.test/alpha-1.0.0.tmxplug",
+            sha256: "c".repeat(64),
+          },
+        ],
+      },
+    ],
+  };
+
+  it("pins the newest version of every plugin, sorted by id", () => {
+    const pins = pinsFromIndex(index, null);
+    expect(pins.map((pin) => pin.id)).toEqual(["alpha", "beta"]);
+    expect(pins[1]).toEqual({
+      id: "beta",
+      source: "tmxplug",
+      url: "https://example.test/beta-1.1.0.tmxplug",
+      sha256: "b".repeat(64),
+      tier: "full",
+    });
+    expect(parseBundledPlugins({ plugins: pins }).problems).toEqual([]);
+  });
+
+  it("keeps the tier of an existing pin", () => {
+    const pins = pinsFromIndex(index, null, [
+      { id: "alpha", tier: "standard" },
+    ]);
+    expect(pins[0].tier).toBe("standard");
+    expect(pins[1].tier).toBe("full");
+  });
+
+  it("takes tier and onboarding for a new plugin from the tier map", () => {
+    const defaults = {
+      beta: {
+        tier: "standard",
+        onboarding: { recommended: true, consent: false },
+      },
+      alpha: { tier: "minimal" },
+    };
+    const pins = pinsFromIndex(
+      index,
+      null,
+      [{ id: "alpha", tier: "full" }],
+      null,
+      defaults,
+    );
+    expect(pins[0].tier).toBe("full");
+    expect(pins[1].tier).toBe("standard");
+    expect(pins[1].onboarding).toEqual({ recommended: true, consent: false });
+  });
+
+  it("skips releases whose engine.termix excludes the core version", () => {
+    const withEngine = {
+      plugins: [
+        {
+          id: "gamma",
+          versions: [
+            {
+              version: "2.0.0",
+              url: "https://example.test/gamma-2.0.0.tmxplug",
+              sha256: "d".repeat(64),
+              engine: { api: "^1", termix: ">=26.10.6" },
+            },
+            {
+              version: "1.0.0",
+              url: "https://example.test/gamma-1.0.0.tmxplug",
+              sha256: "e".repeat(64),
+              engine: { api: "^1", termix: ">=26.10.0" },
+            },
+          ],
+        },
+      ],
+    };
+    expect(pinsFromIndex(withEngine, null, [], "26.10.5")[0].url).toBe(
+      "https://example.test/gamma-1.0.0.tmxplug",
+    );
+    expect(pinsFromIndex(withEngine, null, [], "26.10.6")[0].url).toBe(
+      "https://example.test/gamma-2.0.0.tmxplug",
+    );
+    expect(pinsFromIndex(withEngine, null)[0].url).toBe(
+      "https://example.test/gamma-2.0.0.tmxplug",
+    );
+  });
+
+  it("keeps the onboarding defaults of an existing pin", () => {
+    const current = [
+      { id: "beta", onboarding: { recommended: true, consent: false } },
+    ];
+    const pins = pinsFromIndex(index, null, current);
+    expect(pins[1].onboarding).toEqual({ recommended: true, consent: false });
+    expect(pins[0]).not.toHaveProperty("onboarding");
+  });
+
+  it("pins a release kept in gated", () => {
+    const pins = pinsFromIndex(
+      {
+        plugins: [
+          {
+            id: "look",
+            versions: [],
+            gated: [
+              {
+                version: "1.1.0-beta.1",
+                url: "https://example.test/look-1.1.0-beta.1.tmxplug",
+                sha256: "d".repeat(64),
+              },
+              {
+                version: "1.0.0",
+                url: "https://example.test/look-1.0.0.tmxplug",
+                sha256: "e".repeat(64),
+              },
+            ],
+          },
+        ],
+      },
+      null,
+    );
+    expect(pins[0].url).toBe("https://example.test/look-1.0.0.tmxplug");
+  });
+
+  it("pins only the ids asked for", () => {
+    expect(pinsFromIndex(index, ["beta"]).map((pin) => pin.id)).toEqual([
+      "beta",
+    ]);
+  });
+
+  it("refuses an id the index does not list", () => {
+    expect(() => pinsFromIndex(index, ["gamma"])).toThrow(
+      /not in the registry/,
+    );
+  });
+});
+
+describe("local plugin builds", () => {
+  it("finds built repos by manifest id and skips unbuilt ones", () => {
+    const dir = tempDir();
+    const built = path.join(dir, "Plugin-Files");
+    fs.mkdirSync(path.join(built, "dist"), { recursive: true });
+    fs.writeFileSync(
+      path.join(built, "manifest.json"),
+      JSON.stringify({ id: "file-manager" }),
+    );
+    const unbuilt = path.join(dir, "Plugin-Other");
+    fs.mkdirSync(unbuilt);
+    fs.writeFileSync(
+      path.join(unbuilt, "manifest.json"),
+      JSON.stringify({ id: "other" }),
+    );
+
+    const builds = findLocalPluginBuilds(dir);
+    expect([...builds.keys()]).toEqual(["file-manager"]);
+    expect(findLocalPluginBuilds(null).size).toBe(0);
+  });
+
+  it("copies only the files a bundled plugin needs", () => {
+    const repo = tempDir();
+    fs.mkdirSync(path.join(repo, "dist"));
+    fs.writeFileSync(path.join(repo, "dist", "frontend.js"), "x");
+    fs.writeFileSync(path.join(repo, "manifest.json"), "{}");
+    fs.mkdirSync(path.join(repo, "src"));
+
+    const out = path.join(tempDir(), "file-manager");
+    copyLocalBuild(repo, out);
+    expect(fs.existsSync(path.join(out, "dist", "frontend.js"))).toBe(true);
+    expect(fs.existsSync(path.join(out, "manifest.json"))).toBe(true);
+    expect(fs.existsSync(path.join(out, "src"))).toBe(false);
+  });
+});
+
+describe("rebuilding local plugins", () => {
+  function repo(dir: string, name: string, id: string): string {
+    const root = path.join(dir, name);
+    fs.mkdirSync(path.join(root, "src"), { recursive: true });
+    fs.mkdirSync(path.join(root, "node_modules"));
+    fs.writeFileSync(path.join(root, "manifest.json"), JSON.stringify({ id }));
+    fs.writeFileSync(path.join(root, "src", "index.ts"), "x");
+    return root;
+  }
+
+  function touch(file: string, secondsAgo: number) {
+    const time = new Date(Date.now() - secondsAgo * 1000);
+    fs.utimesSync(file, time, time);
+  }
+
+  it("is stale with no dist or with a source newer than the build", () => {
+    const root = repo(tempDir(), "Plugin-A", "a");
+    expect(isLocalBuildStale(root)).toBe(true);
+
+    fs.mkdirSync(path.join(root, "dist"));
+    fs.writeFileSync(path.join(root, "dist", "frontend.js"), "x");
+    touch(path.join(root, "manifest.json"), 60);
+    touch(path.join(root, "src", "index.ts"), 60);
+    expect(isLocalBuildStale(root)).toBe(false);
+
+    touch(path.join(root, "src", "index.ts"), 0);
+    touch(path.join(root, "dist", "frontend.js"), 30);
+    expect(isLocalBuildStale(root)).toBe(true);
+  });
+
+  it("is stale when the SDK CLI changed after the build", () => {
+    const root = repo(tempDir(), "Plugin-A", "a");
+    const cli = path.join(tempDir(), "cli");
+    fs.mkdirSync(cli);
+    fs.writeFileSync(path.join(cli, "index.mjs"), "x");
+    fs.mkdirSync(path.join(root, "dist"));
+    fs.writeFileSync(path.join(root, "dist", "frontend.js"), "x");
+    touch(path.join(root, "manifest.json"), 60);
+    touch(path.join(root, "src", "index.ts"), 60);
+    touch(path.join(cli, "index.mjs"), 60);
+    expect(isLocalBuildStale(root, cli)).toBe(false);
+
+    touch(path.join(root, "dist", "frontend.js"), 30);
+    touch(path.join(cli, "index.mjs"), 0);
+    expect(isLocalBuildStale(root, cli)).toBe(true);
+    expect(isLocalBuildStale(root)).toBe(false);
+  });
+
+  it("survives a build replacing dist during the scan", () => {
+    const root = repo(tempDir(), "Plugin-A", "a");
+    const gone = path.join(root, "dist", "migrations", "postgres");
+    fs.mkdirSync(gone, { recursive: true });
+    fs.writeFileSync(path.join(root, "manifest.json"), "{}");
+    const realStat = fs.statSync;
+    const spy = vi.spyOn(fs, "statSync").mockImplementation(((
+      target: string,
+    ) => {
+      if (target === gone) {
+        throw Object.assign(new Error("gone"), { code: "ENOENT" });
+      }
+      return realStat(target);
+    }) as typeof fs.statSync);
+    try {
+      expect(() => isLocalBuildStale(root)).not.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("builds with this checkout's SDK CLI, not the plugin's own", () => {
+    const [command, args] = localSdkBuildCommand();
+    expect(command).toBe(process.execPath);
+    expect(args).toEqual([
+      path.resolve(
+        __dirname,
+        "..",
+        "packages",
+        "plugin-sdk",
+        "cli",
+        "index.mjs",
+      ),
+      "build",
+    ]);
+  });
+
+  it("builds only stale repos for bundled ids that have node_modules", () => {
+    const dir = tempDir();
+    repo(dir, "Plugin-A", "a");
+    repo(dir, "Plugin-B", "b");
+    const noDeps = repo(dir, "Plugin-C", "c");
+    fs.rmSync(path.join(noDeps, "node_modules"), { recursive: true });
+
+    const run: string[] = [];
+    const rebuilt = rebuildLocalPlugins(
+      dir,
+      new Set(["a", "c"]),
+      (_repo: string, id: string) => run.push(id),
+    );
+    expect(rebuilt).toEqual(["a"]);
+    expect(run).toEqual(["a"]);
+    expect(rebuildLocalPlugins(null, new Set(["a"]), () => {})).toEqual([]);
+  });
+
+  it("builds every stale repo when no ids are given", () => {
+    const dir = tempDir();
+    repo(dir, "Plugin-A", "a");
+    repo(dir, "Plugin-B", "b");
+    const run: string[] = [];
+    rebuildLocalPlugins(dir, null, (_repo: string, id: string) => run.push(id));
+    expect(run.sort()).toEqual(["a", "b"]);
+  });
+});
+
+describe("default look", () => {
+  const entry = { source: "tmxplug", path: "a", sha256: SHA };
+
+  it("reads the defaultLook flag and refuses anything but a boolean", () => {
+    const { plugins, problems } = parseBundledPlugins({
+      plugins: [
+        { ...entry, id: "look", defaultLook: true },
+        { ...entry, id: "plain" },
+        { ...entry, id: "odd", defaultLook: "yes" },
+      ],
+    });
+    expect(problems).toEqual(["odd defaultLook must be a boolean"]);
+    expect(
+      plugins.map((p: { id: string; defaultLook: boolean }) => [
+        p.id,
+        p.defaultLook,
+      ]),
+    ).toEqual([
+      ["look", true],
+      ["plain", false],
+    ]);
+  });
+
+  it("carries it into the bundled index and through a re-pin", () => {
+    expect(
+      buildBundledIndex(
+        [
+          { id: "look", onboarding: null, defaultLook: true },
+          { id: "plain", onboarding: null, defaultLook: false },
+        ],
+        ["look", "plain"],
+      ),
+    ).toMatchObject({ version: 1, plugins: { look: { defaultLook: true } } });
+
+    const index = {
+      plugins: [
+        {
+          id: "look",
+          versions: [
+            { version: "1.0.0", url: "https://x/l.tmxplug", sha256: SHA },
+          ],
+        },
+      ],
+    };
+    expect(
+      pinsFromIndex(index, null, [{ id: "look", defaultLook: true }])[0],
+    ).toMatchObject({ id: "look", defaultLook: true });
+  });
+
+  it("leaves out new plugins with no usable release when pinning all", () => {
+    const stable = {
+      version: "1.0.0",
+      url: "https://x/a.tmxplug",
+      sha256: SHA,
+    };
+    const index = {
+      plugins: [
+        { id: "ready", versions: [stable] },
+        {
+          id: "beta-only",
+          versions: [],
+          prereleases: [{ ...stable, version: "1.0.0-beta.1" }],
+        },
+        {
+          id: "too-new",
+          versions: [],
+          gated: [{ ...stable, engine: { termix: ">=99.0.0" } }],
+        },
+      ],
+    };
+    expect(
+      pinsFromIndex(index, null, [], "26.11.1").map(
+        (pin: { id: string }) => pin.id,
+      ),
+    ).toEqual(["ready"]);
+    expect(() =>
+      pinsFromIndex(index, null, [{ id: "beta-only" }], "26.11.1"),
+    ).toThrow(/beta-only/);
+    expect(() => pinsFromIndex(index, ["beta-only"])).toThrow(/beta-only/);
+  });
+
+  it("copies a local build's theme files", () => {
+    const repo = tempDir();
+    fs.mkdirSync(path.join(repo, "dist"), { recursive: true });
+    fs.mkdirSync(path.join(repo, "themes"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "dist", "backend.js"), "export {}");
+    fs.writeFileSync(path.join(repo, "themes", "paper.css"), ".paper{}");
+    fs.writeFileSync(
+      path.join(repo, "manifest.json"),
+      JSON.stringify({
+        id: "inks",
+        contributes: { themes: [{ id: "paper", css: "themes/paper.css" }] },
+      }),
+    );
+    const out = path.join(tempDir(), "inks");
+    copyLocalBuild(repo, out);
+    expect(fs.existsSync(path.join(out, "themes", "paper.css"))).toBe(true);
+  });
+});
+
+describe("plugin profiles", () => {
+  const entry = (id: string, tier?: string) => ({
+    id,
+    source: "tmxplug",
+    url: `https://x/${id}.tmxplug`,
+    sha256: SHA,
+    ...(tier ? { tier } : {}),
+  });
+  const { plugins } = parseBundledPlugins({
+    plugins: [
+      entry("look", "minimal"),
+      entry("term", "standard"),
+      entry("extra", "full"),
+      entry("untiered"),
+    ],
+  });
+  const ids = (profile: string) =>
+    pluginsForProfile(plugins, profile).map((p: { id: string }) => p.id);
+
+  it("ships each tier and every smaller one", () => {
+    expect(ids("minimal")).toEqual(["look"]);
+    expect(ids("standard")).toEqual(["look", "term"]);
+    expect(ids("full")).toEqual(["look", "term", "extra", "untiered"]);
+  });
+
+  it("rejects an unknown tier", () => {
+    const { problems } = parseBundledPlugins({ plugins: [entry("x", "huge")] });
+    expect(problems[0]).toMatch(/tier must be one of/);
+  });
+
+  it("reads the profile from the flag, then the environment", () => {
+    expect(resolveProfile(["node", "x"], {})).toBe("standard");
+    expect(
+      resolveProfile(["node", "x"], { TERMIX_PLUGIN_PROFILE: "full" }),
+    ).toBe("full");
+    expect(
+      resolveProfile(["node", "x", "--profile", "minimal"], {
+        TERMIX_PLUGIN_PROFILE: "full",
+      }),
+    ).toBe("minimal");
+    expect(() =>
+      resolveProfile(["node", "x", "--profile", "tiny"], {}),
+    ).toThrow(/unknown plugin profile/);
+  });
+
+  it("keeps the real file valid with a default look in the minimal tier", () => {
+    const real = loadBundledPlugins(path.resolve(__dirname, ".."));
+    const minimal = pluginsForProfile(real, "minimal");
+    expect(minimal.length).toBeGreaterThan(0);
+    expect(minimal.every((p: { defaultLook: boolean }) => p.defaultLook)).toBe(
+      true,
+    );
+    expect(pluginsForProfile(real, "standard").length).toBeLessThan(
+      real.length,
+    );
+  });
+});

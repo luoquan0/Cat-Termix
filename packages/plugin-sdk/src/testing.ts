@@ -1,0 +1,2817 @@
+/**
+ * Test helpers for plugin authors.
+ *
+ * createMockCtx is the one to reach for: it enforces capabilities the way the
+ * real runtime does. createFakeContext stays for tests that only need a
+ * context-shaped object and do not care about the gates.
+ *
+ * The vitest config these run under comes from @termix-ssh/plugin-sdk/vitest-preset.
+ */
+
+import {
+  LoginMethodError,
+  PLUGIN_HOST_INPUT_KEYS,
+  PluginCapabilityError,
+} from "./backend.js";
+import type {
+  PluginAuditEntry,
+  PluginAuditFilters,
+  PluginContext,
+  PluginDesktopLocal,
+  PluginDisposables,
+  PluginLogger,
+} from "./backend.js";
+import type { HostActionContribution, TermixApp } from "./frontend.js";
+import type { PluginManifest } from "./manifest.js";
+import type { PluginTableDefinition } from "./db.js";
+import type {
+  PluginMiddleware,
+  PluginRouterOptions,
+  PluginWebSocketHandler,
+  PluginWebSockets,
+  PluginWebSocketOptions,
+} from "./backend.js";
+
+/** The bits of an express Response the fake completeRedirectLogin uses. */
+interface FakeResponse {
+  status: (code: number) => FakeResponse;
+  json: (body: unknown) => unknown;
+  redirect: (url: string) => unknown;
+}
+
+/** A ctx.ws registration as the test doubles record it. */
+export interface FakeWsRoute {
+  path: string;
+  raw: boolean;
+  /** For ctx.ws.route. */
+  handler?: PluginWebSocketHandler;
+  /** For ctx.ws.upgrade. */
+  upgrade?: Parameters<PluginWebSockets["upgrade"]>[1];
+  options?: PluginWebSocketOptions;
+}
+import type {
+  PluginLoginMethod,
+  PluginLoginRequest,
+  PluginVerifiedIdentity,
+  PluginSecondFactor,
+  PluginSshAuthProvider,
+  PluginSshConnectOptions,
+  PluginSshHost,
+  PluginHostSummary,
+  PluginHostRecord,
+  PluginHostCreateInput,
+  PluginHostUpdateInput,
+  PluginHostAccess,
+  PluginHostShareResult,
+  PluginShareableUser,
+  PluginShareableRole,
+  PluginSshKeyCredential,
+  PluginSshKeyCredentialInput,
+} from "./backend.js";
+import type {
+  PluginOperationHandler,
+  PluginSyncHost,
+  SyncEntityRegistration,
+} from "./backend.js";
+import type { PluginDatabase } from "./backend.js";
+import type {
+  PluginExternalClientRequest,
+  PluginProtocolTarget,
+  PluginHostProbeTarget,
+  PluginHostStatusEntry,
+  PluginActivityProvider,
+  PluginHostLockProvider,
+  PluginConnectPolicyProvider,
+  PluginAuthPolicyProvider,
+  PluginCredentialSummary,
+  PluginHostShareGrant,
+  PluginHostStatusProvider,
+  PluginNotification,
+  PluginNotificationChannel,
+  PluginNotifyHub,
+  PluginFetchInit,
+  PluginBinarySpec,
+  PluginTlsCertificateInfo,
+  PluginTlsStatus,
+  PluginSummary,
+  PluginKeyboardInteractiveHandler,
+  PluginProcessHandle,
+  PluginProcessOptions,
+} from "./backend.js";
+
+/** A timer registered through ctx.schedule, run by hand with runScheduled. */
+export interface FakeScheduledJob {
+  kind: "every" | "after";
+  ms: number;
+  fn: () => void | Promise<void>;
+  stopped: boolean;
+}
+
+export interface FakeContextOptions {
+  pluginId?: string;
+  /** What ctx.sync.host answers, for a sync provider's tests. */
+  syncHost?: Partial<PluginSyncHost>;
+  manifest?: Partial<PluginManifest>;
+  /** Acting user returned by currentActor and used by asUser. */
+  actor?: string;
+  /** Seed for admin-scope ctx.settings. */
+  settings?: Record<string, unknown>;
+  /** Seed for the core settings ctx.settings.readCore can reach. */
+  coreSettings?: Record<string, string>;
+  /** What ctx.files.dataDir() answers. Defaults to /tmp/<pluginId>. */
+  dataDir?: string;
+  /** What ctx.ssh.connect and withConnection hand back as the client. */
+  sshClient?: unknown;
+  /** A real database behind ctx.db, usually createTestDb().database. */
+  db?: PluginDatabase;
+  /** What ctx.http.router returns, e.g. () => express.Router(). */
+  router?: () => unknown;
+  /**
+   * Role permissions the acting user holds, as full ids or this plugin's
+   * short names. When set, ctx.rbac enforces them and require() answers 403;
+   * when omitted every check passes, so tests that do not care stay simple.
+   */
+  permissions?: string[];
+  /**
+   * Services other plugins provide, for testing a consumer. Keyed by service
+   * name, or "<service>#<provider>" for a named provider.
+   */
+  services?: Record<string, object>;
+  /** Hosts ctx.hosts.list/get/checkAccess answer with. */
+  hosts?: PluginHostSummary[];
+  /** Users and roles ctx.hosts.listUsers/listRoles answer with. */
+  shareableUsers?: PluginShareableUser[];
+  shareableRoles?: PluginShareableRole[];
+  /** Hosts ctx.ssh.resolveHost answers with, secrets included. */
+  sshHosts?: PluginSshHost[];
+  /**
+   * What ctx.credentials.resolveHostProtocol answers, keyed
+   * "<hostId>:<protocol>". A missing key answers null.
+   */
+  protocolTargets?: Record<string, PluginProtocolTarget>;
+  /** What ctx.credentials.listSshKeys answers. */
+  sshKeyCredentials?: PluginSshKeyCredential[];
+  /** What ctx.credentials.list answers. */
+  credentialSummaries?: PluginCredentialSummary[];
+  /** What ctx.desktop.available() answers. Defaults to false. */
+  desktopAvailable?: boolean;
+  /** What ctx.desktop.local is. Calls throw when this is not given. */
+  desktopLocal?: PluginDesktopLocal;
+  /** The stored audit lines ctx.audit.list and exportBatches serve. */
+  auditEntries?: PluginAuditEntry[];
+  /** What ctx.hosts.status.get and check answer, by host id. */
+  hostStatuses?: Record<number, PluginHostStatusEntry>;
+  /** What ctx.hosts.probeTargets answers. */
+  probeTargets?: PluginHostProbeTarget[];
+  /** Host ids ctx.hosts.sessionActive answers true for. */
+  activeSessions?: number[];
+  /** What ctx.network.tcpProbe and ctx.ssh.probe answer. Defaults to false. */
+  reachable?: (target: string | number, port?: number) => boolean;
+  /** The acting user's channels, what ctx.notify.channels answers. */
+  notificationChannels?: PluginNotificationChannel[];
+  /**
+   * Answers ctx.fetch. Without it every fetch rejects, so a test never
+   * reaches the network by accident.
+   */
+  fetch?: (url: string, init?: PluginFetchInit) => Promise<Response>;
+  /**
+   * Answers ctx.process. Without run every ctx.process.run rejects; without
+   * ensureBinary it answers "/tmp/<pluginId>/bin/<name>".
+   */
+  process?: FakeProcessOptions;
+  /**
+   * What ctx.system.tlsStatus answers before any write. renewal is filled in
+   * from registerTlsRenewer calls.
+   */
+  tlsStatus?: Omit<PluginTlsStatus, "renewal">;
+  /** What ctx.plugins.list answers. Default: only this plugin, active. */
+  installedPlugins?: PluginSummary[];
+  /**
+   * Checks a ctx.system.writeTlsCertificate call. Throw to reject the pair.
+   * Without it every pair is accepted and described with placeholder info.
+   */
+  validateTls?: (
+    certificatePem: string,
+    privateKeyPem: string,
+  ) => PluginTlsCertificateInfo;
+  /**
+   * Makes ctx.auth.recordEnrollment refuse the way core's policy does (trusted
+   * proxy login on, password login off), with this message and a 409.
+   */
+  refuseEnrollment?: string;
+  /** What ctx.http.baseUrl answers. Defaults to "https://termix.test". */
+  baseUrl?: string;
+  /** What ctx.auth.countLinkedUsers answers, by provider. Defaults to 0. */
+  linkedUsers?: Record<string, number>;
+  /** Second factors from other plugins that ctx.auth.listSecondFactors adds. */
+  secondFactors?: { id: string; pluginId: string }[];
+  /** Failures before ctx.auth.loginRateLimit locks a key. Defaults to 5. */
+  loginAttemptLimit?: number;
+  /** What ctx.users.getLocale answers, by user id. A missing user answers null. */
+  locales?: Record<string, string>;
+}
+
+export interface FakeProcessOptions {
+  run?: (
+    file: string,
+    args: readonly string[],
+    options?: PluginProcessOptions,
+  ) => PluginProcessHandle | Promise<PluginProcessHandle>;
+  ensureBinary?: (spec: PluginBinarySpec) => Promise<string>;
+}
+
+/** A ctx.process handle a test drives by hand. */
+export interface FakeProcess extends PluginProcessHandle {
+  emitStdout: (chunk: string) => void;
+  emitStderr: (chunk: string) => void;
+  exit: (code: number | null, signal?: string | null) => void;
+  killed: string[];
+}
+
+export function createFakeProcess(pid = 4242): FakeProcess {
+  const stdout: Array<(chunk: string) => void> = [];
+  const stderr: Array<(chunk: string) => void> = [];
+  const killed: string[] = [];
+  let resolveExit: (value: {
+    code: number | null;
+    signal: string | null;
+  }) => void = () => {};
+  const exited = new Promise<{ code: number | null; signal: string | null }>(
+    (resolve) => {
+      resolveExit = resolve;
+    },
+  );
+  return {
+    pid,
+    onStdout: (listener) => void stdout.push(listener),
+    onStderr: (listener) => void stderr.push(listener),
+    exited,
+    kill: (signal = "SIGTERM") => {
+      killed.push(signal);
+      resolveExit({ code: null, signal });
+    },
+    emitStdout: (chunk) => stdout.forEach((listener) => listener(chunk)),
+    emitStderr: (chunk) => stderr.forEach((listener) => listener(chunk)),
+    exit: (code, signal = null) => resolveExit({ code, signal }),
+    killed,
+  };
+}
+
+export interface FakeAuthRegistrations {
+  sshAuthProviders: PluginSshAuthProvider[];
+  keyboardInteractiveHandlers: PluginKeyboardInteractiveHandler[];
+  loginMethods: PluginLoginMethod[];
+  secondFactors: PluginSecondFactor[];
+  /** "<userId>:<factorId>" for every recorded enrolment. */
+  enrollments: Set<string>;
+  /** Secret schemes registered through ctx.credentials.registerSecretResolver. */
+  secretResolvers: Map<
+    string,
+    (userId: string, reference: string) => Promise<string>
+  >;
+  /** Identities handed to ctx.auth.completeRedirectLogin, in order. */
+  completedLogins: Array<{
+    methodId: string;
+    identity: PluginVerifiedIdentity;
+  }>;
+  /** Every ctx.auth.revokeSessions call, in order. */
+  revokedSessions: Array<{
+    providerId?: number | null;
+    sub?: string | null;
+    sid?: string | null;
+  }>;
+  /** Failures recorded through ctx.auth.loginRateLimit, by "<ip>|<key>". */
+  loginFailures: Map<string, number>;
+  /** Every ctx.auth.issueUserToken call, in order. */
+  userTokens: Array<{ userId: string; purpose: string; ttlSeconds?: number }>;
+  /** Identities ctx.auth.identities holds, by user. */
+  identities: Array<{
+    userId: string;
+    provider: string;
+    subject: string;
+    email?: string | null;
+  }>;
+  /** Providers passed to ctx.auth.policy.provide that are still registered. */
+  policies: PluginAuthPolicyProvider[];
+}
+
+export interface FakePluginContext {
+  ctx: PluginContext;
+  /** Runs what ctx.settings.onValidate registered, as a settings save would. */
+  validateSettings: (
+    scope: "admin" | "user" | "host",
+    values: Record<string, unknown>,
+    context?: { hostId?: number },
+  ) => Promise<Record<string, string>>;
+  /** Everything the plugin registered through ctx.disposables. */
+  disposals: Array<() => void | Promise<void>>;
+  /** Providers registered through ctx.hosts.status.provide. */
+  hostStatusProviders: PluginHostStatusProvider[];
+  /** Every provider passed to ctx.hosts.activity.provide that is still registered. */
+  activityProviders: PluginActivityProvider[];
+  /** Every provider passed to ctx.hosts.locks.provide that is still registered. */
+  hostLockProviders: PluginHostLockProvider[];
+  /** Every provider passed to ctx.hosts.connectPolicy.provide that is still registered. */
+  connectPolicyProviders: PluginConnectPolicyProvider[];
+  /** Topics emitted through ctx.events.emit, in order. */
+  emitted: Array<{ topic: string; payload: unknown }>;
+  /** Backing store behind ctx.kv. */
+  kv: Map<string, unknown>;
+  /** Table definitions registered through ctx.db.define, in order. */
+  tables: PluginTableDefinition[];
+  /** Sync entities registered through ctx.sync.registerEntity, in order. */
+  syncEntities: SyncEntityRegistration[];
+  /**
+   * WebSocket routes registered through ctx.ws, in order, with the handler
+   * and options, so a test can hand a route a fake socket.
+   */
+  wsRoutes: FakeWsRoute[];
+  /** Router options passed to ctx.http.router, in order. */
+  httpRouters: Array<PluginRouterOptions | undefined>;
+  /** Backing store behind ctx.settings, keyed "<scope>:<scopeId>:<key>". */
+  settings: Map<string, unknown>;
+  /** Core settings readable through ctx.settings.readCore. */
+  coreSettings: Map<string, string>;
+  /** Every ctx.ssh.connect and withConnection call, in order. */
+  sshConnections: Array<{
+    host: number | PluginSshHost;
+    pool?: string;
+    options?: PluginSshConnectOptions;
+  }>;
+  /** Every ctx.hosts.share call, in order. */
+  hostShares: Array<{
+    hostId: number;
+    targets: unknown[];
+    permissionLevel: string;
+    durationHours?: number;
+  }>;
+  /** Every ctx.hosts.setShares call, in order. */
+  hostShareSets: Array<{ hostId: number; grants: PluginHostShareGrant[] }>;
+  /** Everything registered through ctx.auth. */
+  auth: FakeAuthRegistrations;
+  /** Every ctx.desktop.openIsolatedWindow call, in order. */
+  desktopWindows: Array<{
+    url: string;
+    partition?: string;
+    title?: string;
+    ignoreCert?: boolean;
+  }>;
+  /** Every ctx.desktop.launchExternalClient call, in order. */
+  externalClientLaunches: PluginExternalClientRequest[];
+  /** Every ctx.credentials.resolveHostProtocol call, in order. */
+  credentialReads: Array<{ hostId: number; protocol: string }>;
+  /** Every ctx.credentials.createSshKey call, with the id it answered. */
+  createdSshKeys: Array<PluginSshKeyCredentialInput & { id: number }>;
+  /** Every ctx.credentials.setSshKeyCertificate call, in order. */
+  certificateWrites: Array<{
+    credentialId: number;
+    certificate: string | null;
+  }>;
+  /** Every ctx.notify.send call, with the actor it ran as. */
+  notifications: Array<{
+    actor: string | undefined;
+    notification: PluginNotification;
+  }>;
+  /** The hub the plugin registered with ctx.notify.serve, if any. */
+  notifyHub: { current: PluginNotifyHub | null };
+  /** Handlers from ctx.operations.register, by action id. */
+  operationHandlers: Map<string, PluginOperationHandler>;
+  /** Every ctx.operations.emit call. */
+  operationEvents: { eventId: string; payload: unknown; hostId?: number }[];
+  /** Backing store behind ctx.secrets.get/set, keyed "<userId>:<key>". */
+  secretStore: Map<string, string>;
+  /** Every ctx.fetch call, in order. */
+  fetches: Array<{ url: string; init?: PluginFetchInit }>;
+  /** Every ctx.process.run call, in order. */
+  processRuns: Array<{
+    file: string;
+    args: readonly string[];
+    options?: PluginProcessOptions;
+  }>;
+  /** Every ctx.process.ensureBinary call, in order. */
+  binaries: PluginBinarySpec[];
+  /** What ctx.system did: accepted writes, reloads, live challenges and renewers. */
+  tls: {
+    writes: Array<{ certificatePem: string; privateKeyPem: string }>;
+    reloads: number;
+    /** ctx.system calls by name, in order. */
+    calls: string[];
+    challenges: Map<string, string>;
+    renewers: number;
+  };
+  /** Calls every ctx.audit.subscribe handler, like a line core just accepted. */
+  emitAudit: (entry: PluginAuditEntry) => void;
+  /** Every ctx.audit.record entry, in order. */
+  audits: Array<{ action: string; success: boolean; [key: string]: unknown }>;
+  /** Every ctx.hosts.recordActivity call, in order. */
+  activities: Array<{ hostId: number; type: string; hostName: string }>;
+  /** Host ids with a live ctx.hosts.trackSession, one entry per session. */
+  trackedSessions: number[];
+  /** Every ctx.ssh.startInteraction / cancelInteraction call, in order. */
+  interactions: Array<{
+    action: "start" | "cancel";
+    interaction: string;
+    request: Record<string, unknown>;
+  }>;
+  /** Every ctx.hosts.status.reportLogin call, in order. */
+  statusReports: Array<{
+    hostId: number;
+    ok: boolean;
+    hostKeyChanged?: boolean;
+  }>;
+  /** ctx.hosts.status.registerPort resolvers, by connection type. */
+  statusPorts: Map<string, (hostId: number) => unknown>;
+  /** Backing store behind ctx.hosts.status.get and check. */
+  hostStatuses: Map<number, PluginHostStatusEntry>;
+  /** Every ctx.ssh.dropPooled call, in order. */
+  droppedPools: Array<{ pool: string; hostId: number }>;
+  /** Every ctx.schedule timer, stopped ones included. */
+  scheduled: FakeScheduledJob[];
+  /** Runs every live ctx.schedule job once; "after" jobs are then done. */
+  runScheduled: () => Promise<void>;
+  /** Changes the acting user, as core's request middleware would. */
+  setActor: (userId: string | undefined) => void;
+  /**
+   * Runs `fn` as `userId`, the way a request from that user would. For test
+   * code standing in for a caller; unlike ctx.asUser it needs no capability.
+   */
+  actAs: <T>(userId: string, fn: () => Promise<T> | T) => Promise<T>;
+  /** Provided or seeded services, by name or "<service>#<provider>". */
+  services: Map<string, object>;
+}
+
+const CORE_PERMISSION_GROUPS = new Set([
+  "hosts",
+  "snippets",
+  "credentials",
+  "admin",
+]);
+
+/**
+ * A short name takes the plugin's prefix. An id already under this plugin or
+ * a core group is used as given, like src/backend/plugins/rbac.ts does.
+ */
+function qualifyPermission(pluginId: string, permission: string): string {
+  const head = permission.split(".")[0];
+  if (head === pluginId || CORE_PERMISSION_GROUPS.has(head)) return permission;
+  return `${pluginId}.${permission}`;
+}
+
+/** How a settings row is keyed in the doubles. Mirrors the real unique index. */
+function settingsKey(
+  scope: string,
+  scopeId: string | number | undefined,
+  key: string,
+): string {
+  return `${scope}:${scopeId ?? ""}:${key}`;
+}
+
+function noopLogger(): PluginLogger {
+  return {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+  };
+}
+
+const HOST_INPUT_KEYS = new Set<string>(PLUGIN_HOST_INPUT_KEYS);
+
+/** Refuses a key ctx.hosts does not take, the way core does. */
+function checkHostInput(input: PluginHostUpdateInput): void {
+  const unknown = Object.keys(input ?? {}).filter(
+    (key) => !HOST_INPUT_KEYS.has(key),
+  );
+  if (unknown.length > 0) {
+    throw new Error(`ctx.hosts does not take ${unknown.join(", ")}`);
+  }
+}
+
+function emptyHostRecord(id: number, userId: string): PluginHostRecord {
+  return {
+    id,
+    userId,
+    syncId: null,
+    name: null,
+    ip: "",
+    port: 22,
+    username: "",
+    authType: "password",
+    credentialId: null,
+    overrideCredentialUsername: false,
+    connectionType: "ssh",
+    tags: null,
+    folder: null,
+    parentHostId: null,
+    pin: false,
+    notes: null,
+    jumpHosts: [],
+    enableSsh: true,
+    sshPort: null,
+    statusCheckEnabled: true,
+    statusCheckInterval: null,
+    connectionOrigin: null,
+    sshOptions: {},
+    pluginSettings: {},
+    status: null,
+    localOnly: false,
+    createdAt: null,
+    updatedAt: null,
+  };
+}
+
+function applyHostInput(
+  record: PluginHostRecord,
+  input: PluginHostUpdateInput,
+): PluginHostRecord {
+  const {
+    tags,
+    pluginSettings: _settings,
+    pluginEnable: _pluginEnable,
+    forceKeyboardInteractive: _fki,
+    password: _password,
+    key: _key,
+    keyPassword: _keyPassword,
+    keyType: _keyType,
+    sudoPassword: _sudoPassword,
+    protocolAuth: _protocolAuth,
+    ...rest
+  } = input;
+  const next: PluginHostRecord = { ...record };
+  for (const [key, value] of Object.entries(rest)) {
+    if (value !== undefined)
+      (next as unknown as Record<string, unknown>)[key] = value;
+  }
+  if (tags !== undefined) {
+    next.tags = Array.isArray(tags) ? tags.join(",") : tags;
+  }
+  if (next.jumpHosts === null) next.jumpHosts = [];
+  if (next.sshOptions === null) next.sshOptions = {};
+  return next;
+}
+
+/**
+ * A context double good enough to call activate() against in a unit test.
+ * Nothing here is capability-checked: a test asserting a capability gate
+ * should use the real runtime, not this.
+ */
+export function createFakeContext(
+  options: FakeContextOptions = {},
+): FakePluginContext {
+  const pluginId = options.pluginId ?? "test-plugin";
+  const disposals: Array<() => void | Promise<void>> = [];
+  const emitted: Array<{ topic: string; payload: unknown }> = [];
+  const hostStatusProviders: PluginHostStatusProvider[] = [];
+  const activityProviders: PluginActivityProvider[] = [];
+  const hostLockProviders: PluginHostLockProvider[] = [];
+  const connectPolicyProviders: PluginConnectPolicyProvider[] = [];
+  const kv = new Map<string, unknown>();
+  const tables: PluginTableDefinition[] = [];
+  const syncEntities: SyncEntityRegistration[] = [];
+  const wsRoutes: FakeWsRoute[] = [];
+  const httpRouters: Array<PluginRouterOptions | undefined> = [];
+  const listeners = new Map<string, Set<(payload: unknown) => void>>();
+  const settings = new Map<string, unknown>();
+  const coreSettings = new Map<string, string>(
+    Object.entries(options.coreSettings ?? {}),
+  );
+  const settingsListeners = new Map<string, Set<(value: unknown) => void>>();
+  const settingsValidators = new Set<{
+    scope: "admin" | "user" | "host";
+    validator: Parameters<PluginContext["settings"]["onValidate"]>[1];
+  }>();
+  const sshConnections: FakePluginContext["sshConnections"] = [];
+  const hostShares: FakePluginContext["hostShares"] = [];
+  const hostShareSets: FakePluginContext["hostShareSets"] = [];
+  const desktopWindows: FakePluginContext["desktopWindows"] = [];
+  const externalClientLaunches: FakePluginContext["externalClientLaunches"] =
+    [];
+  const credentialReads: FakePluginContext["credentialReads"] = [];
+  const createdSshKeys: FakePluginContext["createdSshKeys"] = [];
+  const certificateWrites: FakePluginContext["certificateWrites"] = [];
+  const notifications: FakePluginContext["notifications"] = [];
+  const notifyHub: FakePluginContext["notifyHub"] = { current: null };
+  const operationHandlers: FakePluginContext["operationHandlers"] = new Map();
+  const operationEvents: FakePluginContext["operationEvents"] = [];
+  const fetches: FakePluginContext["fetches"] = [];
+  const processRuns: FakePluginContext["processRuns"] = [];
+  const binaries: FakePluginContext["binaries"] = [];
+  const tls: FakePluginContext["tls"] = {
+    writes: [],
+    reloads: 0,
+    calls: [],
+    challenges: new Map(),
+    renewers: 0,
+  };
+  let tlsState: Omit<PluginTlsStatus, "renewal"> = options.tlsStatus ?? {
+    enabled: true,
+    certificate: null,
+  };
+  const secretStore = new Map<string, string>();
+  const audits: FakePluginContext["audits"] = [];
+  const auditSubscribers = new Set<(entry: PluginAuditEntry) => void>();
+  const activities: FakePluginContext["activities"] = [];
+  const trackedSessions: number[] = [];
+  const interactions: FakePluginContext["interactions"] = [];
+  const statusReports: FakePluginContext["statusReports"] = [];
+  const statusPorts: FakePluginContext["statusPorts"] = new Map();
+  const hostStatuses = new Map<number, PluginHostStatusEntry>(
+    Object.entries(options.hostStatuses ?? {}).map(([id, entry]) => [
+      Number(id),
+      entry,
+    ]),
+  );
+  const droppedPools: FakePluginContext["droppedPools"] = [];
+  const scheduled: FakeScheduledJob[] = [];
+  const schedule = (
+    kind: FakeScheduledJob["kind"],
+    ms: number,
+    fn: FakeScheduledJob["fn"],
+  ) => {
+    const job: FakeScheduledJob = { kind, ms, fn, stopped: false };
+    scheduled.push(job);
+    const stop = () => {
+      job.stopped = true;
+    };
+    disposals.push(stop);
+    return stop;
+  };
+  const hostsById = new Map<number, PluginHostSummary>(
+    (options.hosts ?? []).map((h) => [h.id, h]),
+  );
+  const hostRecordsById = new Map<number, PluginHostRecord>();
+  let nextHostId = Math.max(0, ...(options.hosts ?? []).map((h) => h.id)) + 1;
+  const services = new Map<string, object>(
+    Object.entries(options.services ?? {}),
+  );
+  const serviceKey = (service: string, name?: string) =>
+    name ? `${service}#${name}` : service;
+  const registryProviders = new Map<string, unknown>();
+  const auth: FakeAuthRegistrations = {
+    sshAuthProviders: [],
+    keyboardInteractiveHandlers: [],
+    loginMethods: [],
+    secondFactors: [],
+    enrollments: new Set(),
+    secretResolvers: new Map(),
+    completedLogins: [],
+    revokedSessions: [],
+    loginFailures: new Map(),
+    userTokens: [],
+    identities: [],
+    policies: [],
+  };
+  const sshClient = options.sshClient ?? {};
+  let actor = options.actor;
+  const held = options.permissions
+    ? new Set(
+        options.permissions.map((permission) =>
+          qualifyPermission(pluginId, permission),
+        ),
+      )
+    : null;
+  const holds = (permission: string) =>
+    held === null || held.has(qualifyPermission(pluginId, permission));
+  // Like the runtime, a route can only require a permission the manifest
+  // declares. Checked when the test hands in a manifest.
+  const declaredPermissions = options.manifest?.contributes?.permissions
+    ? new Set(
+        options.manifest.contributes.permissions.map((entry) =>
+          qualifyPermission(pluginId, entry.name),
+        ),
+      )
+    : null;
+
+  for (const [key, value] of Object.entries(options.settings ?? {})) {
+    settings.set(settingsKey("admin", undefined, key), value);
+  }
+
+  const writeSetting = (
+    scope: string,
+    scopeId: string | number | undefined,
+    key: string,
+    value: unknown,
+  ) => {
+    settings.set(settingsKey(scope, scopeId, key), value);
+    for (const listener of settingsListeners.get(key) ?? []) listener(value);
+  };
+
+  const manifest = {
+    id: pluginId,
+    name: pluginId,
+    version: "1.0.0",
+    description: "",
+    author: { name: "test" },
+    license: "MIT",
+    category: "Productivity",
+    engine: { termix: ">=2.9.0", api: "1" },
+    capabilities: [],
+    ...options.manifest,
+  } as PluginManifest;
+
+  const disposables: PluginDisposables = {
+    add: (dispose) => disposals.push(dispose),
+  };
+
+  const ctx: PluginContext = {
+    pluginId,
+    manifest,
+    log: noopLogger(),
+
+    events: {
+      emit: (topic, payload) => {
+        emitted.push({ topic, payload });
+        for (const listener of listeners.get(topic) ?? []) listener(payload);
+      },
+      on: (topic, listener) => {
+        let set = listeners.get(topic);
+        if (!set) {
+          set = new Set();
+          listeners.set(topic, set);
+        }
+        set.add(listener);
+        return () => set!.delete(listener);
+      },
+    },
+
+    kv: {
+      get: async (key) => (kv.has(key) ? kv.get(key) : null),
+      set: async (key, value) => {
+        kv.set(key, value);
+      },
+      delete: async (key) => kv.delete(key),
+      list: async () => [...kv.keys()],
+    },
+
+    files: {
+      // A fake path; a test that needs a real folder uses the OS temp dir
+      // itself, not this double.
+      dataDir: async () => options.dataDir ?? `/tmp/${pluginId}`,
+    },
+
+    db: options.db
+      ? {
+          ...options.db,
+          define: async (definition) => {
+            tables.push(definition);
+            return options.db!.define(definition);
+          },
+          client: () => options.db!.client(),
+          refs: () => options.db!.refs(),
+          persist: () => options.db!.persist(),
+          dialect: options.db.dialect,
+        }
+      : {
+          // No engine behind this one. Pass createTestDb().database as `db`
+          // for a test that needs real SQL.
+          define: async (definition) => {
+            tables.push(definition);
+            return undefined as never;
+          },
+          client: async () => {
+            throw new Error(
+              "createFakeContext has no database: pass createTestDb().database as db",
+            );
+          },
+          refs: async () => {
+            throw new Error(
+              "createFakeContext has no database: pass createTestDb().database as db",
+            );
+          },
+          persist: async () => {},
+          dialect: "sqlite",
+        },
+
+    sync: {
+      registerEntity: (entity) => {
+        syncEntities.push(entity);
+      },
+      provide: () => () => {},
+      get host() {
+        if (!options.syncHost)
+          throw new Error("Pass syncHost to use ctx.sync.host");
+        return options.syncHost as PluginSyncHost;
+      },
+    },
+
+    registry: {
+      provide: (key, value) => {
+        assertOwnRegistryKey(pluginId, key);
+        registryProviders.set(key, value);
+      },
+      consume: (key) => registryProviders.get(key) as never,
+      revoke: (key, value) => {
+        assertOwnRegistryKey(pluginId, key);
+        if (!registryProviders.has(key)) return false;
+        if (value !== undefined && registryProviders.get(key) !== value) {
+          return false;
+        }
+        return registryProviders.delete(key);
+      },
+    },
+
+    services: {
+      provide: (service, implementation, provideOptions) => {
+        services.set(serviceKey(service, provideOptions?.name), implementation);
+      },
+      // What this context provided or the test seeded through `services`.
+      // Like the real handle, a missing provider is an empty object, which a
+      // consumer's `"method" in handle` probe reads as absent.
+      get: (service, getOptions) =>
+        (services.get(serviceKey(service, getOptions?.provider)) ??
+          {}) as never,
+      providers: (service) =>
+        [...services.keys()].flatMap((key) =>
+          key === service
+            ? [""]
+            : key.startsWith(`${service}#`)
+              ? [key.slice(service.length + 1)]
+              : [],
+        ),
+    },
+
+    secrets: {
+      get: async (key) => secretStore.get(`${actor ?? ""}:${key}`) ?? null,
+      set: async (key, value) => {
+        if (value === null) secretStore.delete(`${actor ?? ""}:${key}`);
+        else secretStore.set(`${actor ?? ""}:${key}`, value);
+      },
+      delete: async (key) => {
+        secretStore.delete(`${actor ?? ""}:${key}`);
+      },
+      seal: async (value) =>
+        `sealed:${Buffer.from(value, "utf8").toString("base64")}`,
+      unseal: async (sealed) =>
+        sealed?.startsWith("sealed:")
+          ? Buffer.from(sealed.slice(7), "base64").toString("utf8")
+          : null,
+      offer: () => {},
+      withdraw: () => false,
+      getShared: async () => null,
+    },
+
+    http: {
+      // No express here: a test that needs a real router should mount the
+      // plugin's own route module against its own express app.
+      router: (routerOptions) => {
+        httpRouters.push(routerOptions);
+        return (options.router ? options.router() : undefined) as never;
+      },
+      baseUrl: () => options.baseUrl ?? "https://termix.test",
+    },
+
+    ws: {
+      route: (path, handler, wsOptions) => {
+        wsRoutes.push({ path, raw: false, handler, options: wsOptions });
+      },
+      upgrade: (path, handler, wsOptions) => {
+        wsRoutes.push({
+          path,
+          raw: true,
+          upgrade: handler,
+          options: wsOptions,
+        });
+      },
+    },
+
+    rbac: {
+      // Enforces options.permissions for the acting user, or passes
+      // everything when none were given. The runtime's own resolution against
+      // other plugins' namespaces is covered by core's tests, not here.
+      has: async (permission) => holds(permission),
+      hasFor: async (_userId, permission) => holds(permission),
+      require: (permission) => {
+        if (
+          declaredPermissions &&
+          !declaredPermissions.has(qualifyPermission(pluginId, permission))
+        ) {
+          throw new Error(
+            `Plugin ${pluginId} cannot require permission "${permission}": it is not declared in contributes.permissions`,
+          );
+        }
+        return ((_req, res, next) => {
+          if (holds(permission)) {
+            next();
+            return;
+          }
+          res.status(403).json({
+            error: "Insufficient permissions",
+            required: qualifyPermission(pluginId, permission),
+          });
+        }) as PluginMiddleware;
+      },
+    },
+
+    // Nothing here is capability-checked, per the module doc; createMockCtx
+    // gates this against options.capabilities.
+    capabilities: {
+      has: async () => true,
+      require: async () => {},
+    },
+
+    settings: {
+      get: async (key) =>
+        settings.get(settingsKey("admin", undefined, key)) as never,
+      set: async (key, value) => writeSetting("admin", undefined, key, value),
+
+      getUser: async (userId, key) =>
+        settings.get(settingsKey("user", userId, key)) as never,
+      setUser: async (userId, key, value) =>
+        writeSetting("user", userId, key, value),
+
+      getHost: async (hostId, key) =>
+        settings.get(settingsKey("host", String(hostId), key)) as never,
+      getHostFor: async (hostId, _userId, key) =>
+        settings.get(settingsKey("host", String(hostId), key)) as never,
+      // Host defaults live in core; the mock stands in the user's own
+      // setting of the same key, so a test can set one with setUser.
+      getHostDefault: async (userId, key) =>
+        settings.get(settingsKey("user", userId, key)) as never,
+      setHost: async (hostId, key, value, options) =>
+        options?.inherit
+          ? void settings.delete(settingsKey("host", String(hostId), key))
+          : writeSetting("host", String(hostId), key, value),
+
+      listHostValues: async (key) => {
+        const found: Array<{ hostId: number; userId: string; value: never }> =
+          [];
+        for (const [storedKey, value] of settings) {
+          const [scope, scopeId, name] = storedKey.split(":");
+          if (scope !== "host" || name !== key || value === undefined) continue;
+          const hostId = Number(scopeId);
+          found.push({
+            hostId,
+            userId: hostRecordsById.get(hostId)?.userId ?? actor ?? "",
+            value: value as never,
+          });
+        }
+        return found;
+      },
+
+      getAll: async (scope, scopeId) => {
+        const prefix = `${scope}:${scopeId ?? ""}:`;
+        const all: Record<string, unknown> = {};
+        for (const [storedKey, value] of settings) {
+          if (storedKey.startsWith(prefix)) {
+            all[storedKey.slice(prefix.length)] = value;
+          }
+        }
+        return all;
+      },
+
+      onChange: (key, listener) => {
+        let set = settingsListeners.get(key);
+        if (!set) {
+          set = new Set();
+          settingsListeners.set(key, set);
+        }
+        set.add(listener);
+        const unsubscribe = () => {
+          set!.delete(listener);
+        };
+        disposals.push(unsubscribe);
+        return unsubscribe;
+      },
+
+      onValidate: (scope, validator) => {
+        const entry = { scope, validator };
+        settingsValidators.add(entry);
+        const unsubscribe = () => {
+          settingsValidators.delete(entry);
+        };
+        disposals.push(unsubscribe);
+        return unsubscribe;
+      },
+
+      readCore: async (key) => coreSettings.get(key) ?? null,
+    },
+
+    disposables,
+
+    hosts: {
+      importMany: async (rows) => {
+        const created = rows.map(() => nextHostId++);
+        return {
+          success: created.length,
+          updated: 0,
+          skipped: 0,
+          failed: 0,
+          errors: [],
+          createdHostIds: created,
+        };
+      },
+      importSshConfig: async () => ({
+        success: 0,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+        errors: [],
+        createdHostIds: [],
+      }),
+      exportMany: async () => ({ hosts: [] }),
+      registerImportNormalizer: () => () => {},
+      list: async () => [...hostsById.values()],
+      get: async (hostId) => hostsById.get(hostId) ?? null,
+      checkAccess: async (hostId): Promise<PluginHostAccess> => {
+        const found = hostsById.get(hostId);
+        if (!found)
+          return { hasAccess: false, isOwner: false, isShared: false };
+        const isOwner = found.userId === actor;
+        return {
+          hasAccess: true,
+          isOwner,
+          isShared: !isOwner,
+          permissionLevel: "manage",
+        };
+      },
+      create: async (
+        host: PluginHostCreateInput,
+      ): Promise<PluginHostRecord> => {
+        checkHostInput(host);
+        const id = nextHostId++;
+        const record = applyHostInput(
+          emptyHostRecord(id, actor ?? "unknown"),
+          host,
+        );
+        hostRecordsById.set(id, record);
+        return record;
+      },
+      update: async (
+        hostId: number,
+        patch: PluginHostUpdateInput,
+      ): Promise<PluginHostRecord | null> => {
+        checkHostInput(patch);
+        const existing = hostRecordsById.get(hostId);
+        if (!existing) return null;
+        const updated = applyHostInput(existing, patch);
+        hostRecordsById.set(hostId, updated);
+        return updated;
+      },
+      delete: async (hostId: number): Promise<boolean> => {
+        const existed =
+          hostRecordsById.delete(hostId) || hostsById.delete(hostId);
+        return existed;
+      },
+      listOwned: async (): Promise<PluginHostRecord[]> => [
+        ...hostRecordsById.values(),
+      ],
+      share: async (
+        hostId,
+        targets,
+        permissionLevel,
+        durationHours,
+      ): Promise<PluginHostShareResult> => {
+        hostShares.push({ hostId, targets, permissionLevel, durationHours });
+        return { hostId, shared: true };
+      },
+      setShares: async (hostId, grants) => {
+        hostShareSets.push({ hostId, grants: [...grants] });
+        return { hostId, shared: true };
+      },
+      listUsers: async () => options.shareableUsers ?? [],
+      listRoles: async () => options.shareableRoles ?? [],
+      trackSession: (hostId) => {
+        trackedSessions.push(hostId);
+        let active = true;
+        return () => {
+          if (!active) return;
+          active = false;
+          const index = trackedSessions.indexOf(hostId);
+          if (index >= 0) trackedSessions.splice(index, 1);
+        };
+      },
+      recordActivity: async (hostId, type, hostName) => {
+        activities.push({ hostId, type, hostName });
+      },
+      probeTargets: async (filter) =>
+        (options.probeTargets ?? []).filter(
+          (target) => !filter?.hostIds || filter.hostIds.includes(target.id),
+        ),
+      sessionActive: (hostId) =>
+        options.activeSessions?.includes(hostId) ?? false,
+      activity: {
+        provide: (provider) => {
+          activityProviders.push(provider);
+          return () => {
+            const at = activityProviders.indexOf(provider);
+            if (at >= 0) activityProviders.splice(at, 1);
+          };
+        },
+      },
+      folders: {
+        ensure: async () => {},
+        removeEmpty: async () => true,
+      },
+      locks: {
+        provide: (provider) => {
+          hostLockProviders.push(provider);
+          return () => {
+            const at = hostLockProviders.indexOf(provider);
+            if (at >= 0) hostLockProviders.splice(at, 1);
+          };
+        },
+      },
+      connectPolicy: {
+        provide: (provider) => {
+          connectPolicyProviders.push(provider);
+          return () => {
+            const at = connectPolicyProviders.indexOf(provider);
+            if (at >= 0) connectPolicyProviders.splice(at, 1);
+          };
+        },
+      },
+      status: {
+        provide: (provider) => {
+          hostStatusProviders.push(provider);
+          return () => {
+            const at = hostStatusProviders.indexOf(provider);
+            if (at >= 0) hostStatusProviders.splice(at, 1);
+          };
+        },
+        get: async (hostId) => hostStatuses.get(hostId) ?? null,
+        check: async (hostId) => hostStatuses.get(hostId) ?? null,
+        reportLogin: (hostId, outcome) => {
+          statusReports.push({ hostId, ...outcome });
+        },
+        registerPort: (connectionType, resolve) => {
+          statusPorts.set(connectionType, resolve);
+          return () => {
+            statusPorts.delete(connectionType);
+          };
+        },
+      },
+    },
+
+    schedule: {
+      every: (intervalMs, fn, scheduleOptions) => {
+        const stop = schedule("every", intervalMs, fn);
+        if (scheduleOptions?.runNow) void fn();
+        return stop;
+      },
+      after: (delayMs, fn) => schedule("after", delayMs, fn),
+    },
+
+    audit: {
+      subscribe: (handler) => {
+        auditSubscribers.add(handler);
+        return () => {
+          auditSubscribers.delete(handler);
+        };
+      },
+      list: async (listOptions) => {
+        const matching = filterAuditEntries(
+          options.auditEntries ?? [],
+          listOptions?.filters,
+        ).reverse();
+        const offset = listOptions?.offset ?? 0;
+        return {
+          entries: matching.slice(offset, offset + (listOptions?.limit ?? 50)),
+          total: matching.length,
+        };
+      },
+      exportBatches: async function* (filters, batchSize) {
+        const matching = filterAuditEntries(
+          options.auditEntries ?? [],
+          filters,
+        );
+        const size = batchSize ?? 500;
+        for (let at = 0; at < matching.length; at += size) {
+          yield matching.slice(at, at + size);
+        }
+      },
+      record: async (entry) => {
+        audits.push({ ...entry });
+      },
+    },
+
+    network: {
+      tcpProbe: async (host, port) => options.reachable?.(host, port) ?? false,
+    },
+
+    ssh: {
+      transports: { provide: () => () => {} },
+      probe: async (hostId, probeOptions) =>
+        options.reachable?.(hostId, probeOptions?.port) ?? false,
+      connect: async (host, connectOptions) => {
+        sshConnections.push({ host, options: connectOptions });
+        return {
+          client: sshClient as never,
+          jumpClient: null,
+          host: (typeof host === "number"
+            ? { id: host, ip: "", port: 22, username: "" }
+            : host) as never,
+          dispose: () => {},
+        };
+      },
+      exec: async (host) => {
+        sshConnections.push({ host });
+        return {
+          stdout: "",
+          stderr: "",
+          code: 0,
+          truncated: false,
+          timedOut: false,
+        };
+      },
+      withConnection: async (host, connectOptions, fn) => {
+        sshConnections.push({ host, pool: connectOptions.pool });
+        return fn(sshClient as never);
+      },
+      jumpChain: async () => ({
+        client: sshClient as never,
+        jumpClient: null,
+        host: { id: 0, ip: "", port: 22, username: "" } as never,
+        dispose: () => {},
+      }),
+      dropPooled: (pool, hostId) => {
+        droppedPools.push({ pool, hostId });
+      },
+      poolKey: (pool, host) =>
+        `${pool}:${host.userId}:${host.ip}:${host.port}:${host.username}`,
+      resolveHost: async (hostId, resolveOptions) =>
+        (options.sshHosts ?? []).find((host) =>
+          resolveOptions?.syncId
+            ? host.syncId === resolveOptions.syncId
+            : host.id === hostId,
+        ) ?? null,
+      prepare: async () => ({
+        config: {},
+        outcome: { status: "ready" },
+        authType: null,
+      }),
+      openTransport: async () => ({ jumpClient: null, via: "direct" }),
+      startInteraction: async (interaction, request) => {
+        interactions.push({ action: "start", interaction, request });
+      },
+      cancelInteraction: async (interaction, request) => {
+        interactions.push({ action: "cancel", interaction, request });
+      },
+      classifyKeyboardInteractive: ({ prompts }, host) => ({
+        kind: "auto",
+        responses: prompts.map((p) =>
+          /password/i.test(p.prompt) && typeof host.password === "string"
+            ? host.password
+            : "",
+        ),
+      }),
+      autoResponses: (prompts, password) =>
+        prompts.map((p) =>
+          /password/i.test(p.prompt) && password ? password : "",
+        ),
+      requiresSecret: (authType) =>
+        ["password", "key", "credential", "agent"].includes(authType),
+      // Matches core: the built-in types, plus any registered provider that
+      // does not opt out. An unknown type cannot connect unattended.
+      supportsBackground: (authType) => {
+        if (["password", "key", "credential", "agent"].includes(authType)) {
+          return true;
+        }
+        const provider = auth.sshAuthProviders.find(
+          (candidate) => candidate.type === authType,
+        );
+        return !!provider && provider.supportsBackground !== false;
+      },
+    },
+
+    auth: {
+      registerSshAuthProvider: (provider) => {
+        auth.sshAuthProviders.push(provider);
+      },
+      registerKeyboardInteractiveHandler: (handler) => {
+        auth.keyboardInteractiveHandlers.push(handler);
+      },
+      registerLoginMethod: (method) => {
+        auth.loginMethods.push(method);
+      },
+      registerSecondFactor: (factor) => {
+        auth.secondFactors.push(factor);
+      },
+      recordEnrollment: async (userId, factorId) => {
+        if (options.refuseEnrollment) {
+          throw new LoginMethodError(options.refuseEnrollment, 409);
+        }
+        auth.enrollments.add(`${userId}:${factorId}`);
+      },
+      removeEnrollment: async (userId, factorId) => {
+        auth.enrollments.delete(`${userId}:${factorId}`);
+      },
+      // Stands in for core's pipeline: answers with the identity as JSON, or
+      // redirects back with the error the way core does.
+      completeRedirectLogin: async (methodId, req, res) => {
+        const response = res as FakeResponse;
+        const method = auth.loginMethods.find(
+          (candidate) => candidate.id === methodId,
+        );
+        if (!method?.callback) {
+          throw new Error(`No registered redirect method "${methodId}"`);
+        }
+        try {
+          const identity = await method.callback(req as PluginLoginRequest);
+          auth.completedLogins.push({ methodId, identity });
+          response.status(200).json({ completed: methodId, identity });
+        } catch (error) {
+          const returnTo = (error as { returnTo?: string }).returnTo;
+          const message = (error as Error).message;
+          if (returnTo) {
+            const url = new URL(returnTo);
+            url.searchParams.set(
+              "error",
+              (error as { code?: string }).code ?? message,
+            );
+            response.redirect(url.toString());
+            return;
+          }
+          response
+            .status((error as { status?: number }).status ?? 500)
+            .json({ error: message });
+        }
+      },
+      revokeSessions: async (match) => {
+        if (!match.sub && !match.sid) return 0;
+        auth.revokedSessions.push(match);
+        return 1;
+      },
+      loginRateLimit: {
+        isLocked: async (ip, key) => {
+          const failures = auth.loginFailures.get(`${ip}|${key}`) ?? 0;
+          return failures >= (options.loginAttemptLimit ?? 5)
+            ? { locked: true, remainingTime: 60 }
+            : { locked: false };
+        },
+        recordFailure: async (ip, key) => {
+          const id = `${ip}|${key}`;
+          auth.loginFailures.set(id, (auth.loginFailures.get(id) ?? 0) + 1);
+        },
+      },
+      countLinkedUsers: async (provider) =>
+        options.linkedUsers?.[provider] ?? 0,
+      identities: {
+        list: async (userId) =>
+          auth.identities
+            .filter((entry) => entry.userId === userId)
+            .map(({ userId: _owner, ...identity }) => identity),
+        link: async (userId, identity) => {
+          const held = auth.identities.find(
+            (entry) =>
+              entry.provider === identity.provider &&
+              entry.subject === identity.subject,
+          );
+          if (held?.userId === userId) return;
+          if (held) {
+            throw new LoginMethodError(
+              "This sign in is linked to another account",
+              409,
+              "identity_in_use",
+            );
+          }
+          if (
+            auth.identities.some(
+              (entry) =>
+                entry.userId === userId && entry.provider === identity.provider,
+            )
+          ) {
+            throw new LoginMethodError(
+              "This account is already linked to this provider",
+              409,
+              "provider_linked",
+            );
+          }
+          auth.identities.push({ userId, ...identity });
+        },
+        unlink: async (userId, provider) => {
+          auth.identities = auth.identities.filter(
+            (entry) =>
+              !(entry.userId === userId && entry.provider === provider),
+          );
+        },
+      },
+      issueUserToken: async (userId, tokenOptions) => {
+        auth.userTokens.push({ userId, ...tokenOptions });
+        const ttl = Math.min(tokenOptions.ttlSeconds ?? 300, 900);
+        return {
+          token: `fake-token-${auth.userTokens.length}`,
+          expiresAt: new Date(Date.now() + ttl * 1000).toISOString(),
+        };
+      },
+      policy: {
+        provide: (provider) => {
+          auth.policies.push(provider);
+          return () => {
+            const at = auth.policies.indexOf(provider);
+            if (at >= 0) auth.policies.splice(at, 1);
+          };
+        },
+      },
+      listSecondFactors: () => [
+        ...auth.secondFactors.map((factor) => ({
+          id: factor.id,
+          pluginId,
+        })),
+        ...(options.secondFactors ?? []),
+      ],
+    },
+
+    users: {
+      getLocale: async (userId) => options.locales?.[userId] ?? null,
+    },
+
+    desktop: {
+      openIsolatedWindow: async (request) => {
+        desktopWindows.push(request);
+        return { success: true };
+      },
+      launchExternalClient: async (request) => {
+        externalClientLaunches.push(request);
+        return { success: true };
+      },
+      available: () => options.desktopAvailable ?? false,
+      local: options.desktopLocal ?? unavailableDesktopLocal(),
+    },
+
+    credentials: {
+      list: async () => [...(options.credentialSummaries ?? [])],
+      listSshKeys: async () => [
+        ...(options.sshKeyCredentials ?? []),
+        ...createdSshKeys.map((key) => ({
+          id: key.id,
+          name: key.name,
+          username: key.username ?? null,
+          publicKey: key.publicKey,
+        })),
+      ],
+      createSshKey: async (input) => {
+        const id =
+          Math.max(
+            0,
+            ...(options.sshKeyCredentials ?? []).map((key) => key.id),
+            ...createdSshKeys.map((key) => key.id),
+          ) + 1;
+        createdSshKeys.push({ ...input, id });
+        return { id };
+      },
+      resolveHostProtocol: async (hostId, protocol) => {
+        credentialReads.push({ hostId, protocol });
+        return options.protocolTargets?.[`${hostId}:${protocol}`] ?? null;
+      },
+      publicKey: async (credentialId) =>
+        (options.sshKeyCredentials ?? []).find((k) => k.id === credentialId)
+          ?.publicKey ?? null,
+      setSshKeyCertificate: async (credentialId, certificate) => {
+        certificateWrites.push({ credentialId, certificate });
+        return { id: credentialId, changed: true };
+      },
+      resolveKeyRefs: async (key, passphrase) => ({
+        key,
+        passphrase: passphrase ?? undefined,
+      }),
+      registerSecretResolver: (scheme, resolve) => {
+        auth.secretResolvers.set(scheme, resolve);
+        disposals.push(() => {
+          auth.secretResolvers.delete(scheme);
+        });
+      },
+    },
+
+    operations: {
+      register: (id, handler) => {
+        operationHandlers.set(id, handler);
+      },
+      run: async (actionId, options = {}) => {
+        const handler = operationHandlers.get(actionId);
+        if (!handler) throw new Error(`No action "${actionId}"`);
+        const result = await handler.run(options.input ?? {}, {
+          hostId: options.hostId,
+          resourceKey: options.resourceKey,
+          runId: null,
+          dryRun: options.dryRun === true,
+          signal: new AbortController().signal,
+          log: () => {},
+        });
+        return { runId: null, status: "success", ...result };
+      },
+      invoke: async (actionId, options = {}) => {
+        const handler = operationHandlers.get(actionId);
+        if (!handler) throw new Error(`No action "${actionId}"`);
+        const result = await handler.run(options.input ?? {}, {
+          hostId: options.hostId,
+          resourceKey: options.resourceKey,
+          runId: null,
+          dryRun: options.dryRun === true,
+          signal: new AbortController().signal,
+          log: () => {},
+        });
+        return { runId: null, status: "success", ...result };
+      },
+      list: async () => ({
+        actions: manifest.contributes?.operations?.actions ?? [],
+      }),
+      emit: async (eventId, payload, options) => {
+        operationEvents.push({ eventId, payload, hostId: options?.hostId });
+      },
+      onEvent: () => () => {},
+      approvals: { provide: () => () => {} },
+    },
+
+    notify: {
+      channels: async () => {
+        if (!actor) throw new Error("ctx.notify needs an acting user");
+        return options.notificationChannels ?? [];
+      },
+      send: async (notification) => {
+        if (!notification.audience && !actor) {
+          throw new Error("ctx.notify needs an acting user or an audience");
+        }
+        notifications.push({ actor, notification });
+        const channelIds = notification.channelIds ?? [];
+        const selected = (options.notificationChannels ?? []).filter(
+          (channel) => channelIds.includes(channel.id) && channel.enabled,
+        );
+        return { recipients: 1, delivered: selected.length, failures: [] };
+      },
+      serve: (hub) => {
+        if (notifyHub.current) throw new Error("A hub is already running");
+        notifyHub.current = hub;
+        const revoke = () => {
+          if (notifyHub.current === hub) notifyHub.current = null;
+        };
+        disposals.push(revoke);
+        return revoke;
+      },
+    },
+
+    fetch: async (url, init) => {
+      fetches.push({ url, init });
+      if (!options.fetch) throw new Error("ctx.fetch is not stubbed");
+      return options.fetch(url, init);
+    },
+
+    process: {
+      run: async (file, args, runOptions) => {
+        processRuns.push({ file, args, options: runOptions });
+        if (!options.process?.run) {
+          throw new Error("ctx.process.run is not stubbed");
+        }
+        return options.process.run(file, args, runOptions);
+      },
+      ensureBinary: async (spec) => {
+        binaries.push(spec);
+        if (options.process?.ensureBinary) {
+          return options.process.ensureBinary(spec);
+        }
+        return `/tmp/${pluginId}/bin/${spec.name}`;
+      },
+    },
+
+    plugins: {
+      list: async () =>
+        options.installedPlugins ?? [
+          {
+            id: pluginId,
+            version: "1.0.0",
+            source: "bundled",
+            state: "active",
+          },
+        ],
+    },
+
+    system: {
+      tlsStatus: async () => {
+        tls.calls.push("tlsStatus");
+        return {
+          ...tlsState,
+          renewal: tls.renewers > 0 ? { pluginId, pluginName: pluginId } : null,
+        };
+      },
+      writeTlsCertificate: async (certificatePem, privateKeyPem) => {
+        tls.calls.push("writeTlsCertificate");
+        const info = options.validateTls
+          ? options.validateTls(certificatePem, privateKeyPem)
+          : {
+              subject: "CN=fake",
+              issuer: "CN=fake-ca",
+              names: [],
+              notBefore: new Date().toISOString(),
+              notAfter: new Date(Date.now() + 90 * 86_400_000).toISOString(),
+              selfSigned: false,
+              fingerprint: "00",
+            };
+        tls.writes.push({ certificatePem, privateKeyPem });
+        tlsState = { ...tlsState, certificate: info };
+        return info;
+      },
+      reloadTls: async () => {
+        tls.calls.push("reloadTls");
+        tls.reloads++;
+        return { applied: true, message: "reloaded" };
+      },
+      publishHttpChallenge: async (token, content) => {
+        tls.calls.push("publishHttpChallenge");
+        tls.challenges.set(token, content);
+        let live = true;
+        const remove = () => {
+          if (!live) return;
+          live = false;
+          tls.challenges.delete(token);
+        };
+        disposals.push(remove);
+        return remove;
+      },
+      registerTlsRenewer: async () => {
+        tls.calls.push("registerTlsRenewer");
+        tls.renewers++;
+        let live = true;
+        const remove = () => {
+          if (!live) return;
+          live = false;
+          tls.renewers--;
+        };
+        disposals.push(remove);
+        return remove;
+      },
+    },
+
+    asUser: async (userId, fn) => {
+      const previous = actor;
+      actor = userId;
+      try {
+        return await fn();
+      } finally {
+        actor = previous;
+      }
+    },
+
+    currentActor: () => actor,
+  };
+
+  return {
+    ctx,
+    validateSettings: async (scope, values, context = {}) => {
+      const errors: Record<string, string> = {};
+      for (const entry of settingsValidators) {
+        if (entry.scope !== scope) continue;
+        Object.assign(errors, (await entry.validator(values, context)) ?? {});
+      }
+      return errors;
+    },
+    disposals,
+    hostStatusProviders,
+    activityProviders,
+    hostLockProviders,
+    connectPolicyProviders,
+    emitted,
+    kv,
+    tables,
+    syncEntities,
+    wsRoutes,
+    httpRouters,
+    settings,
+    coreSettings,
+    sshConnections,
+    hostShares,
+    hostShareSets,
+    auth,
+    desktopWindows,
+    externalClientLaunches,
+    credentialReads,
+    createdSshKeys,
+    certificateWrites,
+    notifications,
+    notifyHub,
+    operationHandlers,
+    operationEvents,
+    fetches,
+    processRuns,
+    binaries,
+    tls,
+    secretStore,
+    audits,
+    emitAudit: (entry) => {
+      for (const handler of auditSubscribers) handler(entry);
+    },
+    activities,
+    trackedSessions,
+    interactions,
+    statusReports,
+    statusPorts,
+    hostStatuses,
+    droppedPools,
+    scheduled,
+    runScheduled: async () => {
+      for (const job of scheduled.filter((candidate) => !candidate.stopped)) {
+        if (job.kind === "after") job.stopped = true;
+        await job.fn();
+      }
+    },
+    setActor: (userId) => {
+      actor = userId;
+    },
+    actAs: async (userId, fn) => {
+      const previous = actor;
+      actor = userId;
+      try {
+        return await fn();
+      } finally {
+        actor = previous;
+      }
+    },
+    services,
+  };
+}
+
+export interface MockContextOptions {
+  pluginId?: string;
+  /** What ctx.sync.host answers, for a sync provider's tests. */
+  syncHost?: Partial<PluginSyncHost>;
+  manifest?: Partial<PluginManifest>;
+  /** Capabilities the plugin is granted. Anything else throws. */
+  capabilities?: string[];
+  /** Seed for ctx.kv. */
+  kv?: Record<string, unknown>;
+  /** Seed for this plugin's own admin-scope settings. */
+  settings?: Record<string, unknown>;
+  /** Seed for the core settings readCore can reach. */
+  coreSettings?: Record<string, string>;
+  /** What ctx.files.dataDir() answers. */
+  dataDir?: string;
+  /** Acting user returned by currentActor and used by asUser. */
+  actor?: string;
+  /** What ctx.ssh.connect and withConnection hand back as the client. */
+  sshClient?: unknown;
+  /** A real database behind ctx.db, usually createTestDb().database. */
+  db?: PluginDatabase;
+  /** What ctx.http.router returns, e.g. () => express.Router(). */
+  router?: () => unknown;
+  /** Role permissions the acting user holds. See FakeContextOptions. */
+  permissions?: string[];
+  /** Hosts ctx.hosts.list/get/checkAccess serve. See FakeContextOptions. */
+  hosts?: PluginHostSummary[];
+  /** Users and roles ctx.hosts.listUsers/listRoles serve. See FakeContextOptions. */
+  shareableUsers?: PluginShareableUser[];
+  shareableRoles?: PluginShareableRole[];
+  /** Other plugins' services. See FakeContextOptions. */
+  services?: Record<string, object>;
+  /** Hosts ctx.ssh.resolveHost serves. See FakeContextOptions. */
+  sshHosts?: PluginSshHost[];
+  /** What ctx.credentials serves. See FakeContextOptions. */
+  protocolTargets?: Record<string, PluginProtocolTarget>;
+  /** What ctx.credentials.listSshKeys serves. */
+  sshKeyCredentials?: PluginSshKeyCredential[];
+  /** What ctx.credentials.list serves. */
+  credentialSummaries?: PluginCredentialSummary[];
+  /** What ctx.desktop.available() answers. */
+  desktopAvailable?: boolean;
+  /** What ctx.desktop.local is. See FakeContextOptions. */
+  desktopLocal?: PluginDesktopLocal;
+  /** See FakeContextOptions. */
+  auditEntries?: PluginAuditEntry[];
+  /** What ctx.hosts.status answers. See FakeContextOptions. */
+  hostStatuses?: Record<number, PluginHostStatusEntry>;
+  /** What ctx.hosts.probeTargets answers. */
+  probeTargets?: PluginHostProbeTarget[];
+  /** Host ids ctx.hosts.sessionActive answers true for. */
+  activeSessions?: number[];
+  /** What ctx.network.tcpProbe and ctx.ssh.probe answer. */
+  reachable?: (target: string | number, port?: number) => boolean;
+  /** The acting user's channels, what ctx.notify.channels answers. */
+  notificationChannels?: PluginNotificationChannel[];
+  /**
+   * Answers ctx.fetch. Without it every fetch rejects, so a test never
+   * reaches the network by accident.
+   */
+  fetch?: (url: string, init?: PluginFetchInit) => Promise<Response>;
+  /** See FakeContextOptions. */
+  process?: FakeProcessOptions;
+  /** See FakeContextOptions. */
+  tlsStatus?: FakeContextOptions["tlsStatus"];
+  /** See FakeContextOptions. */
+  installedPlugins?: FakeContextOptions["installedPlugins"];
+  /** See FakeContextOptions. */
+  validateTls?: FakeContextOptions["validateTls"];
+  /** See FakeContextOptions. */
+  refuseEnrollment?: string;
+  /** See FakeContextOptions. */
+  baseUrl?: string;
+  /** See FakeContextOptions. */
+  linkedUsers?: Record<string, number>;
+  /** See FakeContextOptions. */
+  loginAttemptLimit?: number;
+  /** See FakeContextOptions. */
+  secondFactors?: FakeContextOptions["secondFactors"];
+  /** See FakeContextOptions. */
+  locales?: Record<string, string>;
+}
+
+export interface MockPluginContext extends FakePluginContext {
+  /** Capability ids checked during the test, in order, denied ones included. */
+  checked: string[];
+}
+
+/**
+ * A context double that gates on capabilities the way src/backend/plugins/ctx.ts
+ * does, so a test can prove a plugin fails closed without a running server.
+ *
+ * The gates on today's ctx surface: kv:own on every ctx.kv call, db:own on
+ * ctx.db, network:serve on ctx.http and ctx.ws, events:core on emitting a
+ * topic outside the plugin's own namespace, settings:read-core on
+ * ctx.settings.readCore, ssh:connect plus credentials:use on ctx.ssh,
+ * notify:send on ctx.notify (notify:hub on serve), network:outbound on ctx.fetch, process:spawn on
+ * ctx.process, system:tls on ctx.system, plugins:read on ctx.plugins, auth:provide on ctx.auth
+ * (users:impersonate on issueUserToken), and users:read on ctx.users. Reading a plugin's own settings is deliberately
+ * ungated. As the SDK grows a member, add its gate here in the same shape.
+ */
+function filterAuditEntries(
+  entries: PluginAuditEntry[],
+  filters: PluginAuditFilters | undefined,
+): PluginAuditEntry[] {
+  return entries.filter(
+    (entry) =>
+      (filters?.userId === undefined || entry.userId === filters.userId) &&
+      (filters?.action === undefined || entry.action === filters.action) &&
+      (filters?.resourceType === undefined ||
+        entry.resourceType === filters.resourceType) &&
+      (filters?.success === undefined || entry.success === filters.success) &&
+      (filters?.startDate === undefined ||
+        entry.timestamp >= filters.startDate) &&
+      (filters?.endDate === undefined || entry.timestamp <= filters.endDate),
+  );
+}
+
+function gateDesktopLocal(
+  target: PluginDesktopLocal,
+  check: () => void,
+): PluginDesktopLocal {
+  const wrap = (value: unknown): unknown => {
+    if (typeof value === "function") {
+      return (...args: unknown[]) => {
+        check();
+        return (value as (...a: unknown[]) => unknown)(...args);
+      };
+    }
+    if (value && typeof value === "object") {
+      return new Proxy(value as object, {
+        get: (obj, key) => wrap((obj as Record<string | symbol, unknown>)[key]),
+      });
+    }
+    return value;
+  };
+  return new Proxy(target, {
+    get: (obj, key) =>
+      key === "available"
+        ? obj.available
+        : wrap((obj as unknown as Record<string | symbol, unknown>)[key]),
+  });
+}
+
+function unavailableDesktopLocal(): PluginDesktopLocal {
+  const fail = (): never => {
+    throw new Error("ctx.desktop.local needs the desktopLocal test option");
+  };
+  const deep = (): unknown =>
+    new Proxy(() => fail(), { get: () => deep(), apply: () => fail() });
+  return {
+    available: () => false,
+    info: fail,
+    fs: deep(),
+    pty: deep(),
+  } as unknown as PluginDesktopLocal;
+}
+
+export function createMockCtx(
+  options: MockContextOptions = {},
+): MockPluginContext {
+  const granted = new Set(options.capabilities ?? []);
+  const checked: string[] = [];
+
+  const base = createFakeContext({
+    pluginId: options.pluginId,
+    syncHost: options.syncHost,
+    actor: options.actor,
+    settings: options.settings,
+    coreSettings: options.coreSettings,
+    dataDir: options.dataDir,
+    sshClient: options.sshClient,
+    db: options.db,
+    router: options.router,
+    permissions: options.permissions,
+    hosts: options.hosts,
+    shareableUsers: options.shareableUsers,
+    shareableRoles: options.shareableRoles,
+    sshHosts: options.sshHosts,
+    services: options.services,
+    protocolTargets: options.protocolTargets,
+    sshKeyCredentials: options.sshKeyCredentials,
+    credentialSummaries: options.credentialSummaries,
+    desktopAvailable: options.desktopAvailable,
+    desktopLocal: options.desktopLocal,
+    auditEntries: options.auditEntries,
+    hostStatuses: options.hostStatuses,
+    probeTargets: options.probeTargets,
+    activeSessions: options.activeSessions,
+    reachable: options.reachable,
+    notificationChannels: options.notificationChannels,
+    fetch: options.fetch,
+    process: options.process,
+    tlsStatus: options.tlsStatus,
+    installedPlugins: options.installedPlugins,
+    validateTls: options.validateTls,
+    refuseEnrollment: options.refuseEnrollment,
+    baseUrl: options.baseUrl,
+    linkedUsers: options.linkedUsers,
+    loginAttemptLimit: options.loginAttemptLimit,
+    secondFactors: options.secondFactors,
+    locales: options.locales,
+    manifest: {
+      capabilities: options.capabilities ?? [],
+      ...options.manifest,
+    },
+  });
+
+  const { ctx, kv } = base;
+  const pluginId = ctx.pluginId;
+
+  for (const [key, value] of Object.entries(options.kv ?? {})) {
+    kv.set(key, value);
+  }
+
+  const require = (capability: string) => {
+    checked.push(capability);
+    if (!granted.has(capability)) {
+      throw new PluginCapabilityError(pluginId, capability);
+    }
+  };
+
+  const guardedKv = ctx.kv;
+  const guardedDb = ctx.db;
+  const gatedCtx: PluginContext = {
+    ...ctx,
+
+    asUser: async (userId, fn) => {
+      require("users:impersonate");
+      return ctx.asUser(userId, fn);
+    },
+
+    db: {
+      define: async (definition) => {
+        require("db:own");
+        return guardedDb.define(definition);
+      },
+      client: async () => {
+        require("db:own");
+        return guardedDb.client();
+      },
+      refs: async () => {
+        require("db:core-refs");
+        return guardedDb.refs();
+      },
+      persist: async (persistOptions) => {
+        require("db:own");
+        return guardedDb.persist(persistOptions);
+      },
+      dialect: guardedDb.dialect,
+    },
+
+    kv: {
+      get: async (key) => {
+        require("kv:own");
+        return guardedKv.get(key);
+      },
+      set: async (key, value) => {
+        require("kv:own");
+        return guardedKv.set(key, value);
+      },
+      delete: async (key) => {
+        require("kv:own");
+        return guardedKv.delete(key);
+      },
+      list: async () => {
+        require("kv:own");
+        return guardedKv.list();
+      },
+    },
+
+    files: {
+      dataDir: async () => {
+        require("files:own");
+        return ctx.files.dataDir();
+      },
+    },
+
+    events: {
+      emit: (topic, payload) => {
+        if (
+          !topic.startsWith(`plugin.${pluginId}.`) &&
+          !granted.has("events:core")
+        ) {
+          throw new Error(
+            `Plugin ${pluginId} may only emit topics under "plugin.${pluginId}.". ` +
+              `Declare the events:core capability to emit core topics.`,
+          );
+        }
+        ctx.events.emit(topic, payload);
+      },
+      on: (topic, listener) => {
+        if (!topic.startsWith("plugin.") && !granted.has("events:core")) {
+          throw new Error(
+            `Plugin ${pluginId} may only listen to "plugin.*" topics. ` +
+              `Declare the events:core capability to listen to core topics.`,
+          );
+        }
+        return ctx.events.on(topic, listener);
+      },
+    },
+
+    http: {
+      router: (routerOptions) => {
+        require("network:serve");
+        return ctx.http.router(routerOptions);
+      },
+      baseUrl: (req) => ctx.http.baseUrl(req),
+    },
+
+    ws: {
+      route: (path, handler, wsOptions) => {
+        require("network:serve");
+        ctx.ws.route(path, handler, wsOptions);
+      },
+      upgrade: (path, handler, wsOptions) => {
+        require("network:serve");
+        ctx.ws.upgrade(path, handler, wsOptions);
+      },
+    },
+
+    settings: {
+      // Reading and writing a plugin's OWN settings is ungated, exactly as in
+      // the real runtime. Only readCore reaches outside the plugin.
+      ...ctx.settings,
+      listHostValues: async (key) => {
+        require("hosts:read");
+        return ctx.settings.listHostValues(key);
+      },
+      readCore: async (key) => {
+        require("settings:read-core");
+        return ctx.settings.readCore(key);
+      },
+    },
+
+    hosts: {
+      importMany: async (rows, importOptions) => {
+        require("hosts:write");
+        if (importOptions?.credentials?.length) require("credentials:write");
+        return ctx.hosts.importMany(rows, importOptions);
+      },
+      importSshConfig: async (content, importOptions) => {
+        require("hosts:write");
+        return ctx.hosts.importSshConfig(content, importOptions);
+      },
+      exportMany: async (exportOptions) => {
+        require("hosts:export");
+        return ctx.hosts.exportMany(exportOptions);
+      },
+      registerImportNormalizer: (normalizer) => {
+        require("hosts:write");
+        return ctx.hosts.registerImportNormalizer(normalizer);
+      },
+      list: async () => {
+        require("hosts:read");
+        return ctx.hosts.list();
+      },
+      get: async (hostId) => {
+        require("hosts:read");
+        return ctx.hosts.get(hostId);
+      },
+      checkAccess: async (hostId, level) => {
+        require("hosts:read");
+        return ctx.hosts.checkAccess(hostId, level);
+      },
+      create: async (host) => {
+        require("hosts:write");
+        return ctx.hosts.create(host);
+      },
+      update: async (hostId, patch) => {
+        require("hosts:write");
+        return ctx.hosts.update(hostId, patch);
+      },
+      delete: async (hostId) => {
+        require("hosts:write");
+        return ctx.hosts.delete(hostId);
+      },
+      listOwned: async () => {
+        require("hosts:write");
+        return ctx.hosts.listOwned();
+      },
+      share: async (hostId, targets, permissionLevel, durationHours) => {
+        require("hosts:write");
+        return ctx.hosts.share(hostId, targets, permissionLevel, durationHours);
+      },
+      setShares: async (hostId, grants) => {
+        require("hosts:write");
+        return ctx.hosts.setShares(hostId, grants);
+      },
+      listUsers: async () => {
+        require("hosts:write");
+        return ctx.hosts.listUsers();
+      },
+      listRoles: async () => {
+        require("hosts:write");
+        return ctx.hosts.listRoles();
+      },
+      trackSession: (hostId) => {
+        require("hosts:read");
+        return ctx.hosts.trackSession(hostId);
+      },
+      recordActivity: async (hostId, type, hostName) => {
+        require("hosts:read");
+        return ctx.hosts.recordActivity(hostId, type, hostName);
+      },
+      probeTargets: async (filter) => {
+        require("hosts:read");
+        return ctx.hosts.probeTargets(filter);
+      },
+      sessionActive: (hostId) => {
+        require("hosts:read");
+        return ctx.hosts.sessionActive(hostId);
+      },
+      activity: {
+        provide: (provider) => {
+          require("hosts:activity-provide");
+          return ctx.hosts.activity.provide(provider);
+        },
+      },
+      folders: {
+        ensure: async (name, style) => {
+          require("hosts:write");
+          return ctx.hosts.folders.ensure(name, style);
+        },
+        removeEmpty: async (name) => {
+          require("hosts:write");
+          return ctx.hosts.folders.removeEmpty(name);
+        },
+      },
+      locks: {
+        provide: (provider) => {
+          require("hosts:lock");
+          return ctx.hosts.locks.provide(provider);
+        },
+      },
+      connectPolicy: {
+        provide: (provider) => {
+          require("hosts:connect-policy");
+          return ctx.hosts.connectPolicy.provide(provider);
+        },
+      },
+      status: {
+        provide: (provider) => {
+          require("hosts:read");
+          require("hosts:status-provide");
+          return ctx.hosts.status.provide(provider);
+        },
+        get: async (hostId) => {
+          require("hosts:read");
+          return ctx.hosts.status.get(hostId);
+        },
+        check: async (hostId) => {
+          require("hosts:read");
+          return ctx.hosts.status.check(hostId);
+        },
+        reportLogin: (hostId, outcome) => {
+          require("hosts:read");
+          ctx.hosts.status.reportLogin(hostId, outcome);
+        },
+        registerPort: (connectionType, resolve) => {
+          require("hosts:read");
+          return ctx.hosts.status.registerPort(connectionType, resolve);
+        },
+      },
+    },
+
+    ssh: {
+      ...ctx.ssh,
+      transports: {
+        provide: (provider) => {
+          require("ssh:transport");
+          return ctx.ssh.transports.provide(provider);
+        },
+      },
+      probe: async (hostId, probeOptions) => {
+        require("ssh:connect");
+        return ctx.ssh.probe(hostId, probeOptions);
+      },
+      connect: async (host, connectOptions) => {
+        require("ssh:connect");
+        require("credentials:use");
+        return ctx.ssh.connect(host, connectOptions);
+      },
+      exec: async (host, command, execOptions) => {
+        require("ssh:connect");
+        require("credentials:use");
+        return ctx.ssh.exec(host, command, execOptions);
+      },
+      withConnection: async (host, connectOptions, fn) => {
+        require("ssh:connect");
+        require("credentials:use");
+        return ctx.ssh.withConnection(host, connectOptions, fn);
+      },
+      prepare: async (host, prepareOptions) => {
+        require("ssh:connect");
+        require("credentials:use");
+        return ctx.ssh.prepare(host, prepareOptions);
+      },
+      openTransport: async (host, config, transportOptions) => {
+        require("ssh:connect");
+        return ctx.ssh.openTransport(host, config, transportOptions);
+      },
+      resolveHost: async (hostId, resolveOptions) => {
+        require("ssh:connect");
+        require("credentials:use");
+        return ctx.ssh.resolveHost(hostId, resolveOptions);
+      },
+      startInteraction: async (interaction, request) => {
+        require("ssh:connect");
+        require("credentials:use");
+        return ctx.ssh.startInteraction(interaction, request);
+      },
+      cancelInteraction: async (interaction, request) => {
+        require("ssh:connect");
+        return ctx.ssh.cancelInteraction(interaction, request);
+      },
+      jumpChain: async (jumpHosts, chainOptions) => {
+        require("ssh:connect");
+        require("credentials:use");
+        return ctx.ssh.jumpChain(jumpHosts, chainOptions);
+      },
+    },
+
+    auth: {
+      registerSshAuthProvider: (provider) => {
+        require("auth:provide");
+        ctx.auth.registerSshAuthProvider(provider);
+      },
+      registerKeyboardInteractiveHandler: (handler) => {
+        require("auth:provide");
+        ctx.auth.registerKeyboardInteractiveHandler(handler);
+      },
+      registerLoginMethod: (method) => {
+        require("auth:provide");
+        ctx.auth.registerLoginMethod(method);
+      },
+      registerSecondFactor: (factor) => {
+        require("auth:provide");
+        ctx.auth.registerSecondFactor(factor);
+      },
+      recordEnrollment: async (userId, factorId) => {
+        require("auth:provide");
+        return ctx.auth.recordEnrollment(userId, factorId);
+      },
+      removeEnrollment: async (userId, factorId) => {
+        require("auth:provide");
+        return ctx.auth.removeEnrollment(userId, factorId);
+      },
+      completeRedirectLogin: async (methodId, req, res) => {
+        require("auth:provide");
+        return ctx.auth.completeRedirectLogin(methodId, req, res);
+      },
+      revokeSessions: async (match) => {
+        require("auth:provide");
+        return ctx.auth.revokeSessions(match);
+      },
+      loginRateLimit: {
+        isLocked: async (ip, key) => {
+          require("auth:provide");
+          return ctx.auth.loginRateLimit.isLocked(ip, key);
+        },
+        recordFailure: async (ip, key) => {
+          require("auth:provide");
+          return ctx.auth.loginRateLimit.recordFailure(ip, key);
+        },
+      },
+      countLinkedUsers: async (provider) => {
+        require("auth:provide");
+        return ctx.auth.countLinkedUsers(provider);
+      },
+      identities: {
+        list: async (userId) => {
+          require("auth:provide");
+          return ctx.auth.identities.list(userId);
+        },
+        link: async (userId, identity) => {
+          require("auth:provide");
+          return ctx.auth.identities.link(userId, identity);
+        },
+        unlink: async (userId, provider) => {
+          require("auth:provide");
+          return ctx.auth.identities.unlink(userId, provider);
+        },
+      },
+      issueUserToken: async (userId, tokenOptions) => {
+        require("users:impersonate");
+        return ctx.auth.issueUserToken(userId, tokenOptions);
+      },
+      policy: {
+        provide: (provider) => {
+          require("auth:policy");
+          return ctx.auth.policy.provide(provider);
+        },
+      },
+      listSecondFactors: () => ctx.auth.listSecondFactors(),
+    },
+
+    users: {
+      getLocale: async (userId) => {
+        require("users:read");
+        return ctx.users.getLocale(userId);
+      },
+    },
+
+    audit: {
+      record: (entry) => ctx.audit.record(entry),
+      subscribe: (handler) => {
+        require("audit:read");
+        return ctx.audit.subscribe(handler);
+      },
+      list: async (listOptions) => {
+        require("audit:read");
+        return ctx.audit.list(listOptions);
+      },
+      exportBatches: (filters, batchSize) => {
+        require("audit:read");
+        return ctx.audit.exportBatches(filters, batchSize);
+      },
+    },
+
+    desktop: {
+      openIsolatedWindow: async (request) => {
+        require("desktop:window");
+        return ctx.desktop.openIsolatedWindow(request);
+      },
+      launchExternalClient: async (request) => {
+        require("desktop:window");
+        return ctx.desktop.launchExternalClient(request);
+      },
+      available: () => ctx.desktop.available(),
+      local: gateDesktopLocal(ctx.desktop.local, () =>
+        require("desktop:local"),
+      ),
+    },
+
+    credentials: {
+      list: async () => {
+        require("credentials:use");
+        return ctx.credentials.list();
+      },
+      listSshKeys: async () => {
+        require("credentials:use");
+        return ctx.credentials.listSshKeys();
+      },
+      createSshKey: async (input) => {
+        require("credentials:write");
+        return ctx.credentials.createSshKey(input);
+      },
+      resolveHostProtocol: async (hostId, protocol) => {
+        require("credentials:read");
+        const declared = ctx.manifest.contributes?.protocols;
+        if (declared && !declared.some((entry) => entry.id === protocol)) {
+          throw new Error(
+            `Plugin ${pluginId} did not declare protocol "${protocol}" in contributes.protocols`,
+          );
+        }
+        return ctx.credentials.resolveHostProtocol(hostId, protocol);
+      },
+      publicKey: async (credentialId) => {
+        require("credentials:use");
+        return ctx.credentials.publicKey(credentialId);
+      },
+      setSshKeyCertificate: async (credentialId, certificate) => {
+        require("credentials:write");
+        return ctx.credentials.setSshKeyCertificate(credentialId, certificate);
+      },
+      resolveKeyRefs: async (key, passphrase) => {
+        require("credentials:read");
+        return ctx.credentials.resolveKeyRefs(key, passphrase);
+      },
+      registerSecretResolver: (scheme, resolve) => {
+        require("auth:provide");
+        ctx.credentials.registerSecretResolver(scheme, resolve);
+      },
+    },
+
+    notify: {
+      channels: async () => {
+        require("notify:send");
+        return ctx.notify.channels();
+      },
+      send: async (notification) => {
+        require("notify:send");
+        return ctx.notify.send(notification);
+      },
+      serve: (hub) => {
+        require("notify:hub");
+        return ctx.notify.serve(hub);
+      },
+    },
+
+    fetch: async (url, init) => {
+      require("network:outbound");
+      return ctx.fetch(url, init);
+    },
+
+    network: {
+      tcpProbe: async (host, port, probeOptions) => {
+        require("network:probe");
+        return ctx.network.tcpProbe(host, port, probeOptions);
+      },
+    },
+
+    process: {
+      run: async (file, args, runOptions) => {
+        require("process:spawn");
+        return ctx.process.run(file, args, runOptions);
+      },
+      ensureBinary: async (spec) => {
+        require("process:spawn");
+        return ctx.process.ensureBinary(spec);
+      },
+    },
+
+    plugins: {
+      list: async () => {
+        require("plugins:read");
+        return ctx.plugins.list();
+      },
+    },
+
+    system: {
+      tlsStatus: async () => {
+        require("system:tls");
+        return ctx.system.tlsStatus();
+      },
+      writeTlsCertificate: async (certificatePem, privateKeyPem) => {
+        require("system:tls");
+        return ctx.system.writeTlsCertificate(certificatePem, privateKeyPem);
+      },
+      reloadTls: async () => {
+        require("system:tls");
+        return ctx.system.reloadTls();
+      },
+      publishHttpChallenge: async (token, content) => {
+        require("system:tls");
+        return ctx.system.publishHttpChallenge(token, content);
+      },
+      registerTlsRenewer: async () => {
+        require("system:tls");
+        return ctx.system.registerTlsRenewer();
+      },
+    },
+
+    secrets: {
+      ...ctx.secrets,
+      get: async (key) => {
+        require("secrets:own");
+        return ctx.secrets.get(key);
+      },
+      set: async (key, value) => {
+        require("secrets:own");
+        return ctx.secrets.set(key, value);
+      },
+      delete: async (key) => {
+        require("secrets:own");
+        return ctx.secrets.delete(key);
+      },
+      seal: async (value) => {
+        require("secrets:own");
+        return ctx.secrets.seal(value);
+      },
+      unseal: async (sealed) => {
+        require("secrets:own");
+        return ctx.secrets.unseal(sealed);
+      },
+    },
+
+    capabilities: {
+      has: async (capability) => granted.has(capability),
+      require: async (capability) => {
+        require(capability);
+      },
+    },
+  };
+
+  return { ...base, ctx: gatedCtx, checked };
+}
+
+/** A sqlite handle as createTestDb exposes it. Structural, like better-sqlite3's. */
+export interface TestSqlite {
+  exec: (sql: string) => unknown;
+  prepare: (sql: string) => {
+    run: (...params: unknown[]) => unknown;
+    get: (...params: unknown[]) => unknown;
+    all: (...params: unknown[]) => unknown[];
+  };
+  close: () => void;
+}
+
+export interface TestDbOptions {
+  /**
+   * Runs after the core stub tables exist and before the plugin's migrations,
+   * e.g. to create the legacy table an adoption migration renames.
+   */
+  before?: (sqlite: TestSqlite) => unknown;
+  /** Skip applying the migrations, to apply them by hand later. */
+  skipMigrations?: boolean;
+}
+
+export interface TestDb {
+  /** The raw better-sqlite3 handle, for asserting on tables directly. */
+  sqlite: TestSqlite;
+  /** The Drizzle handle ctx.db.client() returns. */
+  drizzle: unknown;
+  /** Pass this as createMockCtx({ db }). */
+  database: PluginDatabase;
+  /** How many times ctx.db.persist() was called. */
+  readonly persisted: number;
+  /** The migration ids applied, in order. */
+  applied: string[];
+  /** Applies the plugin's sqlite migrations, when skipMigrations was set. */
+  migrate: () => Promise<string[]>;
+  close: () => void;
+}
+
+/**
+ * An in-memory SQLite database with a plugin's own migrations applied.
+ *
+ * Core's users, ssh_data, roles and user_roles exist as minimal stubs with
+ * foreign keys on, so a refUser or refHost column cascades exactly as it
+ * does on the server, and ctx.db.refs() has something real to join against.
+ * The migrations are read from <pluginDir>/migrations/sqlite and split with
+ * the same splitter the server's runner uses.
+ */
+export async function createTestDb(
+  pluginDir: string,
+  options: TestDbOptions = {},
+): Promise<TestDb> {
+  const [{ default: Database }, { drizzle }, fs, path, ddl, builder] =
+    await Promise.all([
+      import("better-sqlite3" as string),
+      import("drizzle-orm/better-sqlite3" as string),
+      import("node:fs"),
+      import("node:path"),
+      import("./ddl.js"),
+      import("./table-builder.js"),
+    ]);
+
+  const sqlite = new Database(":memory:") as TestSqlite;
+  sqlite.exec("PRAGMA foreign_keys = ON");
+  sqlite.exec(
+    "CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL DEFAULT '', is_admin INTEGER NOT NULL DEFAULT 0)",
+  );
+  sqlite.exec("CREATE TABLE ssh_data (id INTEGER PRIMARY KEY AUTOINCREMENT)");
+  sqlite.exec(
+    "CREATE TABLE roles (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, display_name TEXT NOT NULL DEFAULT '')",
+  );
+  sqlite.exec(
+    "CREATE TABLE user_roles (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE)",
+  );
+
+  const handle = drizzle(sqlite);
+  // The manifest id, not the folder name: a plugin's own repo is rarely
+  // named after its id.
+  const manifestPath = path.join(pluginDir, "manifest.json");
+  const pluginId: string =
+    (fs.existsSync(manifestPath) &&
+      JSON.parse(fs.readFileSync(manifestPath, "utf8")).id) ||
+    path.basename(pluginDir);
+  const applied: string[] = [];
+  let persisted = 0;
+
+  await options.before?.(sqlite);
+
+  const migrate = async () => {
+    const dir = path.join(pluginDir, "migrations", "sqlite");
+    if (!fs.existsSync(dir)) return [];
+    const files = fs
+      .readdirSync(dir)
+      .filter((file: string) => /^\d{4}_[a-z0-9_]+\.sql$/.test(file))
+      .sort();
+    const now: string[] = [];
+    for (const file of files) {
+      const id = file.replace(/\.sql$/, "");
+      if (applied.includes(id)) continue;
+      const source = fs.readFileSync(path.join(dir, file), "utf8");
+      for (const statement of ddl.splitStatements(source)) {
+        sqlite.exec(statement);
+      }
+      applied.push(id);
+      now.push(id);
+    }
+    return now;
+  };
+
+  if (!options.skipMigrations) await migrate();
+
+  const refs = {
+    users: builder.buildRefTable("users", {
+      id: "text",
+      username: "text",
+      isAdmin: "boolean",
+    }),
+    hosts: builder.buildRefTable("ssh_data", { id: "integer" }),
+    roles: builder.buildRefTable("roles", {
+      id: "integer",
+      name: "text",
+      displayName: "text",
+    }),
+    userRoles: builder.buildRefTable("user_roles", {
+      id: "integer",
+      userId: "text",
+      roleId: "integer",
+    }),
+  };
+
+  const database: PluginDatabase = {
+    define: async (definition) =>
+      builder.buildTable(pluginId, definition) as never,
+    client: async () => handle as never,
+    refs: async () => refs as never,
+    persist: async () => {
+      persisted += 1;
+    },
+    dialect: "sqlite",
+  };
+
+  return {
+    sqlite,
+    drizzle: handle,
+    database,
+    get persisted() {
+      return persisted;
+    },
+    applied,
+    migrate,
+    close: () => sqlite.close(),
+  };
+}
+
+/**
+ * Rendering a plugin frontend in a test.
+ *
+ * renderWithApp activates the plugin against the real registration surface,
+ * so a test sees exactly what the shell would: which rail items, tabs, host
+ * actions and cards it registered, and each of those rendered with the SDK
+ * hooks working. It is implemented by the Termix host, which is where the
+ * registries live; the vitest preset points "@termix-ssh/plugin-host/testing" at
+ * core's implementation.
+ */
+export interface RenderWithAppOptions {
+  pluginId?: string;
+  manifest?: Partial<PluginManifest>;
+  /** Role permissions the current user holds. */
+  permissions?: string[];
+  isAdmin?: boolean;
+  /** Hosts useHosts() returns. */
+  hosts?: Array<Record<string, unknown>>;
+  /** The plugin's locales/en.json, loaded into its namespace. */
+  locales?: Record<string, unknown>;
+  /** Render as an anonymous guest page. */
+  guest?: boolean;
+  /** What app.tabs.getLayout returns until the plugin applies another. */
+  layout?: import("./frontend.js").ShellLayout;
+  /** Fire app.tabs.onReady after activation, as the shell does after login. */
+  ready?: boolean;
+  /** Stands in for app.api and usePluginApi(), e.g. a stub of the routes. */
+  api?: import("./frontend.js").PluginApiClient;
+  /** What app.desktop.remoteServerUrl() answers. Read on every call. */
+  remoteServerUrl?: () => string | null | Promise<string | null>;
+}
+
+/** A call a plugin made on the shell, recorded instead of performed. */
+export interface ShellCall {
+  method: string;
+  args: unknown[];
+}
+
+export interface RenderedPluginApp {
+  app: TermixApp;
+  /** Everything this plugin registered, by kind. */
+  registered: {
+    railItems: () => Array<{
+      id: string;
+      hidden?: boolean;
+      /** The full permission id the item is gated on, if any. */
+      permission?: string;
+    }>;
+    tabs: () => string[];
+    panels: () => string[];
+    hostActions: () => Array<{ id: string; tabType?: string }>;
+    /** This plugin's host actions that apply to `host`, as the shell sees them. */
+    hostActionsFor: (host: unknown) => HostActionContribution[];
+    hostProtocols: () => string[];
+    hostEditorSections: () => string[];
+    dashboardCards: () => string[];
+    /** Ids this plugin added to an extension point. */
+    extensions: (pointId: string) => string[];
+    settingsComponents: () => string[];
+    slot: (slotId: string) => string[];
+    actions: () => string[];
+    loginMethods: () => string[];
+    secondFactors: () => string[];
+    paletteGroups: () => string[];
+    keybindingActions: () => string[];
+    keybindingDefaults: () => string[];
+    /** Onboarding step ids, without the plugin prefix. */
+    onboardingSteps: () => string[];
+  };
+  /** A registered palette group's items, as the palette loads them on open. */
+  loadPaletteGroup: (
+    id: string,
+  ) => Promise<import("./frontend.js").PaletteItem[]>;
+  /** Shell calls made by the plugin's code, applyLayout included. */
+  shellCalls: ShellCall[];
+  /**
+   * Tabs the last app.tabs.applyLayout opened, under the shell's own restore
+   * rules: a tab whose host is gone is skipped, a tab no running plugin
+   * registered is kept.
+   */
+  openedTabs: () => Array<{ type: string; hostId?: number; label: string }>;
+  /**
+   * Renders an opened tab the way the shell would, which for a tab no running
+   * plugin registered is the "needs the plugin" placeholder.
+   */
+  renderOpenedTab: (index: number) => HTMLElement;
+  renderTab: (type: string, props?: Record<string, unknown>) => HTMLElement;
+  renderPanel: (id: string, props?: Record<string, unknown>) => HTMLElement;
+  renderDashboardCard: (id: string) => HTMLElement;
+  /**
+   * Renders an onboarding step with OnboardingStepProps for a first run,
+   * overridable. Read what the step set with the returned `canContinue()`
+   * and `next()` (runs its beforeNext, true when it has none).
+   */
+  renderOnboardingStep: (
+    id: string,
+    props?: Record<string, unknown>,
+  ) => {
+    element: HTMLElement;
+    canContinue: () => boolean;
+    next: () => Promise<boolean>;
+  };
+  /** Renders one component of a contributed extension, "view" by default. */
+  renderExtension: (
+    pointId: string,
+    id: string,
+    component?: string,
+    props?: Record<string, unknown>,
+  ) => HTMLElement;
+  renderHostEditorSection: (
+    id: string,
+    props?: Record<string, unknown>,
+  ) => HTMLElement;
+  renderSettingsComponent: (
+    componentId: string,
+    props?: Record<string, unknown>,
+  ) => HTMLElement;
+  /** Renders a login method's UI with login screen props, overridable. */
+  renderLoginMethod: (
+    id: string,
+    props?: Record<string, unknown>,
+  ) => HTMLElement;
+  /** Renders a second factor's challenge with overridable props. */
+  renderSecondFactor: (
+    id: string,
+    props?: Record<string, unknown>,
+  ) => HTMLElement;
+  /** Renders the Settings > Security section a factor or method brought. */
+  renderEnrollment: (id: string) => HTMLElement;
+  /** Renders a slot the way its owner would. */
+  renderSlot: (slotId: string, props?: Record<string, unknown>) => HTMLElement;
+  /** Runs deactivate and every disposer, as disabling the plugin does. */
+  deactivate: () => Promise<void>;
+}
+
+export type FrontendPluginModule = {
+  activate: (app: TermixApp) => void | Promise<void>;
+  deactivate?: () => void | Promise<void>;
+};
+
+interface PluginTestHost {
+  renderPlugin: (
+    plugin: FrontendPluginModule,
+    options: RenderWithAppOptions,
+  ) => Promise<RenderedPluginApp>;
+}
+
+const TEST_HOST = "@termix-ssh/plugin-host/testing";
+
+export async function renderWithApp(
+  plugin: FrontendPluginModule,
+  options: RenderWithAppOptions = {},
+): Promise<RenderedPluginApp> {
+  // A variable specifier keeps bundlers from resolving it at build time; the
+  // test runner resolves it through its alias.
+  const host = (await import(/* @vite-ignore */ TEST_HOST)) as PluginTestHost;
+  return host.renderPlugin(plugin, options);
+}
+
+function assertOwnRegistryKey(pluginId: string, key: string): void {
+  if (typeof key !== "string" || !key.startsWith(`${pluginId}.`)) {
+    throw new Error(
+      `Plugin ${pluginId} may only use registry keys under "${pluginId}.", not "${key}"`,
+    );
+  }
+}
