@@ -1,0 +1,120 @@
+name: PR Check
+
+on:
+  pull_request:
+    branches: [main, dev-*]
+
+jobs:
+  lint-and-build:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+
+    env:
+      NODE_OPTIONS: "--max-old-space-size=4096"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Bundled plugins are counted as downloads in the plugin store, so a
+      # build only fetches them when the pins change.
+      - name: Cache bundled plugins
+        uses: actions/cache@v6
+        with:
+          path: node_modules/.cache/termix-bundled-plugins
+          key: bundled-plugins-${{ hashFiles('docker/bundled-plugins.json') }}
+          enableCrossOsArchive: true
+
+      - name: Build plugin SDK
+        run: npm run build:sdk
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run Prettier check
+        run: npx prettier --check .
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Build
+        run: npm run build
+
+      - name: Run unit tests
+        run: npm run test
+
+  database-dialects:
+    name: Postgres and MySQL
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: termix
+          POSTGRES_PASSWORD: termix
+          POSTGRES_DB: termix_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: termix
+          MYSQL_DATABASE: termix_test
+          MYSQL_USER: termix
+          MYSQL_PASSWORD: termix
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -ptermix"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build plugin SDK
+        run: npm run build:sdk
+
+      - name: Verify Postgres
+        run: npm run verify:dialect -- postgres://termix:termix@127.0.0.1:5432/termix_test
+
+      - name: Verify MySQL
+        run: npm run verify:dialect -- mysql://termix:termix@127.0.0.1:3306/termix_test
+
+      - name: Repository tests on Postgres
+        env:
+          TEST_DIALECT: postgres
+          TEST_DATABASE_URL: postgres://termix:termix@127.0.0.1:5432/termix_test
+        run: npx vitest run src/backend/tests/database/repositories --no-file-parallelism
+
+      - name: Repository tests on MySQL
+        env:
+          TEST_DIALECT: mysql
+          TEST_DATABASE_URL: mysql://termix:termix@127.0.0.1:3306/termix_test
+        run: npx vitest run src/backend/tests/database/repositories --no-file-parallelism
