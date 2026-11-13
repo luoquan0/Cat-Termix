@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Termix-SSH/Termix
-          ref: 8cdcd91c258bdaa6cc6f34fefb9ee93c9c1ad89a
+          ref: bf67af7dfa3b649d68643eb9de2727f51ee89e53
           fetch-depth: 0
           path: upstream
           persist-credentials: false
@@ -26,8 +26,8 @@ jobs:
         working-directory: upstream
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "8cdcd91c258bdaa6cc6f34fefb9ee93c9c1ad89a"
-          test "$(git rev-parse 'HEAD^{tree}')" = "2d490814b56d73f978fb228bf3d978c323f263b0"
+          test "$(git rev-parse HEAD)" = "bf67af7dfa3b649d68643eb9de2727f51ee89e53"
+          test "$(git rev-parse 'HEAD^{tree}')" = "45eedca4452561a3bb77b73ea6b7c48787dafe4f"
           test -f src/ui/plugins/PluginsTab.tsx
           test -f src/backend/plugins/registry-index.ts
           test -f src/ui/sidebar/rail-items.ts
@@ -47,7 +47,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "chore(sync): pristine Termix upstream main snapshot 8cdcd91"
+          git commit -m "chore(sync): pristine Termix upstream main snapshot bf67af7"
           echo "Snapshot commit: $(git rev-parse HEAD)"
           echo "Snapshot tree: $(git rev-parse 'HEAD^{tree}')"
           echo "Runtime source files: $(git ls-files | wc -l)"
@@ -60,11 +60,11 @@ jobs:
         run: |
           set -euo pipefail
           git remote add cat-target "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git"
-          git push cat-target HEAD:refs/heads/cat-termix/upstream-original-26.11.1
+          git push --force cat-target HEAD:refs/heads/cat-termix/upstream-original-26.11.1
           remote_sha="$(git ls-remote cat-target refs/heads/cat-termix/upstream-original-26.11.1 | awk '{print $1}')"
           test "$remote_sha" = "$(git rev-parse HEAD)"
           echo "## Pristine upstream source snapshot" >> "$GITHUB_STEP_SUMMARY"
           echo "- Branch: `cat-termix/upstream-original-26.11.1`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Upstream main commit: `8cdcd91c258bdaa6cc6f34fefb9ee93c9c1ad89a`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Upstream main commit: `bf67af7dfa3b649d68643eb9de2727f51ee89e53`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Snapshot commit: `$remote_sha`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Upstream workflow definitions are restored separately using the repository file API." >> "$GITHUB_STEP_SUMMARY"
